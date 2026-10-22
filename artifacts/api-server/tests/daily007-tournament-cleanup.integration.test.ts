@@ -226,3 +226,175 @@ test("unresolved matches older than 72 hours remain available for admin results 
     await pool.query("DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])", [userIds]);
   }
 });
+
+test("admins can delete upcoming and ongoing tournaments without refunds or wallet-history changes", async () => {
+  const adminId = randomUUID();
+  const playerId = randomUUID();
+  const upcomingMatchId = randomUUID();
+  const ongoingMatchId = randomUUID();
+  const completedMatchId = randomUUID();
+  const registrationId = randomUUID();
+  const teamId = randomUUID();
+  const awardId = randomUUID();
+  const ledgerId = randomUUID();
+  const userIds = [adminId, playerId];
+  const matchIds = [upcomingMatchId, ongoingMatchId, completedMatchId];
+  const adminToken = makeToken(adminId, 0);
+  const playerToken = makeToken(playerId, 0);
+  assert.ok(adminToken);
+  assert.ok(playerToken);
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash, role, wallet_coins)
+       VALUES ($1, 'Tournament Admin', $2, '', '', 'tournament_admin', 0),
+              ($3, 'No Refund Player', $4, '', '', 'user', 90)`,
+      [
+        adminId,
+        `delete-admin-${adminId}@example.test`,
+        playerId,
+        `delete-player-${playerId}@example.test`,
+      ],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_matches
+         (id, title, mode, game_mode, team_type, capacity, entry_coins, prize_pool,
+          enabled, starts_at, status)
+       VALUES ($1, 'Upcoming delete test', 'duo', 'battle_royale', 'duo', 24, 10, 50,
+               true, now() + interval '1 day', 'open'),
+              ($2, 'Ongoing delete test', 'duo', 'battle_royale', 'duo', 24, 10, 50,
+               true, now() - interval '1 hour', 'open'),
+              ($3, 'Completed delete test', 'duo', 'battle_royale', 'duo', 24, 10, 50,
+               false, now() - interval '1 hour', 'completed')`,
+      matchIds,
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_registrations
+         (id, match_id, captain_user_id, captain_name, captain_game_name,
+          captain_game_uid, team_name, entry_coins_paid, status)
+       VALUES ($1, $2, $3, 'No Refund Player', 'No Refund Player',
+               'NO-REFUND-UID', 'Test Team', 10, 'approved')`,
+      [registrationId, ongoingMatchId, playerId],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_roster (registration_id, position, member_uid, member_name)
+       VALUES ($1, 1, 'TEAM-UID-2', 'Second Player')`,
+      [registrationId],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_squad_teams (id, match_id, team_number, captain_registration_id)
+       VALUES ($1, $2, 1, $3)`,
+      [teamId, ongoingMatchId, registrationId],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_squad_team_members (team_id, slot_number, registration_id)
+       VALUES ($1, 1, $2)`,
+      [teamId, registrationId],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_result_awards
+         (id, match_id, registration_id, user_id, rank, kills, prize_coins)
+       VALUES ($1, $2, $3, $4, 2, 2, 0)`,
+      [awardId, ongoingMatchId, registrationId, playerId],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_wallet_ledger
+         (id, user_id, amount, balance_after, reason, match_id, registration_id)
+       VALUES ($1, $2, -10, 90, 'tournament_entry', $3, $4)`,
+      [ledgerId, playerId, ongoingMatchId, registrationId],
+    );
+
+    const usersBefore = await pool.query(
+      "SELECT * FROM daily007_v2_users WHERE id = ANY($1::uuid[]) ORDER BY id",
+      [userIds],
+    );
+    const walletBefore = await pool.query(
+      "SELECT * FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[]) ORDER BY id",
+      [userIds],
+    );
+
+    await withServer(async (origin) => {
+      const unauthorized = await fetch(
+        `${origin}/admin/tournaments/${ongoingMatchId}/delete-no-refund`,
+        { method: "DELETE", headers: { authorization: `Bearer ${playerToken}` } },
+      );
+      assert.equal(unauthorized.status, 403, "regular players cannot use the Admin delete action");
+
+      for (const matchId of [upcomingMatchId, ongoingMatchId]) {
+        const response = await fetch(`${origin}/admin/tournaments/${matchId}/delete-no-refund`, {
+          method: "DELETE",
+          headers: { authorization: `Bearer ${adminToken}` },
+        });
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), {
+          success: true,
+          data: {
+            id: matchId,
+            deleted: true,
+            refundsIssued: 0,
+            walletBalancesChanged: false,
+            walletTransactionsChanged: false,
+          },
+        });
+      }
+
+      const completed = await fetch(
+        `${origin}/admin/tournaments/${completedMatchId}/delete-no-refund`,
+        { method: "DELETE", headers: { authorization: `Bearer ${adminToken}` } },
+      );
+      assert.equal(completed.status, 409, "completed matches remain protected from this action");
+    });
+
+    const usersAfter = await pool.query(
+      "SELECT * FROM daily007_v2_users WHERE id = ANY($1::uuid[]) ORDER BY id",
+      [userIds],
+    );
+    const walletAfter = await pool.query(
+      "SELECT * FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[]) ORDER BY id",
+      [userIds],
+    );
+    assert.deepEqual(usersAfter.rows, usersBefore.rows, "no user account or wallet balance is modified");
+    assert.deepEqual(walletAfter.rows, walletBefore.rows, "wallet transaction rows and their match links are unchanged");
+
+    const remaining = await pool.query<{
+      matches: number;
+      registrations: number;
+      rosters: number;
+      teams: number;
+      team_members: number;
+      awards: number;
+    }>(
+      `SELECT
+         (SELECT count(*)::int FROM daily007_v2_matches WHERE id = ANY($1::uuid[])) AS matches,
+         (SELECT count(*)::int FROM daily007_v2_registrations WHERE match_id = $2) AS registrations,
+         (SELECT count(*)::int FROM daily007_v2_roster roster
+            JOIN daily007_v2_registrations registration ON registration.id = roster.registration_id
+           WHERE registration.match_id = $2) AS rosters,
+         (SELECT count(*)::int FROM daily007_v2_squad_teams WHERE match_id = $2) AS teams,
+         (SELECT count(*)::int FROM daily007_v2_squad_team_members member
+            JOIN daily007_v2_squad_teams team ON team.id = member.team_id
+           WHERE team.match_id = $2) AS team_members,
+         (SELECT count(*)::int FROM daily007_v2_result_awards WHERE match_id = $2) AS awards`,
+      [matchIds, ongoingMatchId],
+    );
+    assert.deepEqual(remaining.rows[0], {
+      matches: 1,
+      registrations: 0,
+      rosters: 0,
+      teams: 0,
+      team_members: 0,
+      awards: 0,
+    }, "the two active matches and their direct match data are deleted, but completed history remains");
+    assert.equal(
+      (await pool.query("SELECT id FROM daily007_v2_matches WHERE id = $1", [completedMatchId])).rows.length,
+      1,
+    );
+  } finally {
+    await pool.query("DELETE FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[])", [userIds]);
+    await pool.query("DELETE FROM daily007_v2_result_awards WHERE match_id = ANY($1::uuid[])", [matchIds]);
+    await pool.query("DELETE FROM daily007_v2_matches WHERE id = ANY($1::uuid[])", [matchIds]);
+    await pool.query("DELETE FROM daily007_v2_user_stats WHERE user_id = ANY($1::uuid[])", [userIds]);
+    await pool.query("DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])", [userIds]);
+  }
+});

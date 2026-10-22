@@ -1794,6 +1794,26 @@ export type UpdateTournamentLifecycle200 = {
   data: UpdateTournamentLifecycle200Data;
 };
 
+export type Daily007AdminDeleteTournamentWithoutRefund200DataRefundsIssued = typeof Daily007AdminDeleteTournamentWithoutRefund200DataRefundsIssued[keyof typeof Daily007AdminDeleteTournamentWithoutRefund200DataRefundsIssued];
+
+
+export const Daily007AdminDeleteTournamentWithoutRefund200DataRefundsIssued = {
+  NUMBER_0: 0,
+} as const;
+
+export type Daily007AdminDeleteTournamentWithoutRefund200Data = {
+  id: string;
+  deleted: true;
+  refundsIssued: Daily007AdminDeleteTournamentWithoutRefund200DataRefundsIssued;
+  walletBalancesChanged: false;
+  walletTransactionsChanged: false;
+};
+
+export type Daily007AdminDeleteTournamentWithoutRefund200 = {
+  success: true;
+  data: Daily007AdminDeleteTournamentWithoutRefund200Data;
+};
+
 export type Daily007ListAdminResultLogsParams = {
 /**
  * Include saved result entries for tournaments without a published winner.

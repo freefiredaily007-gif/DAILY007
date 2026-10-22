@@ -44,6 +44,29 @@ test('large-text layout keeps management actions and scrolling available', () =>
   assert.match(screenSource, /<KeyboardAwareScrollViewCompat[\s\S]*?visibleTournaments\.map/);
 });
 
+test('active tournaments show separate refund and no-refund deletion actions with explicit confirmation', () => {
+  const cancelAction = screenSource.indexOf('title="CANCEL & REFUND"');
+  const deleteNoRefundAction = screenSource.indexOf('title="DELETE (NO REFUND)"', cancelAction);
+  const manageRoomAction = screenSource.indexOf('testID={`manage-room-${t.id}`}', cancelAction);
+  assert.ok(
+    cancelAction >= 0 && deleteNoRefundAction > cancelAction && manageRoomAction > deleteNoRefundAction,
+    'The lifecycle actions must appear together before Room Setup.',
+  );
+  const lifecycleActions = screenSource.slice(cancelAction, manageRoomAction);
+
+  assert.match(lifecycleActions, /title="CANCEL & REFUND"/);
+  assert.match(lifecycleActions, /title="DELETE \(NO REFUND\)"/);
+  assert.match(lifecycleActions, /testID=\{`delete-no-refund-tournament-\$\{t\.id\}`\}/);
+  assert.match(lifecycleActions, /onPress=\{\(\) => cancel\(t\)\}/);
+  assert.match(lifecycleActions, /onPress=\{\(\) => deleteWithoutRefund\(t\)\}/);
+  assert.match(
+    screenSource,
+    /This permanently deletes the tournament and its registrations, teams, and results\. Players will not receive refunds\./,
+  );
+  assert.match(screenSource, /transaction records will not be changed/);
+  assert.match(screenSource, /deleteNoRefundMutation\.mutateAsync\(\{ id: t\.id \}\)/);
+});
+
 test('Upcoming Admin tournaments exposes a visible Add New Tournament action for the existing form', () => {
   assert.match(
     screenSource,

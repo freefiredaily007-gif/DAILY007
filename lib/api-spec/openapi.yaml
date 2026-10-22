@@ -1252,6 +1252,37 @@ paths:
         "409": { description: "Tournament has not started, is full, has a winner, or was already cancelled" }
         "403": { description: Administrator required }
         "404": { description: Tournament not found }
+  /admin/tournaments/{id}/delete-no-refund:
+    delete:
+      operationId: daily007AdminDeleteTournamentWithoutRefund
+      summary: Permanently delete an upcoming or ongoing tournament without changing wallet history
+      description: Deletes the tournament and its direct registration, roster, team, and result data. It never issues refunds or changes player balances or wallet ledger rows.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Tournament and direct match data deleted; wallets and transaction records were not changed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, enum: [true] }
+                  data:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      deleted: { type: boolean, enum: [true] }
+                      refundsIssued: { type: integer, enum: [0] }
+                      walletBalancesChanged: { type: boolean, enum: [false] }
+                      walletTransactionsChanged: { type: boolean, enum: [false] }
+                    required: [id, deleted, refundsIssued, walletBalancesChanged, walletTransactionsChanged]
+                required: [success, data]
+        "400": { description: Invalid tournament id }
+        "403": { description: Tournament administrator required }
+        "404": { description: Tournament not found }
+        "409": { description: Only upcoming or ongoing tournaments can be deleted with this action }
   /admin/tournaments:
     get:
       operationId: daily007AdminListTournaments

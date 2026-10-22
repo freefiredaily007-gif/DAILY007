@@ -869,6 +869,66 @@ router.post("/admin/tournaments/:id/lifecycle", authenticate, async (req, res): 
   }
 });
 
+router.delete("/admin/tournaments/:id/delete-no-refund", authenticate, async (req, res): Promise<void> => {
+  if (!requireTournamentAdmin(req, res)) return;
+  const id = idFrom(req);
+  if (!id) return fail(res, 400, "Tournament id must be a UUID.");
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const match = await client.query<{ id: string; status: string; has_winner: boolean }>(
+      `SELECT m.id, m.status,
+              EXISTS (
+                SELECT 1 FROM daily007_v2_result_awards award
+                 WHERE award.match_id = m.id AND award.rank = 1
+              ) AS has_winner
+         FROM daily007_v2_matches m
+        WHERE m.id = $1
+        FOR UPDATE`,
+      [id],
+    );
+    const current = match.rows[0];
+    if (!current) {
+      await client.query("ROLLBACK");
+      return fail(res, 404, "Tournament not found.");
+    }
+    if (["cancelled", "completed"].includes(current.status.toLowerCase()) || current.has_winner) {
+      await client.query("ROLLBACK");
+      return fail(res, 409, "Only upcoming or ongoing tournaments without a published winner can be deleted.");
+    }
+
+    // Results are direct match data; match-owned registrations, rosters, and teams
+    // cascade with the match. Wallet balances and ledger rows are never touched.
+    await client.query("DELETE FROM daily007_v2_result_awards WHERE match_id = $1", [id]);
+    const deleted = await client.query<{ id: string }>(
+      "DELETE FROM daily007_v2_matches WHERE id = $1 RETURNING id",
+      [id],
+    );
+    if (!deleted.rows[0]) {
+      await client.query("ROLLBACK");
+      return fail(res, 404, "Tournament not found.");
+    }
+    await client.query("COMMIT");
+    res.json({
+      success: true,
+      data: {
+        id: deleted.rows[0].id,
+        deleted: true,
+        refundsIssued: 0,
+        walletBalancesChanged: false,
+        walletTransactionsChanged: false,
+      },
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    console.error("[daily007] no-refund tournament deletion failed", error);
+    return fail(res, 500, "Could not delete this tournament without refunding players.");
+  } finally {
+    client.release();
+  }
+});
+
 function tournamentValues(body: Record<string, unknown>, fallback?: MatchRow) {
   const previousMode = fallback
     ? legacyTournamentMode(fallback.mode, fallback.game_mode, fallback.team_type)

@@ -2109,6 +2109,26 @@ export const UpdateTournamentLifecycleResponse = zod.object({
 
 
 /**
+ * Deletes the tournament and its direct registration, roster, team, and result data. It never issues refunds or changes player balances or wallet ledger rows.
+ * @summary Permanently delete an upcoming or ongoing tournament without changing wallet history
+ */
+export const Daily007AdminDeleteTournamentWithoutRefundParams = zod.object({
+  "id": zod.coerce.string().uuid()
+})
+
+export const Daily007AdminDeleteTournamentWithoutRefundResponse = zod.object({
+  "success": zod.literal(true),
+  "data": zod.object({
+  "id": zod.string().uuid(),
+  "deleted": zod.literal(true),
+  "refundsIssued": zod.literal(0),
+  "walletBalancesChanged": zod.literal(false),
+  "walletTransactionsChanged": zod.literal(false)
+})
+})
+
+
+/**
  * @summary List all tournaments for administrators, including cancelled matches
  */
 export const Daily007AdminListTournamentsResponseItem = zod.object({

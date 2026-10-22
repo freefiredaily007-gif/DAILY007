@@ -19,6 +19,7 @@ import {
   useDaily007ListAdminPrizeCreditAudit,
   useDaily007ListAdminDuplicatePlacements,
   useDaily007ListAdminResultLogs,
+  useDaily007AdminDeleteTournamentWithoutRefund,
   useUpdateTournamentLifecycle,
 } from '@workspace/api-client-react';
 import { Api, apiError, AdminRegistration, Tournament, TournamentCleanupPreview } from '../lib/api';
@@ -149,6 +150,7 @@ export default function AdminTournaments() {
   const announcedErrors = useRef<Record<string, string>>({});
   const [publishedRegistrationIds, setPublishedRegistrationIds] = useState<Record<string, string[]>>({});
   const cancelLifecycle = useUpdateTournamentLifecycle();
+  const deleteNoRefundMutation = useDaily007AdminDeleteTournamentWithoutRefund();
   const approvedRegistrationsRequestId = useRef<number | null>(null);
   const resultLogsParams = { includeUnfinalized: true };
   const resultLogsQuery = useDaily007ListAdminResultLogs(resultLogsParams, {
@@ -710,6 +712,24 @@ export default function AdminTournaments() {
       'Cancel',
       'Delete',
       () => { void removeNow(t); },
+    );
+  };
+  const deleteWithoutRefundNow = async (t: Tournament) => {
+    setErr(''); setOkMsg('');
+    try {
+      await deleteNoRefundMutation.mutateAsync({ id: t.id });
+      setOkMsg('Tournament deleted. No refunds were issued; player balances and wallet transaction records were unchanged.');
+      await load();
+      setTimeout(() => setOkMsg(''), 3500);
+    } catch (e: any) { setErr(apiError(e)); }
+  };
+  const deleteWithoutRefund = (t: Tournament) => {
+    confirmDestructiveAction(
+      'Delete tournament without refund?',
+      'This permanently deletes the tournament and its registrations, teams, and results. Players will not receive refunds. Their wallet balances and transaction records will not be changed. Continue?',
+      'Keep Tournament',
+      'Delete (No Refund)',
+      () => { void deleteWithoutRefundNow(t); },
     );
   };
   const cancelNow = async (t: Tournament) => {
@@ -1392,23 +1412,46 @@ export default function AdminTournaments() {
                       }}
                     />
                   </View>
-                  <View style={[st.tournamentActionSlot, stackLargeTournamentCards && st.tournamentActionSlotFull]}>
-                    <Btn title="DELETE" small kind="danger" testID={`delete-tournament-${t.id}`} onPress={() => remove(t)} />
-                  </View>
+                  {!cancellable && (
+                    <View style={[st.tournamentActionSlot, stackLargeTournamentCards && st.tournamentActionSlotFull]}>
+                      <Btn title="DELETE" small kind="danger" testID={`delete-tournament-${t.id}`} onPress={() => remove(t)} />
+                    </View>
+                  )}
                 </View>
                 {cancellable && (
-                  <View style={{ marginTop: 8 }}>
-                    <Btn
-                      title="CANCEL & REFUND"
-                      small
-                      kind="danger"
-                      testID={`cancel-tournament-${t.id}`}
-                      loading={cancelLifecycle.isPending}
-                      disabled={cancelLifecycle.isPending || roomBusy || resultBusy}
-                      accessibilityLabel={`Cancel and refund ${t.name}`}
-                      accessibilityHint="Cancels this tournament and refunds recorded entry fees to the accounts that paid them."
-                      onPress={() => cancel(t)}
-                    />
+                  <View
+                    style={[
+                      st.tournamentActionRow,
+                      { marginTop: 8 },
+                      stackLargeTournamentCards && st.tournamentActionColumn,
+                    ]}
+                  >
+                    <View style={[st.tournamentActionSlot, stackLargeTournamentCards && st.tournamentActionSlotFull]}>
+                      <Btn
+                        title="CANCEL & REFUND"
+                        small
+                        kind="danger"
+                        testID={`cancel-tournament-${t.id}`}
+                        loading={cancelLifecycle.isPending}
+                        disabled={cancelLifecycle.isPending || deleteNoRefundMutation.isPending || roomBusy || resultBusy}
+                        accessibilityLabel={`Cancel and refund ${t.name}`}
+                        accessibilityHint="Cancels this tournament and refunds recorded entry fees to the accounts that paid them."
+                        onPress={() => cancel(t)}
+                      />
+                    </View>
+                    <View style={[st.tournamentActionSlot, stackLargeTournamentCards && st.tournamentActionSlotFull]}>
+                      <Btn
+                        title="DELETE (NO REFUND)"
+                        small
+                        kind="danger"
+                        testID={`delete-no-refund-tournament-${t.id}`}
+                        loading={deleteNoRefundMutation.isPending}
+                        disabled={cancelLifecycle.isPending || deleteNoRefundMutation.isPending || roomBusy || resultBusy}
+                        accessibilityLabel={`Delete ${t.name} without refunding players`}
+                        accessibilityHint="Permanently deletes this tournament and its match records. Player balances and wallet transaction records are not changed."
+                        onPress={() => deleteWithoutRefund(t)}
+                      />
+                    </View>
                   </View>
                 )}
                 <View style={{ marginTop: 8 }}>

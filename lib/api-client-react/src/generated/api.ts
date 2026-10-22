@@ -44,6 +44,7 @@ import type {
   Daily007AdminAccountRecoveryReviewBody,
   Daily007AdminAccountRecoveryReviewResult,
   Daily007AdminApproveLeaderboardPeriodResponse,
+  Daily007AdminDeleteTournamentWithoutRefund200,
   Daily007AdminGetRechargeProofUrl200,
   Daily007AdminInstagramFollowClaims,
   Daily007AdminLeaderboardApprovalsResponse,
@@ -5922,6 +5923,81 @@ export const useUpdateTournamentLifecycle = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getUpdateTournamentLifecycleMutationOptions(options));
+    }
+
+export const getDaily007AdminDeleteTournamentWithoutRefundUrl = (id: string,) => {
+
+
+
+
+  return `/api/admin/tournaments/${id}/delete-no-refund`
+}
+
+/**
+ * Deletes the tournament and its direct registration, roster, team, and result data. It never issues refunds or changes player balances or wallet ledger rows.
+ * @summary Permanently delete an upcoming or ongoing tournament without changing wallet history
+ */
+export const daily007AdminDeleteTournamentWithoutRefund = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<Daily007AdminDeleteTournamentWithoutRefund200> => {
+
+  return customFetch<Daily007AdminDeleteTournamentWithoutRefund200>(getDaily007AdminDeleteTournamentWithoutRefundUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminDeleteTournamentWithoutRefundMutationKey = () => ['daily007AdminDeleteTournamentWithoutRefund'] as const;
+
+export const getDaily007AdminDeleteTournamentWithoutRefundMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminDeleteTournamentWithoutRefund>>, TError,Daily007AdminDeleteTournamentWithoutRefundMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007AdminDeleteTournamentWithoutRefund>>, TError,Daily007AdminDeleteTournamentWithoutRefundMutationVariables, TContext> => {
+
+const mutationKey = getDaily007AdminDeleteTournamentWithoutRefundMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007AdminDeleteTournamentWithoutRefund>>, Daily007AdminDeleteTournamentWithoutRefundMutationVariables> = (props) => {
+          const {id} = props ?? {};
+
+          return  daily007AdminDeleteTournamentWithoutRefund(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007AdminDeleteTournamentWithoutRefundMutationResult = NonNullable<Awaited<ReturnType<typeof daily007AdminDeleteTournamentWithoutRefund>>>
+
+    export type Daily007AdminDeleteTournamentWithoutRefundMutationError = ErrorType<void>
+    export type Daily007AdminDeleteTournamentWithoutRefundMutationVariables = {id: string}
+
+    /**
+ * @summary Permanently delete an upcoming or ongoing tournament without changing wallet history
+ */
+export const useDaily007AdminDeleteTournamentWithoutRefund = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminDeleteTournamentWithoutRefund>>, TError,Daily007AdminDeleteTournamentWithoutRefundMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007AdminDeleteTournamentWithoutRefund>>,
+        TError,
+        Daily007AdminDeleteTournamentWithoutRefundMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007AdminDeleteTournamentWithoutRefundMutationOptions(options));
     }
 
 export const getDaily007AdminListTournamentsUrl = () => {
