@@ -321,8 +321,8 @@ async function getMatches(id?: string, enabledOnly = false, includeCancelled = f
                ELSE count(r.id) FILTER (WHERE r.status IN ('approved', 'pending'))::integer
              END AS registered_count,
              CASE
-               WHEN m.mode = 'squad' AND (m.game_mode IS NULL OR
-                    (m.game_mode = 'battle_royale' AND m.team_type = 'squad')) THEN
+                WHEN m.team_type IN ('duo', 'squad') OR
+                     (m.game_mode IS NULL AND m.mode IN ('squad', 'clash')) THEN
                  (SELECT COALESCE(sum(
                            CASE WHEN EXISTS (
                              SELECT 1 FROM daily007_v2_squad_team_members member

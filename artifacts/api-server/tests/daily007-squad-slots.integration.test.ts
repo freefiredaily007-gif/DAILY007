@@ -335,11 +335,11 @@ test("Squad slots charge each player atomically, preserve captain control, and t
 
     await t.test("individual seats work for BR Duo, Clash Squad, and Lone Wolf formats", async () => {
       const formats = [
-        { title: "BR Duo", mode: "squad", gameMode: "battle_royale", teamType: "duo", capacity: 24, teamNumber: 24 },
-        { title: "Clash Squad Duo", mode: "clash", gameMode: "clash_squad", teamType: "duo", capacity: 2, teamNumber: 2 },
-        { title: "Clash Squad Squad", mode: "clash", gameMode: "clash_squad", teamType: "squad", capacity: 2, teamNumber: 2 },
-        { title: "Lone Wolf Duo", mode: "clash", gameMode: "lone_wolf", teamType: "duo", capacity: 2, teamNumber: 2 },
-        { title: "Lone Wolf Squad", mode: "clash", gameMode: "lone_wolf", teamType: "squad", capacity: 2, teamNumber: 2 },
+        { title: "BR Duo", mode: "squad", gameMode: "battle_royale", teamType: "duo", teamSize: 2, capacity: 24, teamNumber: 24 },
+        { title: "Clash Squad Duo", mode: "clash", gameMode: "clash_squad", teamType: "duo", teamSize: 2, capacity: 2, teamNumber: 2 },
+        { title: "Clash Squad Squad", mode: "clash", gameMode: "clash_squad", teamType: "squad", teamSize: 4, capacity: 2, teamNumber: 2 },
+        { title: "Lone Wolf Duo", mode: "clash", gameMode: "lone_wolf", teamType: "duo", teamSize: 2, capacity: 2, teamNumber: 2 },
+        { title: "Lone Wolf Squad", mode: "clash", gameMode: "lone_wolf", teamType: "squad", teamSize: 4, capacity: 2, teamNumber: 2 },
       ] as const;
 
       for (const format of formats) {
@@ -357,6 +357,26 @@ test("Squad slots charge each player atomically, preserve captain control, and t
           (await joinSlot(origin, matchId, await createUser(), format.teamNumber, 2)).status,
           409,
           `${format.title}: an occupied seat must not be reused.`,
+        );
+        const summaryResponse = await fetch(`${origin}/tournaments/${matchId}`);
+        assert.equal(summaryResponse.status, 200, `${format.title}: tournament summary should load.`);
+        const summary = await summaryResponse.json() as {
+          filledSlots: number;
+          filledPlayerSlots: number;
+          totalPlayerSlots: number;
+        };
+        assert.deepEqual(
+          {
+            filledSlots: summary.filledSlots,
+            filledPlayerSlots: summary.filledPlayerSlots,
+            totalPlayerSlots: summary.totalPlayerSlots,
+          },
+          {
+            filledSlots: 1,
+            filledPlayerSlots: 2,
+            totalPlayerSlots: format.capacity * format.teamSize,
+          },
+          `${format.title}: summary capacity must count occupied seats, not full team-sized registrations.`,
         );
 
         const slots = await slotsFor(origin, matchId, firstPlayer);
@@ -421,6 +441,23 @@ test("Squad slots charge each player atomically, preserve captain control, and t
       assert.equal(availableSlots.body.registrationClosed, false);
       assert.equal(availableSlots.body.teams[1].slots[1].occupied, false);
       assert.equal(availableSlots.body.teams[1].slots[1].canJoin, true);
+
+      const matchSummaryResponse = await fetch(`${origin}/tournaments/${matchId}`);
+      assert.equal(matchSummaryResponse.status, 200, await matchSummaryResponse.clone().text());
+      const matchSummary = await matchSummaryResponse.json() as {
+        filledSlots: number;
+        filledPlayerSlots: number;
+        totalPlayerSlots: number;
+      };
+      assert.deepEqual(
+        {
+          filledSlots: matchSummary.filledSlots,
+          filledPlayerSlots: matchSummary.filledPlayerSlots,
+          totalPlayerSlots: matchSummary.totalPlayerSlots,
+        },
+        { filledSlots: 2, filledPlayerSlots: 3, totalPlayerSlots: 4 },
+        "A partially filled Duo match must report player capacity from individual seats, not team count × team size.",
+      );
 
       const lastJoin = await joinSlot(origin, matchId, lastPlayer, 2, 2);
       assert.equal(lastJoin.status, 201);
