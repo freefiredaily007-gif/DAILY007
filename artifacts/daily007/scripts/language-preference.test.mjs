@@ -420,6 +420,59 @@ test('a pending offline choice wins on sign-in and is retried instead of the sta
   assert.equal(await store.getItem('daily007:language:pending:v1:player-one'), null);
 });
 
+test('a recovered offline choice appears on another device and after reopening', async () => {
+  const accountPreferences = new Map();
+  const accountId = 'player-one';
+  let networkAvailable = false;
+
+  function createDevice(store) {
+    const appliedLanguages = [];
+    const lifecycle = createLanguagePreferenceLifecycle({
+      applyLanguage(language) {
+        appliedLanguages.push(language);
+      },
+      localStore: store,
+      async readServerPreference() {
+        if (!networkAvailable) throw new Error('Network unavailable');
+        return accountPreferences.get(accountId) ?? null;
+      },
+      async saveServerPreference(language) {
+        if (!networkAvailable) throw new Error('Network unavailable');
+        accountPreferences.set(accountId, language);
+      },
+    });
+    return { lifecycle, appliedLanguages };
+  }
+
+  const firstDeviceStore = createStore();
+  const firstDevice = createDevice(firstDeviceStore);
+  await firstDevice.lifecycle.setAccountId(accountId);
+  await assert.rejects(firstDevice.lifecycle.setLanguage('gu'), /Network unavailable/);
+  assert.equal(
+    await firstDeviceStore.getItem('daily007:language:pending:v1:player-one'),
+    'gu',
+  );
+  assert.equal(accountPreferences.has(accountId), false);
+
+  networkAvailable = true;
+  await firstDevice.lifecycle.retryPendingServerPreference();
+  assert.equal(accountPreferences.get(accountId), 'gu');
+  assert.equal(
+    await firstDeviceStore.getItem('daily007:language:pending:v1:player-one'),
+    null,
+  );
+
+  const secondDeviceStore = createStore();
+  const secondDevice = createDevice(secondDeviceStore);
+  await secondDevice.lifecycle.setAccountId(accountId);
+  assert.equal(secondDevice.appliedLanguages.at(-1), 'gu');
+  assert.equal(await readLanguagePreference(accountId, secondDeviceStore), 'gu');
+
+  const reopenedSecondDevice = createDevice(secondDeviceStore);
+  await reopenedSecondDevice.lifecycle.setAccountId(accountId);
+  assert.equal(reopenedSecondDevice.appliedLanguages.at(-1), 'gu');
+});
+
 test('an in-flight retry cannot clear or overwrite a newer language selection', async () => {
   const retryConfirmation = deferred();
   const retryStarted = deferred();
