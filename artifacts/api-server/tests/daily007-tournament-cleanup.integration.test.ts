@@ -4,9 +4,9 @@ import test, { after } from "node:test";
 import express from "express";
 import type { Server } from "node:http";
 import { pool } from "@workspace/db";
-import { runDaily007TournamentCleanupSweep } from "../src/lib/daily007-tournament-cleanup";
 import { makeToken } from "../src/lib/daily007-session-token";
 import daily007CompatCoreRouter from "../src/routes/daily007-compat-core";
+import daily007CompatExtraRouter from "../src/routes/daily007-compat-extra";
 
 const testDatabaseUrl = process.env.DATABASE_URL
   ? new URL(process.env.DATABASE_URL)
@@ -36,6 +36,7 @@ async function withServer(run: (origin: string) => Promise<void>): Promise<void>
   const app = express();
   app.use(express.json());
   app.use(daily007CompatCoreRouter);
+  app.use(daily007CompatExtraRouter);
   const server = await new Promise<Server>((resolve, reject) => {
     const listeningServer = app.listen(0, "127.0.0.1", () => resolve(listeningServer));
     listeningServer.once("error", reject);
@@ -51,253 +52,177 @@ async function withServer(run: (origin: string) => Promise<void>): Promise<void>
   }
 }
 
-test("cleanup removes all matches past 72 hours while preserving wallet and user history", async () => {
+test("unresolved matches older than 72 hours remain available for admin results without read side effects", async () => {
   const adminId = randomUUID();
-  const userId = randomUUID();
-  const eligible = randomUUID();
-  const eligibleWithDependencies = randomUUID();
-  const resultProtected = randomUUID();
-  const walletProtected = randomUUID();
-  const enabled = randomUUID();
-  const nonTerminal = randomUUID();
-  const future = randomUUID();
-  const resultRegistration = randomUUID();
-  const walletRegistration = randomUUID();
-  const dependentRegistration = randomUUID();
-  const squadTeam = randomUUID();
-  const rosterId = randomUUID();
-  const matchIds = [eligible, eligibleWithDependencies, resultProtected, walletProtected, enabled, nonTerminal, future];
+  const playerId = randomUUID();
+  const winnerId = randomUUID();
+  const matchId = randomUUID();
+  const registrationId = randomUUID();
+  const winnerRegistrationId = randomUUID();
+  const awardId = randomUUID();
+  const ledgerId = randomUUID();
+  const userIds = [adminId, playerId, winnerId];
+  const adminToken = makeToken(adminId, 0);
+  assert.ok(adminToken);
 
   try {
     await pool.query(
       `INSERT INTO daily007_v2_users
          (id, name, email, password_salt, password_hash, role, wallet_coins)
-       VALUES ($1, 'Cleanup Admin', $2, '', '', 'admin', 0),
-              ($3, 'Cleanup Player', $4, '', '', 'user', 95)`,
-      [adminId, `admin-${adminId}@example.test`, userId, `player-${userId}@example.test`],
+       VALUES ($1, 'Tournament Admin', $2, '', '', 'tournament_admin', 0),
+              ($3, 'Result Player', $4, '', '', 'user', 95),
+              ($5, 'Winner Player', $6, '', '', 'user', 95)`,
+      [
+        adminId, `admin-${adminId}@example.test`,
+        playerId, `player-${playerId}@example.test`,
+        winnerId, `winner-${winnerId}@example.test`,
+      ],
     );
     await pool.query(
-      `INSERT INTO daily007_v2_matches (id, title, mode, capacity, enabled, starts_at, status)
-       VALUES
-         ($1, 'Eligible empty', 'solo', 48, false, now() - interval '4 days', 'cancelled'),
-         ($2, 'Eligible with dependencies', 'squad', 12, false, now() - interval '4 days', 'cancelled'),
-         ($3, 'Published result', 'solo', 48, false, now() - interval '4 days', 'completed'),
-         ($4, 'Wallet history', 'solo', 48, false, now() - interval '4 days', 'cancelled'),
-         ($5, 'Still enabled', 'solo', 48, true, now() - interval '4 days', 'cancelled'),
-         ($6, 'Not terminal', 'solo', 48, false, now() - interval '4 days', 'open'),
-         ($7, 'Under 72 hours', 'solo', 48, false, now() - interval '24 hours', 'cancelled')`,
-      matchIds,
+      `INSERT INTO daily007_v2_matches
+         (id, title, mode, capacity, enabled, starts_at, status)
+       VALUES ($1, 'Old unresolved match', 'solo', 48, true, now() - interval '4 days', 'open')`,
+      [matchId],
     );
     await pool.query(
       `INSERT INTO daily007_v2_registrations
          (id, match_id, captain_user_id, captain_name, captain_game_name,
           captain_game_uid, entry_coins_paid, status)
-       VALUES
-         ($1, $2, $3, 'Result Player', 'Result Player', 'result-uid', 0, 'approved'),
-         ($4, $5, $3, 'Wallet Player', 'Wallet Player', 'wallet-uid', 0, 'rejected'),
-         ($6, $7, $3, 'Dependency Player', 'Dependency Player', 'dependency-uid', 0, 'rejected')`,
-      [resultRegistration, resultProtected, userId, walletRegistration, walletProtected,
-        dependentRegistration, eligibleWithDependencies],
+       VALUES ($1, $2, $3, 'Result Player', 'Result Player', 'old-match-player', 0, 'approved')`,
+      [registrationId, matchId, playerId],
     );
+    await pool.query(
+      `INSERT INTO daily007_v2_registrations
+         (id, match_id, captain_user_id, captain_name, captain_game_name,
+          captain_game_uid, entry_coins_paid, status)
+       VALUES ($1, $2, $3, 'Winner Player', 'Winner Player', 'old-match-winner', 0, 'approved')`,
+      [winnerRegistrationId, matchId, winnerId],
+    );
+    // A runner-up placement exists, but without a winner the tournament remains unresolved.
     await pool.query(
       `INSERT INTO daily007_v2_result_awards
-         (match_id, registration_id, user_id, rank, kills, prize_coins)
-       VALUES ($1, $2, $3, 1, 4, 10)`,
-      [resultProtected, resultRegistration, userId],
-    );
-    await pool.query(
-      `INSERT INTO daily007_v2_user_stats (user_id, matches, wins, kills, prize_coins)
-       VALUES ($1, 7, 1, 4, 10)`,
-      [userId],
+         (id, match_id, registration_id, user_id, rank, kills, prize_coins)
+       VALUES ($1, $2, $3, $4, 2, 3, 10)`,
+      [awardId, matchId, registrationId, playerId],
     );
     await pool.query(
       `INSERT INTO daily007_v2_wallet_ledger
-         (user_id, amount, balance_after, reason, match_id, registration_id)
-       VALUES ($1, -5, 95, 'tournament_entry', $2, $3)`,
-      [userId, walletProtected, walletRegistration],
+         (id, user_id, amount, balance_after, reason, match_id, registration_id)
+       VALUES ($1, $2, -5, 95, 'tournament_entry', $3, $4)`,
+      [ledgerId, playerId, matchId, registrationId],
     );
-    await pool.query(
-      `INSERT INTO daily007_v2_roster (id, registration_id, position, member_name)
-       VALUES ($1, $2, 2, 'Dependency Teammate')`,
-      [rosterId, dependentRegistration],
-    );
-    await pool.query(
-      `INSERT INTO daily007_v2_squad_teams (id, match_id, team_number)
-       VALUES ($1, $2, 1)`,
-      [squadTeam, eligibleWithDependencies],
-    );
-    await pool.query(
-      `INSERT INTO daily007_v2_squad_team_members (team_id, slot_number, registration_id)
-       VALUES ($1, 2, $2)`,
-      [squadTeam, dependentRegistration],
-    );
-
-    const adminToken = makeToken(adminId, 0);
-    const userToken = makeToken(userId, 0);
-    assert.ok(adminToken);
-    assert.ok(userToken);
-
-    await withServer(async (origin) => {
-      const response = await fetch(`${origin}/admin/tournaments/cleanup-preview`, {
-        headers: { authorization: `Bearer ${adminToken}` },
-      });
-      assert.equal(response.status, 200);
-      const body = await response.json() as {
-        success: boolean;
-        data: {
-          retentionHours: number;
-          scannedMatches: number;
-          eligibleMatches: number;
-          matchDataToDelete: {
-            registrations: number;
-            rosterRows: number;
-            squadTeams: number;
-            squadMembers: number;
-            resultAwards: number;
-          };
-          protectedHistory: {
-            matchesWithWalletHistory: number;
-            walletLedgerRows: number;
-            playerStatsRowsPreserved: number;
-          };
-          candidates: Array<{ id: string; registrations: number; walletLedgerRowsPreserved: number }>;
-        };
-      };
-      assert.equal(body.success, true);
-      assert.equal(body.data.retentionHours, 72);
-      assert.equal(body.data.scannedMatches, 6);
-      assert.equal(body.data.eligibleMatches, 6);
-      assert.deepEqual(body.data.matchDataToDelete, {
-        registrations: 3,
-        rosterRows: 1,
-        squadTeams: 1,
-        squadMembers: 1,
-        resultAwards: 1,
-      });
-      assert.equal(body.data.protectedHistory.matchesWithWalletHistory, 1);
-      assert.equal(body.data.protectedHistory.walletLedgerRows, 1);
-      assert.equal(body.data.protectedHistory.playerStatsRowsPreserved, 1);
-      assert.deepEqual(
-        body.data.candidates.map((candidate) => candidate.id).sort(),
-        [eligible, eligibleWithDependencies, resultProtected, walletProtected, enabled, nonTerminal].sort(),
-      );
-      assert.equal(
-        body.data.candidates.find((candidate) => candidate.id === walletProtected)?.walletLedgerRowsPreserved,
-        1,
-      );
-
-      const userResponse = await fetch(`${origin}/admin/tournaments/cleanup-preview`, {
-        headers: { authorization: `Bearer ${userToken}` },
-      });
-      assert.equal(userResponse.status, 403);
-    });
-
-    const afterPreview = await pool.query<{ count: number }>(
-      "SELECT count(*)::integer AS count FROM daily007_v2_matches WHERE id = ANY($1::uuid[])",
-      [matchIds],
-    );
-    assert.equal(afterPreview.rows[0]?.count, matchIds.length, "the preview must not delete tournaments");
 
     const usersBefore = await pool.query(
-      `SELECT id, name, email, role, status, wallet_coins
-         FROM daily007_v2_users
-        WHERE id = ANY($1::uuid[])
-        ORDER BY id`,
-      [[adminId, userId]],
+      "SELECT * FROM daily007_v2_users WHERE id = ANY($1::uuid[]) ORDER BY id",
+      [userIds],
     );
     const walletBefore = await pool.query(
-      `SELECT id, user_id, amount, balance_after, reason, match_id, registration_id,
-              idempotency_key, details, created_at
-         FROM daily007_v2_wallet_ledger
-        WHERE user_id = $1`,
-      [userId],
+      "SELECT * FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[]) ORDER BY id",
+      [userIds],
     );
-    const statsBefore = await pool.query(
-      `SELECT user_id, matches, wins, kills, prize_coins
-         FROM daily007_v2_user_stats
-        WHERE user_id = $1`,
-      [userId],
+    const matchBefore = await pool.query(
+      "SELECT * FROM daily007_v2_matches WHERE id = $1",
+      [matchId],
     );
 
-    const sweep = await runDaily007TournamentCleanupSweep();
-    const expiredMatchIds = [eligible, eligibleWithDependencies, resultProtected, walletProtected, enabled, nonTerminal];
-    assert.deepEqual([...sweep.deletedMatchIds].sort(), [...expiredMatchIds].sort());
-    const afterSweep = await pool.query<{ count: number }>(
-      "SELECT count(*)::integer AS count FROM daily007_v2_matches WHERE id = ANY($1::uuid[])",
-      [matchIds],
-    );
-    assert.equal(afterSweep.rows[0]?.count, 1, "only the match that has not reached 72 hours remains");
     await withServer(async (origin) => {
-      const adminList = await fetch(`${origin}/admin/tournaments`, {
-        headers: { authorization: `Bearer ${adminToken}` },
-      });
-      assert.equal(adminList.status, 200);
-      const adminMatches = await adminList.json() as Array<{ id: string }>;
-      assert.deepEqual(adminMatches.map((match) => match.id), [future]);
+      const tournamentResponse = await fetch(`${origin}/tournaments`);
+      assert.equal(tournamentResponse.status, 200);
+      const tournaments = await tournamentResponse.json() as Array<{ id: string; status: string }>;
+      assert.ok(tournaments.some((match) => match.id === matchId));
+      assert.equal(tournaments.find((match) => match.id === matchId)?.status, "ongoing");
 
-      const nextPreview = await fetch(`${origin}/admin/tournaments/cleanup-preview`, {
+      const adminTournamentResponse = await fetch(`${origin}/admin/tournaments`, {
         headers: { authorization: `Bearer ${adminToken}` },
       });
-      const nextPreviewBody = await nextPreview.json() as { data: { eligibleMatches: number; scannedMatches: number } };
-      assert.equal(nextPreviewBody.data.eligibleMatches, 0);
-      assert.equal(nextPreviewBody.data.scannedMatches, 0);
-    });
-    const usersAfter = await pool.query(
-      `SELECT id, name, email, role, status, wallet_coins
-         FROM daily007_v2_users
-        WHERE id = ANY($1::uuid[])
-        ORDER BY id`,
-      [[adminId, userId]],
-    );
-    assert.deepEqual(usersAfter.rows, usersBefore.rows, "user profiles and wallet balances remain unchanged");
-    const walletAfter = await pool.query(
-      `SELECT id, user_id, amount, balance_after, reason, match_id, registration_id,
-              idempotency_key, details, created_at
-         FROM daily007_v2_wallet_ledger
-        WHERE user_id = $1`,
-      [userId],
-    );
-    assert.deepEqual(walletAfter.rows, walletBefore.rows, "wallet ledger records and their stored IDs remain unchanged");
-    const statsAfter = await pool.query(
-      `SELECT user_id, matches, wins, kills, prize_coins
-         FROM daily007_v2_user_stats
-        WHERE user_id = $1`,
-      [userId],
-    );
-    assert.deepEqual(statsAfter.rows, statsBefore.rows, "lifetime player stats are not recalculated or deleted");
-    const removedMatchData = await pool.query<{
-      result_awards: number;
-      registrations: number;
-      roster_rows: number;
-      squad_teams: number;
-      squad_members: number;
-    }>(
-      `SELECT
-         (SELECT count(*)::integer FROM daily007_v2_result_awards WHERE match_id = ANY($1::uuid[])) AS result_awards,
-         (SELECT count(*)::integer FROM daily007_v2_registrations WHERE match_id = ANY($1::uuid[])) AS registrations,
-         (SELECT count(*)::integer
-            FROM daily007_v2_roster roster
-            JOIN daily007_v2_registrations registration ON registration.id = roster.registration_id
-           WHERE registration.match_id = ANY($1::uuid[])) AS roster_rows,
-         (SELECT count(*)::integer FROM daily007_v2_squad_teams WHERE match_id = ANY($1::uuid[])) AS squad_teams,
-         (SELECT count(*)::integer
-            FROM daily007_v2_squad_team_members member
-            JOIN daily007_v2_squad_teams team ON team.id = member.team_id
-           WHERE team.match_id = ANY($1::uuid[])) AS squad_members`,
-      [expiredMatchIds],
-    );
-    assert.deepEqual(removedMatchData.rows[0], {
-      result_awards: 0,
-      registrations: 0,
-      roster_rows: 0,
-      squad_teams: 0,
-      squad_members: 0,
+      assert.equal(adminTournamentResponse.status, 200);
+      const adminTournaments = await adminTournamentResponse.json() as Array<{ id: string; status: string }>;
+      assert.ok(adminTournaments.some((match) => match.id === matchId));
+      assert.equal(adminTournaments.find((match) => match.id === matchId)?.status, "ongoing");
+
+      const registrationsResponse = await fetch(`${origin}/admin/registrations`, {
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      assert.equal(registrationsResponse.status, 200);
+      const registrations = await registrationsResponse.json() as Array<{
+        id: string;
+        tournamentId: string;
+        status: string;
+      }>;
+      assert.ok(registrations.some((registration) =>
+        registration.id === registrationId &&
+        registration.tournamentId === matchId &&
+        registration.status === "approved"
+      ), "the admin must still be able to load an approved player for result entry");
+
+      const resultsResponse = await fetch(`${origin}/admin/results?includeUnfinalized=true`, {
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      assert.equal(resultsResponse.status, 200);
+      const results = await resultsResponse.json() as {
+        success: boolean;
+        data: Array<{ tournamentId: string; registrationId: string; rank: number }>;
+      };
+      assert.equal(results.success, true);
+      assert.ok(results.data.some((result) =>
+        result.tournamentId === matchId &&
+        result.registrationId === registrationId &&
+        result.rank === 2
+      ));
+
+      // Compare immediately after the GETs, before explicitly publishing the winner below.
+      const usersAfterReads = await pool.query(
+        "SELECT * FROM daily007_v2_users WHERE id = ANY($1::uuid[]) ORDER BY id",
+        [userIds],
+      );
+      const walletAfterReads = await pool.query(
+        "SELECT * FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[]) ORDER BY id",
+        [userIds],
+      );
+      const matchAfterReads = await pool.query(
+        "SELECT * FROM daily007_v2_matches WHERE id = $1",
+        [matchId],
+      );
+      assert.deepEqual(usersAfterReads.rows, usersBefore.rows, "tournament reads must not change accounts or wallet balances");
+      assert.deepEqual(walletAfterReads.rows, walletBefore.rows, "tournament reads must not change wallet records");
+      assert.deepEqual(matchAfterReads.rows, matchBefore.rows, "tournament reads must not change match records or status");
+
+      const publishResponse = await fetch(`${origin}/admin/results`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          tournamentId: matchId,
+          registrationId: winnerRegistrationId,
+          rank: 1,
+          kills: 5,
+        }),
+      });
+      assert.equal(publishResponse.status, 201, "admins can publish a winner for a match older than 72 hours");
+      const published = await publishResponse.json() as { registrationId: string };
+      assert.equal(published.registrationId, winnerRegistrationId);
+
+      const completedTournamentResponse = await fetch(`${origin}/admin/tournaments`, {
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      assert.equal(completedTournamentResponse.status, 200);
+      const completedTournaments = await completedTournamentResponse.json() as Array<{
+        id: string;
+        status: string;
+      }>;
+      assert.equal(
+        completedTournaments.find((match) => match.id === matchId)?.status,
+        "completed",
+        "the old match only becomes completed after its winner is manually published",
+      );
     });
   } finally {
-    await pool.query("DELETE FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[])", [[adminId, userId]]);
-    await pool.query("DELETE FROM daily007_v2_result_awards WHERE match_id = ANY($1::uuid[])", [matchIds]);
-    await pool.query("DELETE FROM daily007_v2_matches WHERE id = ANY($1::uuid[])", [matchIds]);
-    await pool.query("DELETE FROM daily007_v2_user_stats WHERE user_id = ANY($1::uuid[])", [[adminId, userId]]);
-    await pool.query("DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])", [[adminId, userId]]);
+    await pool.query("DELETE FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[])", [userIds]);
+    await pool.query("DELETE FROM daily007_v2_result_awards WHERE match_id = $1", [matchId]);
+    await pool.query("DELETE FROM daily007_v2_matches WHERE id = $1", [matchId]);
+    await pool.query("DELETE FROM daily007_v2_user_stats WHERE user_id = ANY($1::uuid[])", [userIds]);
+    await pool.query("DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])", [userIds]);
   }
 });
