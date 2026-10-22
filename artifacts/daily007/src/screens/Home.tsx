@@ -27,6 +27,7 @@ import HomeGameModeCards from './HomeGameModeCards';
 import { WhatsAppIcon, InstagramIcon, YouTubeIcon } from '../components/SocialIcons';
 import logoImg from '../assets/logo.jpg';
 import HomeLeaderboards from './HomeLeaderboards';
+import { translateExactText } from '../i18n';
 
 function fmtDate(d?: string) {
   if (!d) return '';
@@ -288,7 +289,9 @@ export default function Home() {
     carouselRef.current?.scrollTo({ x: nextPage * carouselPageSize, animated: false });
     if (selectedTournamentWasRemoved && screenReaderEnabled && nextTournament) {
       AccessibilityInfo.announceForAccessibility(
-        `Selected Upcoming match: ${nextTournament.name ?? 'Match'}. Match ${nextPage + 1} of ${visibleItems.length}.`,
+        translateExactText(
+          `Selected Upcoming match: ${nextTournament.name ?? 'Match'}. Match ${nextPage + 1} of ${visibleItems.length}.`,
+        ),
       );
     }
   }, [carouselTournamentOrder, carouselPageSize, screenReaderEnabled]);
@@ -305,7 +308,9 @@ export default function Home() {
         : null;
       if (screenReaderEnabled && selectedTournament) {
         AccessibilityInfo.announceForAccessibility(
-          `Selected Upcoming match: ${selectedTournament.name ?? 'Match'}. Match ${p + 1} of ${Math.min(upcomingItems.length, 8)}.`,
+          translateExactText(
+            `Selected Upcoming match: ${selectedTournament.name ?? 'Match'}. Match ${p + 1} of ${Math.min(upcomingItems.length, 8)}.`,
+          ),
         );
       }
     }

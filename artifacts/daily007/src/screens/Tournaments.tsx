@@ -45,10 +45,11 @@ import {
   takeTournamentStartAnnouncements,
 } from '../lib/tournamentStartAnnouncement';
 import { createTournamentRoomDetailsAnnouncementTracker } from '../lib/tournamentRoomDetailsAnnouncement';
+import { translateExactText } from '../i18n';
 
 function announcePlayerLoadStatusOnIOS(message: string): void {
   if (Platform.OS !== 'ios') return;
-  AccessibilityInfo.announceForAccessibilityWithOptions(message, {
+  AccessibilityInfo.announceForAccessibilityWithOptions(translateExactText(message), {
     queue: true,
     priority: 'low',
   });
@@ -164,7 +165,7 @@ export default function Tournaments() {
           setRoomDetailsAnnouncementVersion((version) => version + 1);
           if (Platform.OS === 'ios') {
             AccessibilityInfo.announceForAccessibilityWithOptions(
-              ROOM_DETAILS_AVAILABLE_ANNOUNCEMENT,
+              translateExactText(ROOM_DETAILS_AVAILABLE_ANNOUNCEMENT),
               { queue: true, priority: 'low' },
             );
           }
@@ -344,14 +345,14 @@ export default function Tournaments() {
     missedStartCheckPending.current = false;
     if (announcements.length === 0) return;
     if (Platform.OS === 'ios') {
-      announcements.forEach((announcement) => {
-        AccessibilityInfo.announceForAccessibilityWithOptions(announcement, {
+        announcements.forEach((announcement) => {
+        AccessibilityInfo.announceForAccessibilityWithOptions(translateExactText(announcement), {
           queue: true,
           priority: 'low',
         });
       });
     } else {
-      setStartAnnouncement(announcements.join(' '));
+      setStartAnnouncement(announcements.map(translateExactText).join(' '));
     }
   }, [items, clockNow, missedStartCheckVersion]);
 
@@ -393,13 +394,13 @@ export default function Tournaments() {
         if (announcements.length > 0) {
           if (Platform.OS === 'ios') {
             announcements.forEach((announcement) => {
-              AccessibilityInfo.announceForAccessibilityWithOptions(announcement, {
+              AccessibilityInfo.announceForAccessibilityWithOptions(translateExactText(announcement), {
                 queue: true,
                 priority: 'low',
               });
             });
           } else {
-            setStartAnnouncement(announcements.join(' '));
+            setStartAnnouncement(announcements.map(translateExactText).join(' '));
           }
         }
         setClockNow(now);

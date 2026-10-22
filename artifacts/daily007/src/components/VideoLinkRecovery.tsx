@@ -3,6 +3,7 @@ import { AccessibilityInfo, Platform, Pressable, StyleSheet, View } from 'react-
 import { Feather } from '@expo/vector-icons';
 import { ReadableText as Text } from './typography';
 import { useColors } from '@/hooks/useColors';
+import { translateExactText } from '../i18n';
 
 export type VideoLinkAction = 'browser' | 'copy' | 'youtube' | null;
 
@@ -28,11 +29,11 @@ export function VideoLinkRecovery({
     'Couldn’t open this video in YouTube or your browser. Retry the browser link or copy it to open it manually.';
 
   useEffect(() => {
-    if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(errorAnnouncement);
+    if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(translateExactText(errorAnnouncement));
   }, []);
 
   useEffect(() => {
-    if (Platform.OS === 'ios' && status) AccessibilityInfo.announceForAccessibility(status);
+    if (Platform.OS === 'ios' && status) AccessibilityInfo.announceForAccessibility(translateExactText(status));
   }, [status]);
 
   const styles = StyleSheet.create({

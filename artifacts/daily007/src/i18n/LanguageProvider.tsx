@@ -7,9 +7,11 @@ import React, {
   useState,
 } from 'react';
 import type { PropsWithChildren } from 'react';
+import { AccessibilityInfo, Platform } from 'react-native';
 import { i18n } from './index';
 import {
   isAppLanguage,
+  LANGUAGE_NATIVE_NAMES,
   readLanguagePreference,
   writeLanguagePreference,
 } from './languagePreference';
@@ -55,16 +57,25 @@ export function Daily007LanguageProvider({ children }: PropsWithChildren) {
   const guestLanguageWasChosen = useRef(false);
   const operationVersion = useRef(0);
 
-  const applyLanguage = useCallback((next: AppLanguage) => {
+  const applyLanguage = useCallback(async (next: AppLanguage) => {
     setLanguageState(next);
-    void i18n.changeLanguage(next);
+    await i18n.changeLanguage(next);
   }, []);
 
   const setLanguage = useCallback(async (next: AppLanguage) => {
     if (!isAppLanguage(next)) throw new Error('Unsupported language.');
 
-    operationVersion.current += 1;
-    applyLanguage(next);
+    const version = ++operationVersion.current;
+    await applyLanguage(next);
+    if (version !== operationVersion.current) return;
+
+    if (Platform.OS !== 'web') {
+      AccessibilityInfo.announceForAccessibility(
+        i18n.t('Language changed to {{language}}.', {
+          language: LANGUAGE_NATIVE_NAMES[next],
+        }),
+      );
+    }
 
     const accountId = activeAccountId.current;
     if (accountId) {
@@ -86,29 +97,30 @@ export function Daily007LanguageProvider({ children }: PropsWithChildren) {
     if (!userId) {
       guestLanguage.current = 'en';
       guestLanguageWasChosen.current = false;
-      applyLanguage('en');
+      await applyLanguage('en');
       return;
     }
 
     // Never let a previous account's preference flash on another player's screen.
-    applyLanguage('en');
+    await applyLanguage('en');
+    if (version !== operationVersion.current || activeAccountId.current !== userId) return;
 
     try {
       const saved = await readLanguagePreference(userId, AsyncStorage);
       if (version !== operationVersion.current || activeAccountId.current !== userId) return;
 
       if (saved) {
-        applyLanguage(saved);
+        await applyLanguage(saved);
       } else if (guestLanguageWasChosen.current) {
         const selectedBeforeSignIn = guestLanguage.current;
-        applyLanguage(selectedBeforeSignIn);
+        await applyLanguage(selectedBeforeSignIn);
         await writeLanguagePreference(userId, selectedBeforeSignIn, AsyncStorage);
       } else {
-        applyLanguage('en');
+        await applyLanguage('en');
       }
     } catch {
       if (version === operationVersion.current && activeAccountId.current === userId) {
-        applyLanguage('en');
+        await applyLanguage('en');
       }
     } finally {
       if (version === operationVersion.current && activeAccountId.current === userId) {

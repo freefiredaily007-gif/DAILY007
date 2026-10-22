@@ -17,6 +17,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import { Api, apiError } from '../lib/api';
+import { translateExactText } from '../i18n';
 import { uploadWalletImage } from '../lib/walletImages';
 import { isValidWalletUtr, sanitizeWalletUtrInput } from '../lib/wallet-utr';
 import {
@@ -361,9 +362,10 @@ export default function Wallet({
   useFocusEffect(useCallback(() => { refreshHistory(); }, [refreshHistory]));
 
   const announceHistoryRetryStatus = useCallback((message: string) => {
-    setHistoryRetryStatus(message);
+    const localizedMessage = translateExactText(message);
+    setHistoryRetryStatus(localizedMessage);
     if (Platform.OS === 'ios') {
-      AccessibilityInfo.announceForAccessibilityWithOptions(message, {
+      AccessibilityInfo.announceForAccessibilityWithOptions(localizedMessage, {
         queue: true,
         priority: 'low',
       });

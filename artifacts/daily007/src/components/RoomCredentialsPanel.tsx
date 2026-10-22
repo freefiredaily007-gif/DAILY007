@@ -10,6 +10,7 @@ import {
   createRoomCredentialCopyRequestGuard,
   type RoomCredentialCopyFeedback,
 } from '../lib/roomCredentialCopy';
+import { translateExactText } from '../i18n';
 import {
   getRoomCredentialSchedule,
   hasServerAuthorizedRoomCredentials,
@@ -98,7 +99,7 @@ export function RoomCredentialsPanel({
     );
     if (!copyRequestGuard.current.isCurrentRequest(requestId)) return;
     setCopyFeedback(feedback);
-    AccessibilityInfo.announceForAccessibility(feedback.message);
+    AccessibilityInfo.announceForAccessibility(translateExactText(feedback.message));
   };
 
   return (
@@ -132,9 +133,9 @@ export function RoomCredentialsPanel({
                   const nextValue = !simulateClipboardFailure;
                   setSimulateClipboardFailure(nextValue);
                   AccessibilityInfo.announceForAccessibility(
-                    nextValue
+                    translateExactText(nextValue
                       ? 'Clipboard failure simulation on.'
-                      : 'Clipboard failure simulation off.',
+                      : 'Clipboard failure simulation off.'),
                   );
                 }}
                 testID="room-credential-simulate-clipboard-failure"

@@ -39,7 +39,8 @@ export function LanguageSelector({
               testID={`language-option-${option.value}`}
               accessibilityRole="radio"
               accessibilityLabel={option.label}
-              accessibilityState={{ selected }}
+              accessibilityState={{ checked: selected }}
+              aria-checked={selected}
               onPress={() => void select(option.value)}
               style={({ pressed }) => [
                 styles.option,

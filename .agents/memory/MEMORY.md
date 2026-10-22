@@ -109,3 +109,4 @@
 - [Chromium PWA offline checks](daily007-pwa-browser-smoke.md) — CDP offline mode must be applied to both the page and service-worker target to test worker network fallbacks.
 - [Expo component test compatibility](expo-component-test-compatibility.md) — check React and react-test-renderer versions before bundling component tests; mismatches can fail before rendering.
 - [Daily007 language preference storage](daily007-language-preference.md) — keep language preference local per player identity unless server-side profile sync is explicitly approved.
+- [React Native Web radio state](rnw-radio-state.md) — retain native radio state and set explicit `aria-checked` for the web DOM.

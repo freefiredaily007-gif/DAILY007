@@ -35,6 +35,7 @@ import {
 import { getTournamentTeamSlotSummary } from '../lib/tournamentTeamSlots';
 import { getTournamentSeatLayout } from '../lib/tournamentSeatLayout';
 import { getTournamentSeatRefreshInterval } from '../lib/tournamentSeatRefresh';
+import { translateExactText } from '../i18n';
 
 const claimRoomDetailsAvailabilityAnnouncement =
   createRoomCredentialAvailabilityAnnouncementTracker();
@@ -512,9 +513,10 @@ export default function TDetail() {
     const announcement = announcementKind === 'available'
       ? 'Room details are now available.'
       : 'Room details have been updated.';
-    setRoomDetailsAnnouncement(announcement);
+    const localizedAnnouncement = translateExactText(announcement);
+    setRoomDetailsAnnouncement(localizedAnnouncement);
     setRoomDetailsAnnouncementVersion((version) => version + 1);
-    if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(announcement);
+    if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(localizedAnnouncement);
   }, [isFocused, tournamentId, roomCredentialsAvailable, roomId, roomPassword]);
 
   const load = useCallback(async () => {
@@ -594,8 +596,9 @@ export default function TDetail() {
       !participantsScreenFocusedRef.current ||
       participantsRetryFocusVersion.current !== focusVersion
     ) return;
-    setParticipantsRetryAnnouncement(message);
-    if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(message);
+    const localizedMessage = translateExactText(message);
+    setParticipantsRetryAnnouncement(localizedMessage);
+    if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(localizedMessage);
   };
   const refreshAllRef = useRef(refreshAll);
   const detailRefreshController = useRef<ReturnType<typeof createTournamentDetailRefreshController> | null>(null);

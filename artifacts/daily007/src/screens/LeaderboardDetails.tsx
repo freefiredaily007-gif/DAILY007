@@ -24,6 +24,7 @@ import {
   selectLeaderboardTopThreeSnapshot,
   type LeaderboardTopThreeSnapshot,
 } from "../lib/leaderboardRefreshPolicy";
+import { translateExactText } from '../i18n';
 import {
   leaderboardPlayerAccessibilityLabel,
   leaderboardPodiumAccessibilityLabel,
@@ -331,12 +332,12 @@ function LeaderboardDetailsContent({ navigation, route, query }: any) {
     if (!announcement) return;
 
     if (Platform.OS === "ios") {
-      AccessibilityInfo.announceForAccessibilityWithOptions(announcement, {
+      AccessibilityInfo.announceForAccessibilityWithOptions(translateExactText(announcement), {
         queue: true,
         priority: "low",
       });
     } else {
-      setTopThreeAnnouncement(announcement);
+      setTopThreeAnnouncement(translateExactText(announcement));
     }
   }, [cycle, period?.standings]);
   const standings = selectLeaderboardTopTwenty(period?.standings);

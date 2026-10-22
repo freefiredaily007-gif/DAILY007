@@ -40,6 +40,7 @@ import GoogleSSOButton from '../components/GoogleSSOButton';
 import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
 import { referralSignupFromUrl } from '../lib/referral-invite';
 import { LanguageSelector } from '../i18n/LanguageSelector';
+import { translateExactText } from '../i18n';
 
 const AUTH = colors.auth;
 
@@ -173,19 +174,19 @@ export default function Auth({
 
   React.useEffect(() => {
     if (Platform.OS === 'android' && sessionSaveErrorAnnouncement) {
-      AccessibilityInfo.announceForAccessibility(sessionSaveErrorAnnouncement.message);
+      AccessibilityInfo.announceForAccessibility(translateExactText(sessionSaveErrorAnnouncement.message));
     }
   }, [sessionSaveErrorAnnouncement]);
 
   React.useEffect(() => {
     if (Platform.OS === 'ios' && err) {
-      AccessibilityInfo.announceForAccessibility(err);
+      AccessibilityInfo.announceForAccessibility(translateExactText(err));
     }
   }, [err]);
 
   React.useEffect(() => {
     if (Platform.OS === 'ios' && notice) {
-      AccessibilityInfo.announceForAccessibility(notice);
+      AccessibilityInfo.announceForAccessibility(translateExactText(notice));
     }
   }, [notice]);
 

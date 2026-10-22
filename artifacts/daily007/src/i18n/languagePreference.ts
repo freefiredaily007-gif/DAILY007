@@ -11,6 +11,12 @@ export const LANGUAGE_OPTIONS: ReadonlyArray<{
   { value: 'gu', label: '🇮🇳 ગુજરાતી' },
 ];
 
+export const LANGUAGE_NATIVE_NAMES: Record<AppLanguage, string> = {
+  en: 'English',
+  hi: 'हिन्दी',
+  gu: 'ગુજરાતી',
+};
+
 export function isAppLanguage(value: unknown): value is AppLanguage {
   return typeof value === 'string'
     && (SUPPORTED_LANGUAGES as readonly string[]).includes(value);
