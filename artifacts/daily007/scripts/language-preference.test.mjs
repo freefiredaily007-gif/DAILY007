@@ -442,14 +442,17 @@ test('a newer choice or account change cancels an older scheduled retry', async 
   assert.equal(await accountRetry.runNext(), false);
 });
 
-test('a pending offline choice wins on sign-in and is retried instead of the stale server value', async () => {
+test('a legacy pending offline choice cannot overwrite a server preference changed elsewhere', async () => {
   const store = createStore({
     'daily007:language:v1:player-one': 'hi',
     'daily007:language:pending:v1:player-one': 'hi',
   });
+  const appliedLanguages = [];
   const savedServerLanguages = [];
   const lifecycle = createLanguagePreferenceLifecycle({
-    applyLanguage() {},
+    applyLanguage(language) {
+      appliedLanguages.push(language);
+    },
     localStore: store,
     async readServerPreference() {
       return 'gu';
@@ -461,7 +464,9 @@ test('a pending offline choice wins on sign-in and is retried instead of the sta
 
   await lifecycle.setAccountId('player-one');
 
-  assert.deepEqual(savedServerLanguages, ['hi']);
+  assert.deepEqual(savedServerLanguages, []);
+  assert.equal(appliedLanguages.at(-1), 'gu');
+  assert.equal(await readLanguagePreference('player-one', store), 'gu');
   assert.equal(await store.getItem('daily007:language:pending:v1:player-one'), null);
 });
 
@@ -481,9 +486,14 @@ test('a recovered offline choice appears on another device and after reopening',
         if (!networkAvailable) throw new Error('Network unavailable');
         return accountPreferences.get(accountId) ?? null;
       },
-      async saveServerPreference(language) {
+      async saveServerPreference(language, expectedLanguage) {
         if (!networkAvailable) throw new Error('Network unavailable');
+        const savedLanguage = accountPreferences.get(accountId) ?? null;
+        if (savedLanguage !== expectedLanguage) {
+          return { language: savedLanguage, accepted: false };
+        }
         accountPreferences.set(accountId, language);
+        return { language, accepted: true };
       },
     });
     return { lifecycle, appliedLanguages };
@@ -516,6 +526,60 @@ test('a recovered offline choice appears on another device and after reopening',
   const reopenedSecondDevice = createDevice(secondDeviceStore);
   await reopenedSecondDevice.lifecycle.setAccountId(accountId);
   assert.equal(reopenedSecondDevice.appliedLanguages.at(-1), 'gu');
+});
+
+test('a newer choice on another device wins over an older offline choice', async () => {
+  const accountId = 'player-one';
+  const accountPreferences = new Map([[accountId, 'en']]);
+  let networkAvailable = true;
+
+  function createDevice(store) {
+    const appliedLanguages = [];
+    const lifecycle = createLanguagePreferenceLifecycle({
+      applyLanguage(language) {
+        appliedLanguages.push(language);
+      },
+      localStore: store,
+      async readServerPreference() {
+        if (!networkAvailable) throw new Error('Network unavailable');
+        return accountPreferences.get(accountId) ?? null;
+      },
+      async saveServerPreference(language, expectedLanguage) {
+        if (!networkAvailable) throw new Error('Network unavailable');
+        const current = accountPreferences.get(accountId) ?? null;
+        if (current !== expectedLanguage) return { language: current, accepted: false };
+        accountPreferences.set(accountId, language);
+        return { language, accepted: true };
+      },
+    });
+    return { lifecycle, appliedLanguages };
+  }
+
+  const oldDeviceStore = createStore();
+  const oldDevice = createDevice(oldDeviceStore);
+  await oldDevice.lifecycle.setAccountId(accountId);
+  assert.equal(oldDevice.appliedLanguages.at(-1), 'en');
+
+  networkAvailable = false;
+  await assert.rejects(oldDevice.lifecycle.setLanguage('hi'), /Network unavailable/);
+  assert.equal(await oldDeviceStore.getItem('daily007:language:pending:v1:player-one'), 'hi');
+
+  networkAvailable = true;
+  const newDeviceStore = createStore();
+  const newDevice = createDevice(newDeviceStore);
+  await newDevice.lifecycle.setAccountId(accountId);
+  await newDevice.lifecycle.setLanguage('gu');
+  assert.equal(accountPreferences.get(accountId), 'gu');
+
+  await oldDevice.lifecycle.retryPendingServerPreference();
+
+  assert.equal(accountPreferences.get(accountId), 'gu');
+  assert.equal(oldDevice.appliedLanguages.at(-1), 'gu');
+  assert.equal(await readLanguagePreference(accountId, oldDeviceStore), 'gu');
+  assert.equal(
+    await oldDeviceStore.getItem('daily007:language:pending:v1:player-one'),
+    null,
+  );
 });
 
 test('an in-flight retry cannot clear or overwrite a newer language selection', async () => {

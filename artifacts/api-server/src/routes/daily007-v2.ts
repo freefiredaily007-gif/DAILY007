@@ -466,6 +466,7 @@ router.get("/daily007/v2/preferences/language", authenticate, async (req, res): 
     fail(res, 401, "A valid Daily007 v2 bearer token is required.");
     return;
   }
+  // An offline choice is valid only while the server value it was based on is current.
   const result = await pool.query<{ preferred_language: string | null }>(
     "SELECT preferred_language FROM daily007_v2_users WHERE id = $1",
     [account.id],
@@ -487,19 +488,33 @@ router.put("/daily007/v2/preferences/language", authenticate, async (req, res): 
     fail(res, 400, "Choose a supported language.");
     return;
   }
-  const result = await pool.query<{ preferred_language: string }>(
+  const result = await pool.query<{ preferred_language: string | null }>(
     `UPDATE daily007_v2_users
         SET preferred_language = $2
       WHERE id = $1
+        AND preferred_language IS NOT DISTINCT FROM $3
       RETURNING preferred_language`,
-    [account.id, parsed.data.language],
+    [account.id, parsed.data.language, parsed.data.expectedLanguage],
   );
-  if (!result.rows[0]) {
+  if (result.rows[0]) {
+    res.json(Daily007V2SetLanguagePreferenceResponse.parse({
+      language: result.rows[0].preferred_language,
+      accepted: true,
+    }));
+    return;
+  }
+
+  const current = await pool.query<{ preferred_language: string | null }>(
+    "SELECT preferred_language FROM daily007_v2_users WHERE id = $1",
+    [account.id],
+  );
+  if (!current.rows[0]) {
     fail(res, 404, "Account not found.");
     return;
   }
   res.json(Daily007V2SetLanguagePreferenceResponse.parse({
-    language: result.rows[0].preferred_language,
+    language: current.rows[0].preferred_language,
+    accepted: false,
   }));
 });
 

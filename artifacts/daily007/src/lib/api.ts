@@ -457,11 +457,22 @@ export const Api = {
     if (!isAppLanguage(language)) throw new Error('The server returned an unsupported language preference.');
     return language;
   },
-  saveLanguagePreference: async (language: AppLanguage): Promise<void> => {
-    const response = await unwrap(http.put('/daily007/v2/preferences/language', { language }));
-    if (response?.language !== language) {
+  saveLanguagePreference: async (
+    language: AppLanguage,
+    expectedLanguage: AppLanguage | null,
+  ): Promise<{ language: AppLanguage | null; accepted: boolean }> => {
+    const response = await unwrap(http.put('/daily007/v2/preferences/language', {
+      language,
+      expectedLanguage,
+    }));
+    if (
+      (response?.language !== null && !isAppLanguage(response?.language))
+      || typeof response?.accepted !== 'boolean'
+      || (response.accepted && response.language !== language)
+    ) {
       throw new Error('The server could not confirm the saved language preference.');
     }
+    return { language: response.language, accepted: response.accepted };
   },
   googleLinkStatus: async (): Promise<boolean> => {
     const user = await currentAccount({ revalidate: true });

@@ -216,7 +216,7 @@ paths:
         "401": { description: Missing or invalid bearer token }
     put:
       operationId: daily007V2SetLanguagePreference
-      summary: Save the signed-in player's language preference
+      summary: Save the signed-in player's language preference if the expected value is current
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -225,10 +225,10 @@ paths:
             schema: { $ref: "#/components/schemas/Daily007LanguagePreferenceUpdate" }
       responses:
         "200":
-          description: Saved language preference
+          description: Saved language preference, or the current server value when the expected value was stale
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Daily007LanguagePreference" }
+              schema: { $ref: "#/components/schemas/Daily007LanguagePreferenceSaveResult" }
         "400": { description: Unsupported language }
         "401": { description: Missing or invalid bearer token }
   /daily007/v2/admin/bootstrap:
@@ -1766,7 +1766,15 @@ components:
       additionalProperties: false
       properties:
         language: { type: string, enum: [en, hi, gu] }
-      required: [language]
+        expectedLanguage: { type: ["string", "null"], enum: [en, hi, gu, null] }
+      required: [language, expectedLanguage]
+    Daily007LanguagePreferenceSaveResult:
+      type: object
+      additionalProperties: false
+      properties:
+        language: { type: ["string", "null"], enum: [en, hi, gu, null] }
+        accepted: { type: boolean }
+      required: [language, accepted]
     HealthStatus:
       type: object
       properties:

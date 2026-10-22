@@ -22,8 +22,11 @@
  *
  * OpenAPI spec version: 0.1.0
  */
+import type { Daily007LanguagePreferenceUpdateExpectedLanguage } from './daily007LanguagePreferenceUpdateExpectedLanguage';
 import type { Daily007LanguagePreferenceUpdateLanguage } from './daily007LanguagePreferenceUpdateLanguage';
 
 export interface Daily007LanguagePreferenceUpdate {
   language: Daily007LanguagePreferenceUpdateLanguage;
+  /** @nullable */
+  expectedLanguage: Daily007LanguagePreferenceUpdateExpectedLanguage;
 }

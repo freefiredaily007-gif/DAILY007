@@ -1,10 +1,14 @@
 import {
   clearPendingLanguagePreference,
   isAppLanguage,
+  readConfirmedLanguagePreference,
   readPendingLanguagePreference,
+  readPendingLanguagePreferenceBase,
   readLanguagePreference,
   resolveSignedInLanguagePreference,
   writePendingLanguagePreference,
+  writePendingLanguagePreferenceBase,
+  writeConfirmedLanguagePreference,
   writeLanguagePreference,
 } from './languagePreference';
 import type { AppLanguage, LanguagePreferenceStore } from './languagePreference';
@@ -14,7 +18,10 @@ type LanguagePreferenceLifecycleDependencies = {
   applyLanguage: (language: AppLanguage) => void | Promise<void>;
   localStore: LanguagePreferenceStore;
   readServerPreference: () => Promise<AppLanguage | null>;
-  saveServerPreference: (language: AppLanguage) => Promise<void>;
+  saveServerPreference: (
+    language: AppLanguage,
+    expectedLanguage: AppLanguage | null,
+  ) => Promise<{ language: AppLanguage | null; accepted: boolean } | void>;
   retryDelayMs?: number;
   retryScheduler?: {
     schedule: (callback: () => void | Promise<void>, delayMs: number) => unknown;
@@ -47,8 +54,10 @@ export function createLanguagePreferenceLifecycle({
   let pendingServerPreference: {
     userId: string;
     language: AppLanguage;
+    expectedLanguage: AppLanguage | null;
     version: number;
   } | null = null;
+  let confirmedServerLanguage: AppLanguage | null = null;
   let preferenceWriteQueue: Promise<void> = Promise.resolve();
 
   const cancelScheduledRetry = () => {
@@ -109,11 +118,52 @@ export function createLanguagePreferenceLifecycle({
         || pending.language !== next
         || pending.version !== version
       ) return;
+      await writePendingLanguagePreferenceBase(
+        userId,
+        pending.expectedLanguage,
+        localStore,
+      );
 
       pendingServerWrites += 1;
       try {
         try {
-          await saveServerPreference(next);
+          const result = await saveServerPreference(next, pending.expectedLanguage);
+          if (
+            result
+            && !result.accepted
+            && activeAccountId === userId
+          ) {
+            confirmedServerLanguage = result.language;
+            await writeConfirmedLanguagePreference(userId, result.language, localStore);
+            const newerPending = pendingServerPreference;
+            if (newerPending?.userId === userId && newerPending.version !== version) {
+              newerPending.expectedLanguage = result.language;
+            }
+            if (version !== operationVersion) return;
+            const winningLanguage = isAppLanguage(result.language) ? result.language : 'en';
+            await writeLanguagePreference(userId, winningLanguage, localStore);
+            await applyLanguage(winningLanguage);
+            await clearPendingLanguagePreference(userId, next, localStore);
+            pendingServerPreference = null;
+            cancelScheduledRetry();
+            scheduledRetryAttempts = 0;
+            return;
+          }
+          if (result?.accepted && result.language === next) {
+            confirmedServerLanguage = next;
+            await writeConfirmedLanguagePreference(userId, next, localStore);
+            const newerPending = pendingServerPreference;
+            if (newerPending?.userId === userId && newerPending.version !== version) {
+              newerPending.expectedLanguage = next;
+            }
+          } else if (!result) {
+            confirmedServerLanguage = next;
+            await writeConfirmedLanguagePreference(userId, next, localStore);
+            const newerPending = pendingServerPreference;
+            if (newerPending?.userId === userId && newerPending.version !== version) {
+              newerPending.expectedLanguage = next;
+            }
+          }
         } catch (error) {
           schedulePendingRetry(userId, next, version);
           throw error;
@@ -150,7 +200,12 @@ export function createLanguagePreferenceLifecycle({
 
     const accountId = activeAccountId;
     if (accountId) {
-      pendingServerPreference = { userId: accountId, language: next, version };
+      pendingServerPreference = {
+        userId: accountId,
+        language: next,
+        expectedLanguage: confirmedServerLanguage,
+        version,
+      };
       await persistAccountPreference(accountId, next, true, version);
       return true;
     }
@@ -166,6 +221,7 @@ export function createLanguagePreferenceLifecycle({
 
     activeAccountId = userId;
     const version = ++operationVersion;
+    confirmedServerLanguage = null;
     cancelScheduledRetry();
     scheduledRetryAttempts = 0;
     pendingServerPreference = null;
@@ -182,7 +238,14 @@ export function createLanguagePreferenceLifecycle({
     if (version !== operationVersion || activeAccountId !== userId) return;
 
     const localPreference = await readLanguagePreference(userId, localStore).catch(() => null);
+    const cachedConfirmedPreference = await readConfirmedLanguagePreference(userId, localStore)
+      .catch(() => ({ found: false, language: null }));
+    if (cachedConfirmedPreference.found) {
+      confirmedServerLanguage = cachedConfirmedPreference.language;
+    }
     const pendingPreference = await readPendingLanguagePreference(userId, localStore).catch(() => null);
+    const pendingPreferenceBase = await readPendingLanguagePreferenceBase(userId, localStore)
+      .catch(() => ({ found: false, language: null }));
     let remotePreference: AppLanguage | null = null;
     let remoteReadSucceeded = false;
     try {
@@ -199,10 +262,28 @@ export function createLanguagePreferenceLifecycle({
       selectedBeforeSignIn,
       localPreference,
     );
-    const language = pendingPreference ?? resolved.language;
+    const legacyPendingConflicts = pendingPreference !== null
+      && !pendingPreferenceBase.found
+      && remoteReadSucceeded
+      && remotePreference !== pendingPreference;
+    const pendingConflicts = pendingPreference !== null
+      && pendingPreferenceBase.found
+      && remoteReadSucceeded
+      && remotePreference !== pendingPreferenceBase.language;
+    const discardPendingInFavorOfServer = legacyPendingConflicts || pendingConflicts;
+    const language = pendingPreference !== null && !discardPendingInFavorOfServer
+      ? pendingPreference
+      : (pendingConflicts && remotePreference === null ? 'en' : resolved.language);
+    if (remoteReadSucceeded) {
+      confirmedServerLanguage = remotePreference;
+      await writeConfirmedLanguagePreference(userId, remotePreference, localStore);
+    }
+    if (discardPendingInFavorOfServer && pendingPreference !== null) {
+      await clearPendingLanguagePreference(userId, pendingPreference, localStore);
+    }
     await applyLanguage(language);
     if (version !== operationVersion || activeAccountId !== userId) return;
-    const shouldSync = pendingPreference !== null || (
+    const shouldSync = (pendingPreference !== null && !discardPendingInFavorOfServer) || (
       resolved.shouldPersistToServer &&
       (remoteReadSucceeded || selectedBeforeSignIn !== null)
     );
@@ -210,6 +291,9 @@ export function createLanguagePreferenceLifecycle({
       pendingServerPreference = {
         userId,
         language,
+        expectedLanguage: pendingPreference !== null && pendingPreferenceBase.found
+          ? pendingPreferenceBase.language
+          : (remoteReadSucceeded ? remotePreference : confirmedServerLanguage),
         version,
       };
     }
@@ -236,6 +320,8 @@ export function createLanguagePreferenceLifecycle({
     try {
       const saved = await readServerPreference();
       if (!saved || version !== operationVersion || activeAccountId !== userId) return;
+      confirmedServerLanguage = saved;
+      await writeConfirmedLanguagePreference(userId, saved, localStore);
       await applyLanguage(saved);
       if (version !== operationVersion || activeAccountId !== userId) return;
       await persistAccountPreference(userId, saved, false, version);

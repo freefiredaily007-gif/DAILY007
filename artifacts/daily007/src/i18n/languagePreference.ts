@@ -66,6 +66,43 @@ function pendingLanguagePreferenceKey(userId: string): string {
   return `daily007:language:pending:v1:${encodeURIComponent(normalized)}`;
 }
 
+function pendingLanguagePreferenceBaseKey(userId: string): string {
+  const normalized = userId.trim();
+  if (!normalized) throw new Error('A user ID is required to save a pending language preference.');
+  return `daily007:language:pending-base:v1:${encodeURIComponent(normalized)}`;
+}
+
+function confirmedLanguagePreferenceKey(userId: string): string {
+  const normalized = userId.trim();
+  if (!normalized) throw new Error('A user ID is required to save a confirmed language preference.');
+  return `daily007:language:confirmed:v1:${encodeURIComponent(normalized)}`;
+}
+
+const UNSET_LANGUAGE_PREFERENCE = '__unset__';
+
+export async function readConfirmedLanguagePreference(
+  userId: string,
+  store: LanguagePreferenceStore,
+): Promise<{ found: boolean; language: AppLanguage | null }> {
+  const saved = await store.getItem(confirmedLanguagePreferenceKey(userId));
+  if (saved === null) return { found: false, language: null };
+  if (saved === UNSET_LANGUAGE_PREFERENCE) return { found: true, language: null };
+  return isAppLanguage(saved)
+    ? { found: true, language: saved }
+    : { found: false, language: null };
+}
+
+export async function writeConfirmedLanguagePreference(
+  userId: string,
+  language: AppLanguage | null,
+  store: LanguagePreferenceStore,
+): Promise<void> {
+  await store.setItem(
+    confirmedLanguagePreferenceKey(userId),
+    language ?? UNSET_LANGUAGE_PREFERENCE,
+  );
+}
+
 export async function readPendingLanguagePreference(
   userId: string,
   store: LanguagePreferenceStore,
@@ -82,6 +119,29 @@ export async function writePendingLanguagePreference(
   await store.setItem(pendingLanguagePreferenceKey(userId), language);
 }
 
+export async function readPendingLanguagePreferenceBase(
+  userId: string,
+  store: LanguagePreferenceStore,
+): Promise<{ found: boolean; language: AppLanguage | null }> {
+  const saved = await store.getItem(pendingLanguagePreferenceBaseKey(userId));
+  if (saved === null) return { found: false, language: null };
+  if (saved === UNSET_LANGUAGE_PREFERENCE) return { found: true, language: null };
+  return isAppLanguage(saved)
+    ? { found: true, language: saved }
+    : { found: false, language: null };
+}
+
+export async function writePendingLanguagePreferenceBase(
+  userId: string,
+  language: AppLanguage | null,
+  store: LanguagePreferenceStore,
+): Promise<void> {
+  await store.setItem(
+    pendingLanguagePreferenceBaseKey(userId),
+    language ?? UNSET_LANGUAGE_PREFERENCE,
+  );
+}
+
 export async function clearPendingLanguagePreference(
   userId: string,
   language: AppLanguage,
@@ -92,7 +152,9 @@ export async function clearPendingLanguagePreference(
 
   if (store.removeItem) {
     await store.removeItem(key);
+    await store.removeItem(pendingLanguagePreferenceBaseKey(userId));
   } else {
     await store.setItem(key, '');
+    await store.setItem(pendingLanguagePreferenceBaseKey(userId), '');
   }
 }

@@ -200,14 +200,16 @@ export const Daily007V2GetLanguagePreferenceResponse = zod.object({
 
 
 /**
- * @summary Save the signed-in player's language preference
+ * @summary Save the signed-in player's language preference if the expected value is current
  */
 export const Daily007V2SetLanguagePreferenceBody = zod.object({
-  "language": zod.enum(['en', 'hi', 'gu'])
+  "language": zod.enum(['en', 'hi', 'gu']),
+  "expectedLanguage": zod.union([zod.literal('en'),zod.literal('hi'),zod.literal('gu'),zod.literal(null)]).nullable()
 })
 
 export const Daily007V2SetLanguagePreferenceResponse = zod.object({
-  "language": zod.union([zod.literal('en'),zod.literal('hi'),zod.literal('gu'),zod.literal(null)]).nullable()
+  "language": zod.union([zod.literal('en'),zod.literal('hi'),zod.literal('gu'),zod.literal(null)]).nullable(),
+  "accepted": zod.boolean()
 })
 
 

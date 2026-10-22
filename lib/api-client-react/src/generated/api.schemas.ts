@@ -618,8 +618,40 @@ export const Daily007LanguagePreferenceUpdateLanguage = {
   gu: 'gu',
 } as const;
 
+/**
+ * @nullable
+ */
+export type Daily007LanguagePreferenceUpdateExpectedLanguage = typeof Daily007LanguagePreferenceUpdateExpectedLanguage[keyof typeof Daily007LanguagePreferenceUpdateExpectedLanguage] | null;
+
+
+export const Daily007LanguagePreferenceUpdateExpectedLanguage = {
+  en: 'en',
+  hi: 'hi',
+  gu: 'gu',
+} as const;
+
 export interface Daily007LanguagePreferenceUpdate {
   language: Daily007LanguagePreferenceUpdateLanguage;
+  /** @nullable */
+  expectedLanguage: Daily007LanguagePreferenceUpdateExpectedLanguage;
+}
+
+/**
+ * @nullable
+ */
+export type Daily007LanguagePreferenceSaveResultLanguage = typeof Daily007LanguagePreferenceSaveResultLanguage[keyof typeof Daily007LanguagePreferenceSaveResultLanguage] | null;
+
+
+export const Daily007LanguagePreferenceSaveResultLanguage = {
+  en: 'en',
+  hi: 'hi',
+  gu: 'gu',
+} as const;
+
+export interface Daily007LanguagePreferenceSaveResult {
+  /** @nullable */
+  language: Daily007LanguagePreferenceSaveResultLanguage;
+  accepted: boolean;
 }
 
 export interface HealthStatus {

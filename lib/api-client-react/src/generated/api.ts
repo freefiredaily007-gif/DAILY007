@@ -70,6 +70,7 @@ import type {
   Daily007InstagramFollowClaimBody,
   Daily007InstagramFollowTaskStatus,
   Daily007LanguagePreference,
+  Daily007LanguagePreferenceSaveResult,
   Daily007LanguagePreferenceUpdate,
   Daily007LeaderboardsResponse,
   Daily007ListAdminResultLogsParams,
@@ -968,9 +969,9 @@ export const getDaily007V2SetLanguagePreferenceUrl = () => {
 }
 
 /**
- * @summary Save the signed-in player's language preference
+ * @summary Save the signed-in player's language preference if the expected value is current
  */
-export const daily007V2SetLanguagePreference = async (daily007LanguagePreferenceUpdate: Daily007LanguagePreferenceUpdate, options?: Parameters<typeof customFetch>[1]): Promise<Daily007LanguagePreference> => {
+export const daily007V2SetLanguagePreference = async (daily007LanguagePreferenceUpdate: Daily007LanguagePreferenceUpdate, options?: Parameters<typeof customFetch>[1]): Promise<Daily007LanguagePreferenceSaveResult> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -986,7 +987,7 @@ export const daily007V2SetLanguagePreference = async (daily007LanguagePreference
     }
     return headers;
   };
-return customFetch<Daily007LanguagePreference>(getDaily007V2SetLanguagePreferenceUrl(),
+return customFetch<Daily007LanguagePreferenceSaveResult>(getDaily007V2SetLanguagePreferenceUrl(),
   {
     ...options,
     method: 'PUT',
@@ -1034,7 +1035,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type Daily007V2SetLanguagePreferenceMutationVariables = {data: BodyType<Daily007LanguagePreferenceUpdate>}
 
     /**
- * @summary Save the signed-in player's language preference
+ * @summary Save the signed-in player's language preference if the expected value is current
  */
 export const useDaily007V2SetLanguagePreference = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007V2SetLanguagePreference>>, TError,Daily007V2SetLanguagePreferenceMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}

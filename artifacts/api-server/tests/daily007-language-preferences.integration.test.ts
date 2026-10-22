@@ -86,10 +86,10 @@ test("language preference is authenticated, validated, and isolated by player", 
   const saved = await fetch(preferenceUrl, {
     method: "PUT",
     headers: { ...firstSession, "Content-Type": "application/json" },
-    body: JSON.stringify({ language: "hi" }),
+    body: JSON.stringify({ language: "hi", expectedLanguage: null }),
   });
   assert.equal(saved.status, 200);
-  assert.deepEqual(await saved.json(), { language: "hi" });
+  assert.deepEqual(await saved.json(), { language: "hi", accepted: true });
 
   // A new login increments the server session version, modeling a second device
   // with its own valid authenticated session for the same account.
@@ -97,6 +97,14 @@ test("language preference is authenticated, validated, and isolated by player", 
   const persistedPreference = await fetch(preferenceUrl, { headers: secondSession });
   assert.equal(persistedPreference.status, 200);
   assert.deepEqual(await persistedPreference.json(), { language: "hi" });
+
+  const staleDeviceSave = await fetch(preferenceUrl, {
+    method: "PUT",
+    headers: { ...secondSession, "Content-Type": "application/json" },
+    body: JSON.stringify({ language: "gu", expectedLanguage: null }),
+  });
+  assert.equal(staleDeviceSave.status, 200);
+  assert.deepEqual(await staleDeviceSave.json(), { language: "hi", accepted: false });
 
   const otherAccountSession = await login(secondEmail);
   const otherPlayerPreference = await fetch(preferenceUrl, { headers: otherAccountSession });
@@ -106,17 +114,17 @@ test("language preference is authenticated, validated, and isolated by player", 
   const unsupported = await fetch(preferenceUrl, {
     method: "PUT",
     headers: { ...secondSession, "Content-Type": "application/json" },
-    body: JSON.stringify({ language: "fr" }),
+    body: JSON.stringify({ language: "fr", expectedLanguage: "hi" }),
   });
   assert.equal(unsupported.status, 400);
 
   const changedOtherPreference = await fetch(preferenceUrl, {
     method: "PUT",
     headers: { ...otherAccountSession, "Content-Type": "application/json" },
-    body: JSON.stringify({ language: "gu" }),
+    body: JSON.stringify({ language: "gu", expectedLanguage: null }),
   });
   assert.equal(changedOtherPreference.status, 200);
-  assert.deepEqual(await changedOtherPreference.json(), { language: "gu" });
+  assert.deepEqual(await changedOtherPreference.json(), { language: "gu", accepted: true });
 
   const confirmed = await fetch(preferenceUrl, { headers: secondSession });
   assert.deepEqual(await confirmed.json(), { language: "hi" });
