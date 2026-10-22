@@ -13,7 +13,10 @@ import type { PropsWithChildren } from 'react';
 import { Api } from '../lib/api';
 import { isUsableNetworkState } from '../lib/focusedRetry';
 import { i18n } from './index';
-import { createLanguagePreferenceLifecycle } from './languagePreferenceLifecycle';
+import {
+  createLanguagePreferenceLifecycle,
+  subscribeToLanguagePreferenceNetwork,
+} from './languagePreferenceLifecycle';
 import {
   LANGUAGE_NATIVE_NAMES,
 } from './languagePreference';
@@ -92,19 +95,15 @@ export function Daily007LanguageProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     let active = true;
-    let networkEventRevision = 0;
-    const initialRevision = networkEventRevision;
-    const subscription = Network.addNetworkStateListener((networkState) => {
-      networkEventRevision += 1;
-      if (isUsableNetworkState(networkState)) {
-        void lifecycle.retryPendingServerPreference();
-      }
-    });
+    const networkSubscription = subscribeToLanguagePreferenceNetwork(
+      (listener) => Network.addNetworkStateListener(listener),
+      lifecycle,
+    );
 
     void Network.getNetworkStateAsync().then((networkState) => {
       if (
         active
-        && networkEventRevision === initialRevision
+        && !networkSubscription.hasReceivedEvent()
         && isUsableNetworkState(networkState)
       ) {
         void lifecycle.retryPendingServerPreference();
@@ -113,7 +112,7 @@ export function Daily007LanguageProvider({ children }: PropsWithChildren) {
 
     return () => {
       active = false;
-      subscription.remove();
+      networkSubscription.remove();
     };
   }, [lifecycle]);
 

@@ -8,6 +8,7 @@ import {
   writeLanguagePreference,
 } from './languagePreference';
 import type { AppLanguage, LanguagePreferenceStore } from './languagePreference';
+import { isUsableNetworkState } from '../lib/focusedRetry';
 
 type LanguagePreferenceLifecycleDependencies = {
   applyLanguage: (language: AppLanguage) => void | Promise<void>;
@@ -270,4 +271,27 @@ export function createLanguagePreferenceLifecycle({
   };
 
   return { setLanguage, setAccountId, refreshOnResume, retryPendingServerPreference };
+}
+
+export function subscribeToLanguagePreferenceNetwork(
+  addNetworkStateListener: (
+    listener: (networkState: {
+      isConnected?: boolean | null;
+      isInternetReachable?: boolean | null;
+    }) => void | Promise<void>,
+  ) => { remove: () => void },
+  lifecycle: Pick<ReturnType<typeof createLanguagePreferenceLifecycle>, 'retryPendingServerPreference'>,
+) {
+  let receivedNetworkEvent = false;
+  const subscription = addNetworkStateListener((networkState) => {
+    receivedNetworkEvent = true;
+    if (isUsableNetworkState(networkState)) {
+      return lifecycle.retryPendingServerPreference();
+    }
+  });
+
+  return {
+    remove: () => subscription.remove(),
+    hasReceivedEvent: () => receivedNetworkEvent,
+  };
 }

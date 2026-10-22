@@ -29,7 +29,10 @@ registerHooks({
   },
 });
 
-const { createLanguagePreferenceLifecycle } = await import(
+const {
+  createLanguagePreferenceLifecycle,
+  subscribeToLanguagePreferenceNetwork,
+} = await import(
   '../src/i18n/languagePreferenceLifecycle.ts'
 );
 
@@ -299,6 +302,48 @@ test('a failed language sync retries and clears pending state only after server 
   assert.equal(await store.getItem('daily007:language:pending:v1:player-one'), null);
   assert.equal(await readLanguagePreference('player-one', store), 'hi');
   assert.equal(appliedLanguages.at(-1), 'hi');
+});
+
+test('the Expo network listener retries pending language sync only for usable connections', async () => {
+  const savedServerLanguages = [];
+  const store = createStore();
+  const lifecycle = createLanguagePreferenceLifecycle({
+    applyLanguage() {},
+    localStore: store,
+    readServerPreference: async () => null,
+    async saveServerPreference(language) {
+      savedServerLanguages.push(language);
+      if (savedServerLanguages.length === 1) throw new Error('Network unavailable');
+    },
+  });
+  await lifecycle.setAccountId('player-one');
+  await assert.rejects(lifecycle.setLanguage('hi'), /Network unavailable/);
+  let onNetworkState;
+  let removed = false;
+  const subscription = subscribeToLanguagePreferenceNetwork((listener) => {
+    onNetworkState = listener;
+    return { remove() { removed = true; } };
+  }, lifecycle);
+  assert.equal(typeof onNetworkState, 'function');
+
+  for (const networkState of [
+    { isConnected: false, isInternetReachable: true },
+    { isConnected: true, isInternetReachable: false },
+    { isConnected: null, isInternetReachable: null },
+  ]) {
+    assert.equal(await onNetworkState(networkState), undefined);
+  }
+  assert.deepEqual(savedServerLanguages, ['hi']);
+  assert.equal(await store.getItem('daily007:language:pending:v1:player-one'), 'hi');
+
+  await onNetworkState({ isConnected: true, isInternetReachable: true });
+
+  assert.deepEqual(savedServerLanguages, ['hi', 'hi']);
+  assert.equal(await store.getItem('daily007:language:pending:v1:player-one'), null);
+  assert.equal(subscription.hasReceivedEvent(), true);
+
+  subscription.remove();
+  assert.equal(removed, true);
 });
 
 test('a failed save retries after a delay and stops after server confirmation', async () => {
