@@ -287,3 +287,99 @@ test("PostgreSQL list and detail keep an approved captain-only team in filled an
     );
   });
 });
+
+test("PostgreSQL list and detail count pending and approved solo and duo registrations once", async () => {
+  const formats = [
+    { teamType: "solo", capacity: 10 },
+    { teamType: "duo", capacity: 8 },
+  ] as const;
+  const matchIds = new Map<string, string>();
+
+  for (const format of formats) {
+    const matchId = randomUUID();
+    matchIds.set(format.teamType, matchId);
+    await pool.query(
+      `INSERT INTO daily007_v2_matches
+         (id, title, mode, game_mode, team_type, capacity, entry_coins, prize_pool, starts_at, status)
+       VALUES ($1, $2, $3, 'battle_royale', $4, $5, 5, 100,
+               clock_timestamp() + interval '20 hours', 'open')`,
+      [
+        matchId,
+        `${format.teamType} Registration Counts`,
+        format.teamType === "solo" ? "solo" : "squad",
+        format.teamType,
+        format.capacity,
+      ],
+    );
+
+    for (const status of ["approved", "pending", "rejected"]) {
+      const userId = randomUUID();
+      await pool.query(
+        `INSERT INTO daily007_v2_users (id, name, email, password_salt, password_hash)
+         VALUES ($1, $2, $3, 'salt', 'hash')`,
+        [userId, `${format.teamType} ${status}`, `${userId}@example.test`],
+      );
+      await pool.query(
+        `INSERT INTO daily007_v2_registrations
+           (match_id, captain_user_id, captain_name, captain_game_name, captain_game_uid,
+            team_name, entry_coins_paid, status)
+         VALUES ($1, $2, $3, $4, $5, $6, 5, $7)`,
+        [
+          matchId,
+          userId,
+          `${format.teamType} ${status}`,
+          `${format.teamType}${status}Player`,
+          `${format.teamType}-${status}-uid`,
+          `${format.teamType} ${status} Team`,
+          status,
+        ],
+      );
+    }
+  }
+
+  await withServer(async (origin) => {
+    const listResponse = await fetch(`${origin}/tournaments`);
+    assert.equal(listResponse.status, 200);
+    const list = await listResponse.json() as {
+      id: string;
+      filledSlots: number;
+      totalSlots: number;
+      availableSlots: number;
+    }[];
+
+    for (const format of formats) {
+      const matchId = matchIds.get(format.teamType);
+      assert.ok(matchId);
+      const listTournament = list.find(({ id }) => id === matchId);
+      assert.ok(listTournament, `The list must include the ${format.teamType} match.`);
+
+      const detailResponse = await fetch(`${origin}/tournaments/${matchId}`);
+      assert.equal(detailResponse.status, 200);
+      const detailTournament = await detailResponse.json() as {
+        filledSlots: number;
+        totalSlots: number;
+        availableSlots: number;
+      };
+
+      const expected = {
+        filledSlots: 2,
+        totalSlots: format.capacity,
+        availableSlots: format.capacity - 2,
+      };
+      for (const [source, tournament] of [
+        ["list", listTournament],
+        ["detail", detailTournament],
+      ] as const) {
+        assert.deepEqual(
+          {
+            filledSlots: tournament.filledSlots,
+            totalSlots: tournament.totalSlots,
+            availableSlots: tournament.availableSlots,
+          },
+          expected,
+          `The ${source} API must count approved and pending ${format.teamType} registrations once and exclude rejected entries.`,
+        );
+      }
+    }
+  });
+});
