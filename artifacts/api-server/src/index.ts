@@ -1,7 +1,5 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { startDaily007AutoCancellationScheduler } from "./lib/daily007-tournament-auto-cancel";
-import { startDaily007TournamentCleanupScheduler } from "./lib/daily007-tournament-cleanup";
 import { startDaily007LeaderboardScheduler } from "./lib/daily007-leaderboards";
 
 const rawPort = process.env["PORT"];
@@ -24,8 +22,6 @@ app.listen(port, (err) => {
     process.exit(1);
   }
 
-  startDaily007AutoCancellationScheduler();
-  startDaily007TournamentCleanupScheduler();
   startDaily007LeaderboardScheduler();
   logger.info({ port }, "Server listening");
 });

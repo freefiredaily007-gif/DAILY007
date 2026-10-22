@@ -67,8 +67,8 @@
 - [Daily007 tournament UID reuse](daily007-tournament-uid-reuse.md) — Only approved/pending entries reserve UIDs, and only in the same tournament; rejected entries are reusable.
 - [Daily007 tournament seat assignments](daily007-tournament-slot-groups.md) — each team player joins one exact team and seat with only their own in-game identity.
 - [Daily007 tournament auto-confirmation](daily007-tournament-auto-confirm.md) — new joins confirm immediately, with any entry-fee deduction in the same transaction.
-- [Daily007 automatic tournament cancellation](daily007-auto-cancellation.md) — preserve private sweep progress across API restarts while refunding only eligible underfilled matches.
-- [Daily007 expired-match cleanup](daily007-expired-match-cleanup.md) — delete match data after the 72-hour scheduled-start cutoff while preserving wallet, account, and player history.
+- [Daily007 manual tournament cancellation](daily007-auto-cancellation.md) — cancellation and refunds are admin-only; never run automatic cancellation or refund sweeps.
+- [Daily007 tournament retention](daily007-expired-match-cleanup.md) — keep tournaments until an admin explicitly cancels, refunds, or deletes them.
 - [Daily007 room credential release](daily007-room-credentials.md) — saving credentials schedules access at five minutes before the tournament’s scheduled start, for approved registrants only.
 - [Daily007 public participant rosters](daily007-public-participant-roster.md) — show team names and Free Fire handles only; keep account details and UIDs private.
 - [Daily007 payer UPI for recharges](daily007-payer-upi.md) — collect the payer's UPI ID separately from the configured receiving UPI ID and transaction reference.

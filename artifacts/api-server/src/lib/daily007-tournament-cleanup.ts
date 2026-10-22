@@ -2,7 +2,6 @@ import { pool } from "@workspace/db";
 import { logger } from "./logger";
 
 const CLEANUP_RETENTION_MS = 72 * 60 * 60 * 1000;
-const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 const CLEANUP_BATCH_SIZE = 100;
 
 type CleanupPreviewRow = {
@@ -196,21 +195,8 @@ export async function runDaily007TournamentCleanupSweep(): Promise<{ deletedMatc
   return { deletedMatchIds };
 }
 
-let cleanupTimer: NodeJS.Timeout | undefined;
-
 export function startDaily007TournamentCleanupScheduler(): void {
-  if (cleanupTimer) return;
-  void runDaily007TournamentCleanupSweep().catch((error) => {
-    logger.error({ err: error }, "Tournament cleanup sweep failed");
-  });
-  cleanupTimer = setInterval(() => {
-    void runDaily007TournamentCleanupSweep().catch((error) => {
-      logger.error({ err: error }, "Tournament cleanup sweep failed");
-    });
-  }, CLEANUP_INTERVAL_MS);
-  cleanupTimer.unref();
   logger.info(
-    { intervalMs: CLEANUP_INTERVAL_MS, retentionHours: 72 },
-    "Daily007 tournament cleanup scheduler started",
+    "Automatic tournament deletion is disabled; only an authorized admin may delete a tournament.",
   );
 }

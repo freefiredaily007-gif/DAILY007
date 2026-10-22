@@ -8,7 +8,6 @@ const AUTO_CANCEL_FAILURE_ALERT_THRESHOLD = 3;
 const AUTO_CANCEL_CURSOR_SETTING = "__daily007AutoCancelCursor";
 const UUID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 
-let schedulerTimer: NodeJS.Timeout | undefined;
 let sweepRunning = false;
 let consecutiveSweepFailures = 0;
 let sweepFailureAlertActive = false;
@@ -198,9 +197,7 @@ export function getDaily007AutoCancellationSweepStatus(): {
 }
 
 export function startDaily007AutoCancellationScheduler(): void {
-  if (schedulerTimer) return;
-  void runDaily007AutoCancellationSweep();
-  schedulerTimer = setInterval(() => void runDaily007AutoCancellationSweep(), AUTO_CANCEL_INTERVAL_MS);
-  schedulerTimer.unref();
-  logger.info({ intervalMs: AUTO_CANCEL_INTERVAL_MS }, "Daily007 underfilled tournament cancellation scheduler started");
+  logger.info(
+    "Automatic tournament cancellation and refunds are disabled; use the authorized admin action.",
+  );
 }
