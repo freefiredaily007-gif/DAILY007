@@ -41,6 +41,7 @@ export function languagePreferenceKey(userId: string): string {
 export interface LanguagePreferenceStore {
   getItem(key: string): Promise<string | null>;
   setItem(key: string, value: string): Promise<void>;
+  removeItem?(key: string): Promise<void>;
 }
 
 export async function readLanguagePreference(
@@ -57,4 +58,41 @@ export async function writeLanguagePreference(
   store: LanguagePreferenceStore,
 ): Promise<void> {
   await store.setItem(languagePreferenceKey(userId), language);
+}
+
+function pendingLanguagePreferenceKey(userId: string): string {
+  const normalized = userId.trim();
+  if (!normalized) throw new Error('A user ID is required to save a pending language preference.');
+  return `daily007:language:pending:v1:${encodeURIComponent(normalized)}`;
+}
+
+export async function readPendingLanguagePreference(
+  userId: string,
+  store: LanguagePreferenceStore,
+): Promise<AppLanguage | null> {
+  const saved = await store.getItem(pendingLanguagePreferenceKey(userId));
+  return isAppLanguage(saved) ? saved : null;
+}
+
+export async function writePendingLanguagePreference(
+  userId: string,
+  language: AppLanguage,
+  store: LanguagePreferenceStore,
+): Promise<void> {
+  await store.setItem(pendingLanguagePreferenceKey(userId), language);
+}
+
+export async function clearPendingLanguagePreference(
+  userId: string,
+  language: AppLanguage,
+  store: LanguagePreferenceStore,
+): Promise<void> {
+  const key = pendingLanguagePreferenceKey(userId);
+  if (await store.getItem(key) !== language) return;
+
+  if (store.removeItem) {
+    await store.removeItem(key);
+  } else {
+    await store.setItem(key, '');
+  }
 }

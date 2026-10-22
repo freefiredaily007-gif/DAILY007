@@ -43,6 +43,9 @@ function createStore(initial = {}) {
     async setItem(key, value) {
       values.set(key, value);
     },
+    async removeItem(key) {
+      values.delete(key);
+    },
   };
 }
 
@@ -241,6 +244,110 @@ test('a signed-in language change still updates the local and server preferences
 
   assert.equal(await readLanguagePreference('player-one', store), 'hi');
   assert.deepEqual(savedServerLanguages, ['hi']);
+});
+
+test('a failed language sync retries and clears pending state only after server confirmation', async () => {
+  let attempts = 0;
+  const store = createStore();
+  const appliedLanguages = [];
+  const lifecycle = createLanguagePreferenceLifecycle({
+    applyLanguage(language) {
+      appliedLanguages.push(language);
+    },
+    localStore: store,
+    async readServerPreference() {
+      return null;
+    },
+    async saveServerPreference(language) {
+      attempts += 1;
+      if (attempts === 1) throw new Error('Network unavailable');
+      assert.equal(language, 'hi');
+    },
+  });
+  await lifecycle.setAccountId('player-one');
+
+  await assert.rejects(lifecycle.setLanguage('hi'), /Network unavailable/);
+  assert.equal(await store.getItem('daily007:language:pending:v1:player-one'), 'hi');
+
+  await lifecycle.retryPendingServerPreference();
+
+  assert.equal(attempts, 2);
+  assert.equal(await store.getItem('daily007:language:pending:v1:player-one'), null);
+  assert.equal(await readLanguagePreference('player-one', store), 'hi');
+  assert.equal(appliedLanguages.at(-1), 'hi');
+});
+
+test('a pending offline choice wins on sign-in and is retried instead of the stale server value', async () => {
+  const store = createStore({
+    'daily007:language:v1:player-one': 'hi',
+    'daily007:language:pending:v1:player-one': 'hi',
+  });
+  const savedServerLanguages = [];
+  const lifecycle = createLanguagePreferenceLifecycle({
+    applyLanguage() {},
+    localStore: store,
+    async readServerPreference() {
+      return 'gu';
+    },
+    async saveServerPreference(language) {
+      savedServerLanguages.push(language);
+    },
+  });
+
+  await lifecycle.setAccountId('player-one');
+
+  assert.deepEqual(savedServerLanguages, ['hi']);
+  assert.equal(await store.getItem('daily007:language:pending:v1:player-one'), null);
+});
+
+test('an in-flight retry cannot clear or overwrite a newer language selection', async () => {
+  const retryConfirmation = deferred();
+  const retryStarted = deferred();
+  const newerConfirmation = deferred();
+  const newerSaveStarted = deferred();
+  const savedServerLanguages = [];
+  let saveAttempts = 0;
+  const store = createStore();
+  const guardedLifecycle = createLanguagePreferenceLifecycle({
+    applyLanguage() {},
+    localStore: store,
+    async readServerPreference() {
+      return null;
+    },
+    async saveServerPreference(language) {
+      savedServerLanguages.push(language);
+      saveAttempts += 1;
+      if (saveAttempts === 1) {
+        throw new Error('Network unavailable');
+      }
+      if (saveAttempts === 2) {
+        retryStarted.resolve();
+        await retryConfirmation.promise;
+      }
+      if (saveAttempts === 3) {
+        newerSaveStarted.resolve();
+        await newerConfirmation.promise;
+      }
+    },
+  });
+  await guardedLifecycle.setAccountId('player-one');
+
+  await assert.rejects(guardedLifecycle.setLanguage('hi'), /Network unavailable/);
+  const retry = guardedLifecycle.retryPendingServerPreference();
+  await retryStarted.promise;
+  const newerChoice = guardedLifecycle.setLanguage('gu');
+
+  retryConfirmation.resolve();
+  await newerSaveStarted.promise;
+  assert.equal(await store.getItem('daily007:language:pending:v1:player-one'), 'gu');
+  assert.equal(await readLanguagePreference('player-one', store), 'gu');
+
+  newerConfirmation.resolve();
+  await Promise.all([retry, newerChoice]);
+
+  assert.deepEqual(savedServerLanguages, ['hi', 'hi', 'gu']);
+  assert.equal(await readLanguagePreference('player-one', store), 'gu');
+  assert.equal(await store.getItem('daily007:language:pending:v1:player-one'), null);
 });
 
 test('Hindi and Gujarati resources cover the same keys as English', () => {

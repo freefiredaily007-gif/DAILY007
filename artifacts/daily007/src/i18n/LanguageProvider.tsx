@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Network from 'expo-network';
 import { AppState, AccessibilityInfo, Platform } from 'react-native';
 import React, {
   createContext,
@@ -10,6 +11,7 @@ import React, {
 } from 'react';
 import type { PropsWithChildren } from 'react';
 import { Api } from '../lib/api';
+import { isUsableNetworkState } from '../lib/focusedRetry';
 import { i18n } from './index';
 import { createLanguagePreferenceLifecycle } from './languagePreferenceLifecycle';
 import {
@@ -86,6 +88,33 @@ export function Daily007LanguageProvider({ children }: PropsWithChildren) {
       void lifecycle.refreshOnResume(state);
     });
     return () => subscription.remove();
+  }, [lifecycle]);
+
+  useEffect(() => {
+    let active = true;
+    let networkEventRevision = 0;
+    const initialRevision = networkEventRevision;
+    const subscription = Network.addNetworkStateListener((networkState) => {
+      networkEventRevision += 1;
+      if (isUsableNetworkState(networkState)) {
+        void lifecycle.retryPendingServerPreference();
+      }
+    });
+
+    void Network.getNetworkStateAsync().then((networkState) => {
+      if (
+        active
+        && networkEventRevision === initialRevision
+        && isUsableNetworkState(networkState)
+      ) {
+        void lifecycle.retryPendingServerPreference();
+      }
+    }).catch(() => {});
+
+    return () => {
+      active = false;
+      subscription.remove();
+    };
   }, [lifecycle]);
 
   return (
