@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
 import test from 'node:test';
 import {
   isAppLanguage,
@@ -11,6 +12,27 @@ import en from '../src/i18n/locales/en.ts';
 import hi from '../src/i18n/locales/hi.ts';
 import gu from '../src/i18n/locales/gu.ts';
 
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    try {
+      return nextResolve(specifier, context);
+    } catch (error) {
+      if (
+        error?.code === 'ERR_MODULE_NOT_FOUND'
+        && (specifier.startsWith('./') || specifier.startsWith('../'))
+        && !/\.[a-z\d]+$/i.test(specifier)
+      ) {
+        return nextResolve(`${specifier}.ts`, context);
+      }
+      throw error;
+    }
+  },
+});
+
+const { createLanguagePreferenceLifecycle } = await import(
+  '../src/i18n/languagePreferenceLifecycle.ts'
+);
+
 function createStore(initial = {}) {
   const values = new Map(Object.entries(initial));
   return {
@@ -22,6 +44,33 @@ function createStore(initial = {}) {
       values.set(key, value);
     },
   };
+}
+
+function createLifecycle({ initial = {}, readServerPreference = async () => null } = {}) {
+  const store = createStore(initial);
+  const appliedLanguages = [];
+  const savedServerLanguages = [];
+  const lifecycle = createLanguagePreferenceLifecycle({
+    applyLanguage(language) {
+      appliedLanguages.push(language);
+    },
+    localStore: store,
+    readServerPreference,
+    async saveServerPreference(language) {
+      savedServerLanguages.push(language);
+    },
+  });
+  return { lifecycle, store, appliedLanguages, savedServerLanguages };
+}
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
 
 test('new accounts have no saved preference and use English as the app default', async () => {
@@ -78,6 +127,120 @@ test('a new account defaults to English without writing an unselected preference
     resolveSignedInLanguagePreference(null, null, null),
     { language: 'en', shouldPersistToServer: false },
   );
+});
+
+test('sign-in restores the server preference and refreshes its account-scoped local cache', async () => {
+  const { lifecycle, store, appliedLanguages, savedServerLanguages } = createLifecycle({
+    initial: { [languagePreferenceKey('player-one')]: 'hi' },
+    readServerPreference: async () => 'gu',
+  });
+
+  await lifecycle.setAccountId('player-one');
+
+  assert.deepEqual(appliedLanguages, ['en', 'gu']);
+  assert.equal(await readLanguagePreference('player-one', store), 'gu');
+  assert.deepEqual(savedServerLanguages, []);
+});
+
+test('app resume restores a changed server preference without rewriting the server', async () => {
+  let reads = 0;
+  const { lifecycle, store, appliedLanguages, savedServerLanguages } = createLifecycle({
+    readServerPreference: async () => {
+      reads += 1;
+      return reads === 1 ? 'hi' : 'gu';
+    },
+  });
+
+  await lifecycle.setAccountId('player-one');
+  await lifecycle.refreshOnResume('background');
+  assert.equal(reads, 1, 'background transitions must not refresh language');
+
+  await lifecycle.refreshOnResume('active');
+
+  assert.deepEqual(appliedLanguages, ['en', 'hi', 'gu']);
+  assert.equal(await readLanguagePreference('player-one', store), 'gu');
+  assert.deepEqual(savedServerLanguages, []);
+});
+
+test('an intentional guest choice migrates to a signed-in account when the server is unset', async () => {
+  const { lifecycle, store, appliedLanguages, savedServerLanguages } = createLifecycle();
+
+  await lifecycle.setLanguage('hi');
+  await lifecycle.setAccountId('player-one');
+
+  assert.equal(appliedLanguages.at(-1), 'hi');
+  assert.equal(await readLanguagePreference('player-one', store), 'hi');
+  assert.deepEqual(savedServerLanguages, ['hi']);
+});
+
+test('a local preference remains usable when the sign-in server read is offline', async () => {
+  const { lifecycle, appliedLanguages, savedServerLanguages } = createLifecycle({
+    initial: { [languagePreferenceKey('player-one')]: 'gu' },
+    readServerPreference: async () => {
+      throw new Error('Network unavailable');
+    },
+  });
+
+  await lifecycle.setAccountId('player-one');
+
+  assert.deepEqual(appliedLanguages, ['en', 'gu']);
+  assert.deepEqual(savedServerLanguages, []);
+});
+
+test('a delayed sign-in response cannot replace the next account language', async () => {
+  const oldAccountRead = deferred();
+  const oldAccountReadStarted = deferred();
+  let reads = 0;
+  const { lifecycle, appliedLanguages, savedServerLanguages } = createLifecycle({
+    readServerPreference: () => {
+      reads += 1;
+      if (reads === 1) {
+        oldAccountReadStarted.resolve();
+        return oldAccountRead.promise;
+      }
+      return Promise.resolve('gu');
+    },
+  });
+
+  const oldAccountSignIn = lifecycle.setAccountId('player-one');
+  await oldAccountReadStarted.promise;
+  await lifecycle.setAccountId('player-two');
+  oldAccountRead.resolve('hi');
+  await oldAccountSignIn;
+
+  assert.deepEqual(appliedLanguages, ['en', 'en', 'gu']);
+  assert.deepEqual(savedServerLanguages, []);
+});
+
+test('a delayed resume response cannot replace the language after an account switch', async () => {
+  const oldResumeRead = deferred();
+  let reads = 0;
+  const { lifecycle, appliedLanguages } = createLifecycle({
+    readServerPreference: () => {
+      reads += 1;
+      if (reads === 1) return Promise.resolve('en');
+      if (reads === 2) return oldResumeRead.promise;
+      return Promise.resolve('gu');
+    },
+  });
+
+  await lifecycle.setAccountId('player-one');
+  const oldResume = lifecycle.refreshOnResume('active');
+  await lifecycle.setAccountId('player-two');
+  oldResumeRead.resolve('hi');
+  await oldResume;
+
+  assert.deepEqual(appliedLanguages, ['en', 'en', 'en', 'gu']);
+});
+
+test('a signed-in language change still updates the local and server preferences', async () => {
+  const { lifecycle, store, savedServerLanguages } = createLifecycle();
+  await lifecycle.setAccountId('player-one');
+
+  await lifecycle.setLanguage('hi');
+
+  assert.equal(await readLanguagePreference('player-one', store), 'hi');
+  assert.deepEqual(savedServerLanguages, ['hi']);
 });
 
 test('Hindi and Gujarati resources cover the same keys as English', () => {
