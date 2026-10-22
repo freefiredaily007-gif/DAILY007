@@ -21,7 +21,7 @@ import {
   useDaily007ListAdminResultLogs,
   useUpdateTournamentLifecycle,
 } from '@workspace/api-client-react';
-import { Api, apiError, AdminRegistration, Tournament } from '../lib/api';
+import { Api, apiError, AdminRegistration, Tournament, TournamentCleanupPreview } from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Input, Loading, Msg, TimePicker } from '../components/ui';
 import { CopyUidButton } from '../components/CopyUidButton';
 import { inr, COIN_RATE_TEXT } from '../lib/coins';
@@ -141,6 +141,11 @@ export default function AdminTournaments() {
   const [retryingApprovedRegistrations, setRetryingApprovedRegistrations] = useState(false);
   const [resultError, setResultError] = useState('');
   const [resultSuccess, setResultSuccess] = useState('');
+  const [showCleanupPreview, setShowCleanupPreview] = useState(false);
+  const [cleanupPreview, setCleanupPreview] = useState<TournamentCleanupPreview | null>(null);
+  const [cleanupPreviewLoading, setCleanupPreviewLoading] = useState(false);
+  const [cleanupPreviewError, setCleanupPreviewError] = useState('');
+  const cleanupPreviewRequestId = useRef(0);
   const announcedErrors = useRef<Record<string, string>>({});
   const [publishedRegistrationIds, setPublishedRegistrationIds] = useState<Record<string, string[]>>({});
   const cancelLifecycle = useUpdateTournamentLifecycle();
@@ -176,6 +181,22 @@ export default function AdminTournaments() {
       gcTime: 0,
     },
   });
+
+  const loadCleanupPreview = useCallback(async () => {
+    const requestId = ++cleanupPreviewRequestId.current;
+    setCleanupPreviewLoading(true);
+    setCleanupPreviewError('');
+    try {
+      const preview = await Api.adminTournamentCleanupPreview();
+      if (requestId === cleanupPreviewRequestId.current) setCleanupPreview(preview);
+    } catch (error) {
+      if (requestId === cleanupPreviewRequestId.current) {
+        setCleanupPreviewError(`Cleanup review is unavailable: ${apiError(error)}`);
+      }
+    } finally {
+      if (requestId === cleanupPreviewRequestId.current) setCleanupPreviewLoading(false);
+    }
+  }, []);
 
   const announceApprovedRegistrationRetryStatus = (message: string) => {
     if (Platform.OS !== 'ios') return;
@@ -784,6 +805,127 @@ export default function AdminTournaments() {
           );
         })}
       </View>
+      <Card testID="admin-tournament-cleanup-review" style={st.cleanupReview}>
+        <View style={st.cleanupHeader}>
+          <Text style={[st.resultTitle, st.cleanupTitle]}>AUTOMATIC CLEANUP REVIEW</Text>
+          <Btn
+            title={showCleanupPreview ? 'HIDE' : 'REVIEW'}
+            kind="ghost"
+            small
+            accessibilityLabel={showCleanupPreview ? 'Hide automatic cleanup review' : 'Review automatic cleanup policy'}
+            accessibilityHint={showCleanupPreview
+              ? 'Hide the read-only cleanup policy and match summary.'
+              : 'Load the read-only 72-hour cleanup policy and match summary.'}
+            testID="admin-tournament-cleanup-review-toggle"
+            onPress={() => {
+              const nextOpen = !showCleanupPreview;
+              setShowCleanupPreview(nextOpen);
+              if (nextOpen) void loadCleanupPreview();
+            }}
+          />
+        </View>
+        <Text
+          testID="admin-tournament-cleanup-read-only"
+          accessibilityRole="text"
+          style={st.auditReadOnly}
+        >
+          READ-ONLY · Shows the automatic cleanup policy; no records can be deleted here.
+        </Text>
+        {showCleanupPreview && (
+          <View testID="admin-tournament-cleanup-preview" style={st.cleanupBody}>
+            {cleanupPreviewLoading ? (
+              <Text
+                testID="admin-tournament-cleanup-loading"
+                accessibilityRole="text"
+                accessibilityLiveRegion="polite"
+                style={st.resultLine}
+              >
+                {cleanupPreview ? 'Refreshing cleanup review…' : 'Loading cleanup review…'}
+              </Text>
+            ) : null}
+            {!!cleanupPreviewError && (
+              <View style={st.cleanupError}>
+                <Msg
+                  kind="err"
+                  text={cleanupPreviewError}
+                  accessibilityLiveRegion="polite"
+                  testID="admin-tournament-cleanup-error"
+                />
+                <Btn
+                  title="RETRY REVIEW"
+                  small
+                  loading={cleanupPreviewLoading}
+                  disabled={cleanupPreviewLoading}
+                  accessibilityLabel="Retry loading cleanup review"
+                  accessibilityHint="Request the latest read-only cleanup preview."
+                  accessibilityState={{ disabled: cleanupPreviewLoading, busy: cleanupPreviewLoading }}
+                  testID="admin-tournament-cleanup-retry"
+                  onPress={() => { void loadCleanupPreview(); }}
+                />
+              </View>
+            )}
+            {cleanupPreview && (
+              <>
+                <Text
+                  testID="admin-tournament-cleanup-cutoff"
+                  accessibilityRole="text"
+                  style={st.cleanupCutoff}
+                >
+                  {`${cleanupPreview.retentionHours}-hour age cutoff · ${formatAuditTimestamp(cleanupPreview.cutoffAt)}`}
+                </Text>
+                <Text style={st.resultLine}>
+                  {`Preview generated ${formatAuditTimestamp(cleanupPreview.generatedAt)}`}
+                </Text>
+                <Text style={st.resultLine}>
+                  {`${cleanupPreview.eligibleMatches} eligible empty terminal ${cleanupPreview.eligibleMatches === 1 ? 'match' : 'matches'} out of ${cleanupPreview.scannedMatches} matches at least ${cleanupPreview.retentionHours} hours old.`}
+                </Text>
+                <Text style={st.cleanupPolicy}>
+                  Eligible matches are cancelled, closed, or completed; disabled; and have no registrations, roster or squad records, published results, or wallet history.
+                </Text>
+                <View testID="admin-tournament-cleanup-protected-counts" style={st.cleanupCounts}>
+                  <Text style={st.cleanupSectionTitle}>PRESERVED HISTORY</Text>
+                  <Text style={st.cleanupCountLine}>
+                    {`Registrations: ${cleanupPreview.protectedHistory.registrationRowsPreserved} preserved across ${cleanupPreview.protectedHistory.matchesWithRegistrations} matches`}
+                  </Text>
+                  <Text style={st.cleanupCountLine}>
+                    {`Published result awards: ${cleanupPreview.protectedHistory.publishedResultAwards} preserved across ${cleanupPreview.protectedHistory.matchesWithPublishedResults} matches`}
+                  </Text>
+                  <Text style={st.cleanupCountLine}>
+                    {`Wallet ledger records: ${cleanupPreview.protectedHistory.walletLedgerRows} preserved across ${cleanupPreview.protectedHistory.matchesWithWalletHistory} matches`}
+                  </Text>
+                </View>
+                {cleanupPreview.candidates.length > 0 ? (
+                  <View testID="admin-tournament-cleanup-candidates" style={st.cleanupCandidates}>
+                    <Text style={st.cleanupSectionTitle}>ELIGIBLE EMPTY MATCHES</Text>
+                    {cleanupPreview.candidates.map((candidate) => (
+                      <View key={candidate.id} testID={`admin-tournament-cleanup-candidate-${candidate.id}`} style={st.cleanupCandidate}>
+                        <Text style={st.cleanupCandidateName}>{candidate.title}</Text>
+                        <Text style={st.cleanupCountLine}>
+                          {`${candidate.status.toUpperCase()} · started ${formatAuditTimestamp(candidate.startsAt)}`}
+                        </Text>
+                        <Text style={st.cleanupCountLine}>
+                          {`Registrations ${candidate.registrations} · roster rows ${candidate.rosterRows} · squad teams ${candidate.squadTeams} · squad members ${candidate.squadMembers}`}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <Text
+                    testID="admin-tournament-cleanup-empty"
+                    accessibilityRole="text"
+                    accessibilityLiveRegion="polite"
+                    style={st.cleanupEmpty}
+                  >
+                    {cleanupPreview.scannedMatches === 0
+                      ? 'No matches have reached the 72-hour review window.'
+                      : 'No empty terminal matches currently meet every cleanup condition.'}
+                  </Text>
+                )}
+              </>
+            )}
+          </View>
+        )}
+      </Card>
       {tab === 'completed' && resultLogsQuery.isError && (
         <Msg
           kind="err"
@@ -1488,6 +1630,27 @@ const st = StyleSheet.create({
   },
   tabTextOn: { color: C.text },
   tabCount: { color: C.dim, fontSize: 9, fontWeight: '700' },
+  cleanupReview: {
+    marginBottom: 12,
+    padding: 12,
+    backgroundColor: C.bg2,
+    borderWidth: 1,
+    borderColor: C.orange,
+    borderRadius: 10,
+  },
+  cleanupHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+  cleanupTitle: { flex: 1, minWidth: 0, marginBottom: 0 },
+  cleanupBody: { marginTop: 9, gap: 5 },
+  cleanupError: { gap: 8, alignItems: 'flex-start' },
+  cleanupCutoff: { color: C.gold, fontSize: 12, fontWeight: '900', lineHeight: 18, marginTop: 4 },
+  cleanupPolicy: { color: C.sub, fontSize: 10, lineHeight: 15, marginTop: 2 },
+  cleanupCounts: { marginTop: 8, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: C.card },
+  cleanupSectionTitle: { color: C.gold, fontSize: 10, fontWeight: '900', letterSpacing: 0.6, marginBottom: 4 },
+  cleanupCountLine: { color: C.sub, fontSize: 11, lineHeight: 16, marginTop: 2 },
+  cleanupCandidates: { marginTop: 8 },
+  cleanupCandidate: { marginTop: 6, padding: 9, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: C.card },
+  cleanupCandidateName: { color: C.text, fontSize: 12, fontWeight: '900', flexShrink: 1 },
+  cleanupEmpty: { color: C.sub, fontSize: 11, lineHeight: 16, marginTop: 10, padding: 10, borderRadius: 8, backgroundColor: C.card },
   h: { color: C.text, fontSize: 20, fontWeight: '900', letterSpacing: 0.7, fontFamily: 'Inter_700Bold' },
   hint: { color: C.sub, fontSize: 11, marginTop: 3, marginBottom: 10 },
   formH: { color: C.neon, fontWeight: '900', letterSpacing: 1, marginBottom: 10 },
