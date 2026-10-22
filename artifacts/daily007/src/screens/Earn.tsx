@@ -3,7 +3,6 @@ import {
   AppState,
   ActivityIndicator,
   AccessibilityInfo,
-  Alert,
   Linking,
   Platform,
   Pressable,
@@ -29,6 +28,8 @@ import {
   openReferralInBrowserWithFallback,
   shareReferralInviteWithFallback,
 } from '../lib/referral-invite';
+import { showLocalizedAlert } from '../i18n/alerts';
+import { translateExactText } from '../i18n';
 
 const rechargeStatusLabel: Record<string, string> = {
   rewarded: 'Approved recharge · reward credited',
@@ -80,7 +81,7 @@ export default function Earn() {
       const copiedSuccessfully = await writeReferralCode(dashboard.code);
       if (!copiedSuccessfully) throw new Error('Clipboard did not confirm the copy.');
       setCopied(true);
-      Alert.alert('Referral code copied', 'Share it with a friend when they create their account.');
+      showLocalizedAlert('Referral code copied', 'Share it with a friend when they create their account.');
       setTimeout(() => setCopied(false), 1800);
     } catch {
       showReferralCopyFallback('Could not copy the referral code. Use Share Invite instead.');
@@ -96,19 +97,19 @@ export default function Earn() {
       (content) => Share.share(content),
       (message) => {
         setActionError(message);
-        if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(message);
+        if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(translateExactText(message));
       },
     );
   };
 
   const showReferralOpenFallback = (message: string) => {
     setActionError(message);
-    if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(message);
+    if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(translateExactText(message));
   };
 
   const showReferralCopyFallback = (message: string) => {
     setActionError(message);
-    if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(message);
+    if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(translateExactText(message));
   };
 
   const openReferralLink = async () => {
@@ -138,7 +139,7 @@ export default function Earn() {
     );
     if (!copiedSuccessfully) return;
     setLinkCopied(true);
-    Alert.alert('Invite link copied', 'Send the link to a friend. It opens Daily007 signup with your referral code filled in.');
+    showLocalizedAlert('Invite link copied', 'Send the link to a friend. It opens Daily007 signup with your referral code filled in.');
     setTimeout(() => setLinkCopied(false), 1800);
   };
 
@@ -161,7 +162,7 @@ export default function Earn() {
       await submitYoutubeClaim.mutateAsync(undefined);
       setReturnedFromYoutube(false);
       await youtubeTaskQuery.refetch();
-      Alert.alert('Claim submitted', 'An administrator will review your YouTube subscription before adding the coins.');
+      showLocalizedAlert('Claim submitted', 'An administrator will review your YouTube subscription before adding the coins.');
     } catch (e) {
       setTaskError(`Could not submit your claim: ${apiError(e)}`);
     }

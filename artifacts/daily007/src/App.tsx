@@ -278,7 +278,7 @@ function DailyAppContent({
   const [booting, setBooting] = useState(!testInitialUser);
   const [user, setUser] = useState<User | null>(testInitialUser ?? null);
   const { setAccountId } = useDaily007Language();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [logoutPending, setLogoutPending] = useState(false);
   const [authNotice, setAuthNotice] = useState('');
   const [googleLinkError, setGoogleLinkError] = useState('');

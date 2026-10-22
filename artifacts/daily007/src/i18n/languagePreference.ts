@@ -6,9 +6,9 @@ export const LANGUAGE_OPTIONS: ReadonlyArray<{
   value: AppLanguage;
   label: string;
 }> = [
-  { value: 'en', label: 'English' },
-  { value: 'hi', label: 'हिन्दी' },
-  { value: 'gu', label: 'ગુજરાતી' },
+  { value: 'en', label: '🇬🇧 English' },
+  { value: 'hi', label: '🇮🇳 हिन्दी' },
+  { value: 'gu', label: '🇮🇳 ગુજરાતી' },
 ];
 
 export function isAppLanguage(value: unknown): value is AppLanguage {

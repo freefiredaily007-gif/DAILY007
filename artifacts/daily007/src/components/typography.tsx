@@ -141,6 +141,14 @@ function translateTextValue(value: string, t: TFunction) {
   const direct = t(content, { defaultValue: content });
   if (direct !== content) return `${leading}${direct}${trailing}`;
 
+  for (const prefix of ['Google connection status unavailable:', 'Could not submit your claim:']) {
+    if (!content.startsWith(prefix)) continue;
+    const translatedPrefix = t(prefix, { defaultValue: prefix });
+    if (translatedPrefix !== prefix) {
+      return `${leading}${translatedPrefix}${content.slice(prefix.length)}${trailing}`;
+    }
+  }
+
   const uppercase = content.toUpperCase();
   if (uppercase !== content) {
     const translatedUppercase = t(uppercase, { defaultValue: uppercase });

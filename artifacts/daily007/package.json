@@ -101,7 +101,8 @@
     "test:signup-keyboard": "node scripts/signup-keyboard.test.mjs",
     "test:profile-password": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/profile-password.test.mjs",
     "test:form-resume": "node --test scripts/form-resume.test.mjs",
-    "test:android-form-resume": "node scripts/run-android-form-resume.mjs"
+    "test:android-form-resume": "node scripts/run-android-form-resume.mjs",
+    "test:i18n": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test scripts/language-preference.test.mjs"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

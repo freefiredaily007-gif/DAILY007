@@ -20,7 +20,6 @@ if (!i18n.isInitialized) {
     defaultNS: 'translation',
     keySeparator: false,
     nsSeparator: false,
-    initImmediate: false,
     interpolation: { escapeValue: false },
     returnEmptyString: false,
     returnNull: false,
