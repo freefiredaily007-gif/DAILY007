@@ -245,6 +245,8 @@ const gu: Record<string, string> = {
   "Copies this value to your clipboard.": "આ માહિતી ક્લિપબોર્ડમાં કૉપિ કરે છે.",
   "EARN COINS": "સિક્કા કમાઓ",
   "Invite friends and track referral rewards": "મિત્રોને આમંત્રિત કરો અને રેફરલ ઇનામ જુઓ",
+  "Complete Tasks • Invite Friends • Earn Rewards": "કાર્યો પૂર્ણ કરો • મિત્રોને આમંત્રિત કરો • ઇનામ મેળવો",
+  "INVITE & EARN": "આમંત્રિત કરો અને કમાઓ",
   "10 coins for your friend at signup": "મિત્રના સાઇન અપ પર 10 સિક્કા",
   "You earn 5 coins once their recharge of at least 50 coins is approved by an administrator.": "તેમનું ઓછામાં ઓછા 50 સિક્કાનું રિચાર્જ એડમિન મંજૂર કરે પછી તમને 5 સિક્કા મળશે.",
   "YOUR 5-LETTER REFERRAL CODE": "તમારો 5 અક્ષરનો રેફરલ કોડ",

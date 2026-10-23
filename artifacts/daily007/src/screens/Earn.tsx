@@ -7,13 +7,13 @@ import {
   Platform,
   Pressable,
   RefreshControl,
-  ScrollView,
   Share,
   StyleSheet,
   View,
 } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import { useTranslation } from 'react-i18next';
 import { ReadableText as Text } from '../components/typography';
@@ -33,6 +33,7 @@ import {
 } from '../lib/referral-invite';
 import { showLocalizedAlert } from '../i18n/alerts';
 import { translateExactText } from '../i18n';
+import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
 
 const rechargeStatusLabel: Record<string, string> = {
   rewarded: 'Approved recharge · reward credited',
@@ -54,6 +55,7 @@ export default function Earn() {
   const [instagramTaskError, setInstagramTaskError] = useState('');
   const [instagramUsername, setInstagramUsername] = useState('');
   const [instagramProof, setInstagramProof] = useState('');
+  const [focusedInstagramField, setFocusedInstagramField] = useState<'username' | 'proof' | null>(null);
   const [returnedFromYoutube, setReturnedFromYoutube] = useState(false);
   const [returnedFromInstagram, setReturnedFromInstagram] = useState(false);
   const waitingForYoutubeReturn = useRef(false);
@@ -230,9 +232,12 @@ export default function Earn() {
   };
 
   return (
-    <ScrollView
+    <KeyboardAwareScrollViewCompat
       style={s.root}
       contentContainerStyle={s.content}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+      bottomOffset={60}
       refreshControl={
         <RefreshControl
           refreshing={referralsQuery.isRefetching || youtubeTaskQuery.isRefetching || instagramTaskQuery.isRefetching}
@@ -243,15 +248,37 @@ export default function Earn() {
         />
       }
     >
-      <Text style={s.title}>EARN COINS</Text>
-      <Text style={s.subtitle}>Invite friends and track referral rewards</Text>
+      <View style={s.header}>
+        <View style={s.headerCoin}>
+          <FontAwesome5 name="coins" size={20} color={C.bg} />
+        </View>
+        <View style={s.headerCopy}>
+          <Text style={s.title}>EARN COINS</Text>
+          <Text style={s.subtitle}>Complete Tasks • Invite Friends • Earn Rewards</Text>
+        </View>
+      </View>
 
       <View style={s.ruleCard}>
-        <View style={s.ruleRow}>
-          <Feather name="gift" size={18} color={C.gold} />
-          <Text style={s.ruleTitle}>10 coins for your friend at signup</Text>
+        <View style={s.ruleTop}>
+          <View style={s.ruleIcon}>
+            <Feather name="gift" size={20} color={C.gold} />
+          </View>
+          <View style={s.ruleContent}>
+            <Text style={s.ruleTitle}>10 coins for your friend at signup</Text>
+            <Text style={s.ruleText}>
+              You earn 5 coins once their recharge of at least 50 coins is approved by an administrator.
+            </Text>
+          </View>
+          <View style={s.ruleBadge}>
+            <Text style={s.ruleBadgeValue}>10</Text>
+            <Text style={s.ruleBadgeLabel}>COINS</Text>
+          </View>
         </View>
-        <Text style={s.ruleText}>You earn 5 coins once their recharge of at least 50 coins is approved by an administrator.</Text>
+        <View style={s.ruleDivider} />
+        <View style={s.rewardReasonRow}>
+          <FontAwesome5 name="coins" size={13} color={C.gold} />
+          <Text style={s.rewardReason}>5 coins for you after an approved 50+ coin recharge</Text>
+        </View>
       </View>
 
       {referralsQuery.isPending && !dashboard ? (
@@ -281,7 +308,9 @@ export default function Earn() {
 
       <View style={s.youtubeCard}>
         <View style={s.youtubeHeading}>
-          <Feather name="youtube" size={21} color={C.red} />
+          <View style={[s.taskIconShell, s.youtubeIconShell]}>
+            <Feather name="youtube" size={21} color={C.red} />
+          </View>
           <Text style={s.youtubeTitle}>
             Subscribe to YouTube &amp; Earn {youtubeTask?.rewardCoins ?? 5} Coins
           </Text>
@@ -325,10 +354,17 @@ export default function Earn() {
                 accessibilityLabel="Open the Daily007 YouTube channel"
                 testID="youtube-task-open-channel"
                 onPress={openYoutubeChannel}
-                style={s.youtubeButton}
+                style={({ pressed }) => [s.youtubeButton, pressed && s.buttonPressed]}
               >
-                <Feather name="external-link" size={16} color={C.text} />
-                <Text style={s.youtubeButtonText}>SUBSCRIBE ON YOUTUBE</Text>
+                <LinearGradient
+                  colors={[C.red, `${C.red}CC`]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={s.taskButtonGradient}
+                >
+                  <Feather name="youtube" size={17} color={C.text} />
+                  <Text style={s.youtubeButtonText}>SUBSCRIBE ON YOUTUBE</Text>
+                </LinearGradient>
               </Pressable>
               <Pressable
                 accessibilityRole="button"
@@ -336,14 +372,24 @@ export default function Earn() {
                 testID="youtube-task-submit-claim"
                 disabled={!returnedFromYoutube || submitYoutubeClaim.isPending}
                 onPress={submitYoutubeTask}
-                style={[s.claimButton, (!returnedFromYoutube || submitYoutubeClaim.isPending) && s.claimButtonDisabled]}
+                style={[
+                  s.claimButton,
+                  (!returnedFromYoutube || submitYoutubeClaim.isPending) && s.claimButtonDisabled,
+                ]}
               >
-                {submitYoutubeClaim.isPending
-                  ? <ActivityIndicator color={C.bg} />
-                  : <Feather name="send" size={15} color={C.bg} />}
-                <Text style={s.claimButtonText}>
-                  {submitYoutubeClaim.isPending ? 'SUBMITTING…' : 'I SUBSCRIBED · SUBMIT FOR REVIEW'}
-                </Text>
+                <LinearGradient
+                  colors={[C.gold, `${C.gold}CC`]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={s.claimButtonGradient}
+                >
+                  {submitYoutubeClaim.isPending
+                    ? <ActivityIndicator color={C.bg} />
+                    : <Feather name="send" size={15} color={C.bg} />}
+                  <Text style={s.claimButtonText}>
+                    {submitYoutubeClaim.isPending ? 'SUBMITTING…' : 'I SUBSCRIBED · SUBMIT FOR REVIEW'}
+                  </Text>
+                </LinearGradient>
               </Pressable>
               {!returnedFromYoutube ? (
                 <Text style={s.taskHint}>Subscribe on YouTube, then return to Daily007 to submit for review.</Text>
@@ -357,7 +403,9 @@ export default function Earn() {
 
       <View style={s.instagramCard}>
         <View style={s.youtubeHeading}>
-          <Feather name="instagram" size={21} color={C.purple} />
+          <View style={[s.taskIconShell, s.instagramIconShell]}>
+            <Feather name="instagram" size={21} color={C.purple} />
+          </View>
           <Text style={s.youtubeTitle}>
             {t('Follow on Instagram & Earn {{count}} Coins', {
               count: instagramTask?.rewardCoins ?? 3,
@@ -436,35 +484,58 @@ export default function Earn() {
                 accessibilityLabel={t('Open the official Daily007 Instagram account')}
                 testID="instagram-task-open-account"
                 onPress={openInstagramAccount}
-                style={s.instagramButton}
+                style={({ pressed }) => [s.instagramButton, pressed && s.buttonPressed]}
               >
-                <Feather name="external-link" size={16} color={C.text} />
-                <Text style={s.youtubeButtonText}>FOLLOW ON INSTAGRAM</Text>
+                <LinearGradient
+                  colors={[C.purple, C.red]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={s.taskButtonGradient}
+                >
+                  <Feather name="instagram" size={17} color={C.text} />
+                  <Text style={s.youtubeButtonText}>FOLLOW ON INSTAGRAM</Text>
+                </LinearGradient>
               </Pressable>
               <Text style={s.fieldLabel}>Instagram username</Text>
-              <Input
-                accessibilityLabel={t('Instagram username')}
-                testID="instagram-task-username"
-                autoCapitalize="none"
-                autoCorrect={false}
-                maxLength={31}
-                placeholder="Enter your Instagram username"
-                value={instagramUsername}
-                onChangeText={setInstagramUsername}
-                style={s.taskInput}
-              />
+              <View style={[s.taskInputShell, focusedInstagramField === 'username' && s.taskInputShellFocused]}>
+                <Feather name="at-sign" size={16} color={C.purple} />
+                <Input
+                  accessibilityLabel={t('Instagram username')}
+                  testID="instagram-task-username"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  maxLength={31}
+                  placeholder="Enter your Instagram username"
+                  value={instagramUsername}
+                  onChangeText={setInstagramUsername}
+                  onFocus={() => setFocusedInstagramField('username')}
+                  onBlur={() => setFocusedInstagramField((current) => current === 'username' ? null : current)}
+                  style={s.taskInput}
+                />
+              </View>
               <Text style={s.fieldLabel}>Proof / note (optional)</Text>
-              <Input
-                accessibilityLabel={t('Proof / note (optional)')}
-                testID="instagram-task-proof"
-                autoCapitalize="sentences"
-                maxLength={1000}
-                multiline
-                placeholder="Add a verification note or proof link (optional)"
-                value={instagramProof}
-                onChangeText={setInstagramProof}
-                style={[s.taskInput, s.proofInput]}
-              />
+              <View
+                style={[
+                  s.taskInputShell,
+                  s.proofInputShell,
+                  focusedInstagramField === 'proof' && s.taskInputShellFocused,
+                ]}
+              >
+                <Feather name="message-square" size={16} color={C.purple} />
+                <Input
+                  accessibilityLabel={t('Proof / note (optional)')}
+                  testID="instagram-task-proof"
+                  autoCapitalize="sentences"
+                  maxLength={1000}
+                  multiline
+                  placeholder="Add a verification note or proof link (optional)"
+                  value={instagramProof}
+                  onChangeText={setInstagramProof}
+                  onFocus={() => setFocusedInstagramField('proof')}
+                  onBlur={() => setFocusedInstagramField((current) => current === 'proof' ? null : current)}
+                  style={[s.taskInput, s.proofInput]}
+                />
+              </View>
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={t('Submit Instagram follow claim for administrator review')}
@@ -476,12 +547,19 @@ export default function Earn() {
                   (!returnedFromInstagram || submitInstagramClaim.isPending) && s.claimButtonDisabled,
                 ]}
               >
-                {submitInstagramClaim.isPending
-                  ? <ActivityIndicator color={C.bg} />
-                  : <Feather name="send" size={15} color={C.bg} />}
-                <Text style={s.claimButtonText}>
-                  {submitInstagramClaim.isPending ? 'SUBMITTING…' : 'SUBMIT FOLLOW CLAIM FOR REVIEW'}
-                </Text>
+                <LinearGradient
+                  colors={[C.gold, `${C.gold}CC`]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={s.claimButtonGradient}
+                >
+                  {submitInstagramClaim.isPending
+                    ? <ActivityIndicator color={C.bg} />
+                    : <Feather name="send" size={15} color={C.bg} />}
+                  <Text style={s.claimButtonText}>
+                    {submitInstagramClaim.isPending ? 'SUBMITTING…' : 'SUBMIT FOLLOW CLAIM FOR REVIEW'}
+                  </Text>
+                </LinearGradient>
               </Pressable>
               {!returnedFromInstagram ? (
                 <Text style={s.taskHint}>
@@ -498,6 +576,12 @@ export default function Earn() {
       {!!dashboard && (
         <>
           <View style={s.codeCard}>
+            <View style={s.inviteCardHeader}>
+              <View style={s.inviteIconShell}>
+                <Feather name="send" size={17} color={C.gold} />
+              </View>
+              <Text style={s.inviteTitle}>INVITE &amp; EARN</Text>
+            </View>
             <Text style={s.sectionLabel}>YOUR 5-LETTER REFERRAL CODE</Text>
             <View style={s.codeRow}>
               <Text selectable style={s.code}>{dashboard.code}</Text>
@@ -597,18 +681,25 @@ export default function Earn() {
               accessibilityHint="Opens sharing options for your referral code and invite link."
               testID="referral-share-invite"
               onPress={shareInvite}
-              style={s.shareButton}
+              style={({ pressed }) => [s.shareButton, pressed && s.buttonPressed]}
             >
-              <Feather name="share-2" size={16} color={C.bg} />
-              <Text style={s.shareButtonText}>SHARE INVITE LINK</Text>
+              <LinearGradient
+                colors={[C.gold, `${C.gold}CC`]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={s.shareButtonGradient}
+              >
+                <Feather name="share-2" size={16} color={C.bg} />
+                <Text style={s.shareButtonText}>SHARE INVITE LINK</Text>
+              </LinearGradient>
             </Pressable>
           </View>
 
           <View style={s.statsGrid}>
-            <Stat label="PEOPLE INVITED" value={dashboard.totalPeopleReferred} />
-            <Stat label="SUCCESSFUL" value={dashboard.successfulReferrals} />
-            <Stat label="PENDING" value={dashboard.pendingReferrals} />
-            <Stat label="COINS EARNED" value={dashboard.totalReferralCoinsEarned} />
+            <Stat icon="users" label="PEOPLE INVITED" value={dashboard.totalPeopleReferred} />
+            <Stat icon="check-circle" label="SUCCESSFUL" value={dashboard.successfulReferrals} />
+            <Stat icon="clock" label="PENDING" value={dashboard.pendingReferrals} />
+            <Stat icon="award" label="COINS EARNED" value={dashboard.totalReferralCoinsEarned} />
           </View>
 
           <Text style={s.sectionHeading}>MY REFERRALS ({dashboard.totalPeopleReferred})</Text>
@@ -653,14 +744,27 @@ export default function Earn() {
           )}
         </>
       )}
-    </ScrollView>
+    </KeyboardAwareScrollViewCompat>
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({
+  icon,
+  label,
+  value,
+}: {
+  icon: 'users' | 'check-circle' | 'clock' | 'award';
+  label: string;
+  value: number;
+}) {
   return (
     <View style={s.statCard}>
-      <Text style={s.statValue}>{value}</Text>
+      <View style={s.statTopRow}>
+        <View style={s.statIcon}>
+          <Feather name={icon} size={14} color={C.gold} />
+        </View>
+        <Text style={s.statValue}>{value}</Text>
+      </View>
       <Text style={s.statLabel}>{label}</Text>
     </View>
   );
@@ -668,57 +772,318 @@ function Stat({ label, value }: { label: string; value: number }) {
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
-  content: { padding: 14, paddingBottom: 100 },
-  title: { color: C.text, fontSize: 22, fontWeight: '900', letterSpacing: 1, marginTop: 16 },
-  subtitle: { color: C.sub, fontSize: 12, marginTop: 3, marginBottom: 14 },
-  ruleCard: { backgroundColor: C.card2, borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: C.border },
-  ruleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  ruleTitle: { color: C.gold, fontSize: 13, fontWeight: '800', flex: 1 },
-  ruleText: { color: C.sub, fontSize: 12, lineHeight: 18, marginTop: 7 },
-  youtubeCard: { backgroundColor: C.card, borderRadius: 16, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: `${C.red}66` },
-  instagramCard: { backgroundColor: C.card, borderRadius: 16, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: `${C.purple}66` },
-  youtubeHeading: { flexDirection: 'row', alignItems: 'center', gap: 9 },
-  youtubeTitle: { color: C.text, fontSize: 14, fontWeight: '900', flex: 1 },
-  youtubeCopy: { color: C.sub, fontSize: 12, lineHeight: 18, marginTop: 8, marginBottom: 10 },
+  content: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 122 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
+  headerCoin: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: C.gold,
+    borderWidth: 2,
+    borderColor: `${C.gold}88`,
+    shadowColor: C.gold,
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  headerCopy: { flex: 1, minWidth: 0 },
+  title: { color: C.gold, fontSize: 22, fontWeight: '900', letterSpacing: 1.2 },
+  subtitle: { color: C.sub, fontSize: 11, lineHeight: 16, marginTop: 3 },
+  ruleCard: {
+    backgroundColor: C.card2,
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: `${C.gold}66`,
+    shadowColor: C.gold,
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  ruleTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  ruleIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    backgroundColor: `${C.gold}18`,
+    borderWidth: 1,
+    borderColor: `${C.gold}44`,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ruleContent: { flex: 1, minWidth: 0 },
+  ruleTitle: { color: C.text, fontSize: 13, lineHeight: 18, fontWeight: '900' },
+  ruleText: { color: C.sub, fontSize: 11, lineHeight: 16, marginTop: 5 },
+  ruleBadge: {
+    minWidth: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 7,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: `${C.gold}18`,
+    borderWidth: 1,
+    borderColor: `${C.gold}55`,
+  },
+  ruleBadgeValue: { color: C.gold, fontSize: 20, lineHeight: 22, fontWeight: '900' },
+  ruleBadgeLabel: { color: C.gold, fontSize: 8, fontWeight: '900', letterSpacing: 0.8 },
+  ruleDivider: { height: 1, backgroundColor: `${C.gold}30`, marginVertical: 12 },
+  rewardReasonRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  rewardReason: { flex: 1, minWidth: 0, color: C.gold, fontSize: 10, lineHeight: 15, fontWeight: '800' },
+  youtubeCard: {
+    backgroundColor: C.card,
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: `${C.red}66`,
+    shadowColor: C.red,
+    shadowOpacity: 0.09,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  instagramCard: {
+    backgroundColor: C.card,
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: `${C.purple}66`,
+    shadowColor: C.purple,
+    shadowOpacity: 0.09,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  youtubeHeading: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  taskIconShell: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  youtubeIconShell: { backgroundColor: `${C.red}18`, borderWidth: 1, borderColor: `${C.red}44` },
+  instagramIconShell: { backgroundColor: `${C.purple}18`, borderWidth: 1, borderColor: `${C.purple}44` },
+  youtubeTitle: { color: C.text, fontSize: 14, lineHeight: 19, fontWeight: '900', flex: 1, minWidth: 0 },
+  youtubeCopy: { color: C.sub, fontSize: 11, lineHeight: 17, marginTop: 9, marginBottom: 8 },
   taskLoading: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
-  taskStatus: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: C.bg2, borderRadius: 10, padding: 11, marginTop: 6, borderWidth: 1, borderColor: `${C.green}55` },
-  taskAction: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.bg2, borderRadius: 10, padding: 11, marginTop: 6, borderWidth: 1, borderColor: `${C.purple}55` },
-  taskStatusText: { flex: 1 },
-  taskStatusTitle: { color: C.green, fontSize: 10, fontWeight: '900', letterSpacing: 0.5 },
-  taskRejected: { backgroundColor: C.bg2, borderRadius: 10, padding: 11, marginTop: 6, borderWidth: 1, borderColor: `${C.red}55` },
+  taskStatus: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 9,
+    backgroundColor: C.bg2,
+    borderRadius: 12,
+    padding: 11,
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: `${C.green}55`,
+  },
+  taskAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: C.bg2,
+    borderRadius: 12,
+    padding: 11,
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: `${C.purple}55`,
+  },
+  taskStatusText: { flex: 1, minWidth: 0 },
+  taskStatusTitle: { color: C.green, fontSize: 10, lineHeight: 15, fontWeight: '900', letterSpacing: 0.35 },
+  taskRejected: { backgroundColor: C.bg2, borderRadius: 12, padding: 11, marginTop: 6, borderWidth: 1, borderColor: `${C.red}55` },
   taskHint: { color: C.dim, fontSize: 10, lineHeight: 15, textAlign: 'center', marginTop: 8 },
-  youtubeButton: { minHeight: 44, backgroundColor: `${C.red}22`, borderColor: `${C.red}88`, borderWidth: 1, borderRadius: 10, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 8 },
-  instagramButton: { minHeight: 44, backgroundColor: `${C.purple}22`, borderColor: `${C.purple}88`, borderWidth: 1, borderRadius: 10, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 8 },
-  youtubeButtonText: { color: C.text, fontWeight: '900', fontSize: 11, letterSpacing: 0.4 },
-  fieldLabel: { color: C.sub, fontSize: 10, fontWeight: '900', letterSpacing: 0.8, marginTop: 8, marginBottom: 4 },
-  taskInput: { minHeight: 46, backgroundColor: C.bg2, borderColor: C.border, borderWidth: 1, borderRadius: 10, color: C.text, paddingHorizontal: 12, paddingVertical: 10, fontSize: 13 },
-  proofInput: { minHeight: 72, textAlignVertical: 'top' },
-  claimButton: { minHeight: 44, backgroundColor: C.gold, borderRadius: 10, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 8, paddingHorizontal: 8 },
-  claimButtonDisabled: { opacity: 0.45 },
+  youtubeButton: {
+    minHeight: 48,
+    borderRadius: 13,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: `${C.red}99`,
+    marginTop: 9,
+  },
+  instagramButton: {
+    minHeight: 48,
+    borderRadius: 13,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: `${C.purple}99`,
+    marginTop: 9,
+  },
+  taskButtonGradient: {
+    minHeight: 46,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 9,
+    paddingHorizontal: 12,
+  },
+  youtubeButtonText: { color: C.text, fontWeight: '900', fontSize: 11, letterSpacing: 0.5 },
+  buttonPressed: { transform: [{ scale: 0.985 }], opacity: 0.92 },
+  fieldLabel: { color: C.sub, fontSize: 10, fontWeight: '900', letterSpacing: 0.8, marginTop: 10, marginBottom: 5 },
+  taskInputShell: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    backgroundColor: C.bg2,
+    borderColor: C.border,
+    borderWidth: 1,
+    borderRadius: 13,
+    paddingHorizontal: 12,
+  },
+  taskInputShellFocused: {
+    borderColor: C.purple,
+    shadowColor: C.purple,
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  proofInputShell: { alignItems: 'flex-start', paddingTop: 10 },
+  taskInput: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 44,
+    backgroundColor: 'transparent',
+    borderColor: 'transparent',
+    borderWidth: 0,
+    borderRadius: 0,
+    color: C.text,
+    paddingHorizontal: 0,
+    paddingVertical: 10,
+    fontSize: 13,
+  },
+  proofInput: { minHeight: 78, textAlignVertical: 'top' },
+  claimButton: { minHeight: 48, borderRadius: 13, overflow: 'hidden', marginTop: 10 },
+  claimButtonDisabled: { opacity: 0.48 },
+  claimButtonGradient: {
+    minHeight: 48,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: `${C.gold}99`,
+    borderRadius: 13,
+  },
   claimButtonText: { flex: 1, minWidth: 0, flexShrink: 1, textAlign: 'center', color: C.bg, fontWeight: '900', fontSize: 10, letterSpacing: 0.25 },
-  loading: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 18 },
-  muted: { color: C.sub, fontSize: 12, lineHeight: 18, marginTop: 4 },
+  loading: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 14 },
+  muted: { color: C.sub, fontSize: 11, lineHeight: 17, marginTop: 4 },
   error: { color: C.red, fontSize: 12, lineHeight: 18, marginBottom: 10 },
-  codeCard: { backgroundColor: C.card, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: `${C.gold}77`, marginBottom: 14 },
-  sectionLabel: { color: C.gold, fontWeight: '900', letterSpacing: 1.4, fontSize: 11 },
-  codeRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
-  code: { flex: 1, color: C.gold, fontWeight: '900', fontSize: 17, letterSpacing: 1.4, backgroundColor: C.bg2, borderRadius: 10, borderWidth: 1, borderColor: C.border, textAlign: 'center', paddingVertical: 12 },
-  linkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
-  linkButton: { minHeight: 48, flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: C.bg2, borderRadius: 10, borderWidth: 1, borderColor: C.border, paddingHorizontal: 10, paddingVertical: 8 },
-  linkText: { flex: 1, minWidth: 0, flexShrink: 1, color: C.blue, fontSize: 11, lineHeight: 16, textDecorationLine: 'underline' },
-  iconButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  codeCard: {
+    backgroundColor: C.card,
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: `${C.gold}66`,
+    marginBottom: 12,
+  },
+  inviteCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
+  inviteIconShell: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: `${C.gold}18`,
+    borderWidth: 1,
+    borderColor: `${C.gold}44`,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inviteTitle: { color: C.gold, fontWeight: '900', letterSpacing: 1.2, fontSize: 13 },
+  sectionLabel: { color: C.gold, fontWeight: '900', letterSpacing: 1.1, fontSize: 10 },
+  codeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 7 },
+  code: {
+    flex: 1,
+    minWidth: 0,
+    color: C.gold,
+    fontWeight: '900',
+    fontSize: 18,
+    letterSpacing: 1.5,
+    backgroundColor: C.bg2,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: `${C.gold}44`,
+    textAlign: 'center',
+    paddingVertical: 11,
+  },
+  linkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 7 },
+  linkButton: {
+    minHeight: 48,
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: C.bg2,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  linkText: { flex: 1, minWidth: 0, flexShrink: 1, color: C.blue, fontSize: 10, lineHeight: 15, textDecorationLine: 'underline' },
+  iconButton: {
+    minWidth: 44,
+    minHeight: 44,
+    borderRadius: 12,
+    backgroundColor: C.bg2,
+    borderWidth: 1,
+    borderColor: C.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   devTestButton: { alignSelf: 'flex-start', minHeight: 40, justifyContent: 'center', borderWidth: 1, borderColor: C.gold, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 7, marginTop: 6 },
   devTestButtonText: { color: C.gold, fontSize: 11, fontWeight: '800' },
-  shareButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.gold, borderRadius: 10, paddingVertical: 12, marginTop: 10 },
-  shareButtonText: { color: C.bg, fontWeight: '900', fontSize: 12, letterSpacing: 0.5 },
-  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
-  statCard: { width: '48.5%', minHeight: 72, backgroundColor: C.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: C.border },
-  statValue: { color: C.text, fontSize: 20, fontWeight: '900' },
-  statLabel: { color: C.sub, fontSize: 9, fontWeight: '800', letterSpacing: 0.8, marginTop: 4 },
-  sectionHeading: { color: C.sub, fontSize: 11, fontWeight: '900', letterSpacing: 1.3, marginBottom: 10 },
-  emptyCard: { backgroundColor: C.card, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 18, alignItems: 'center' },
-  emptyTitle: { color: C.text, fontWeight: '800', fontSize: 13, marginTop: 8 },
-  referralCard: { backgroundColor: C.card, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: C.border },
+  shareButton: { minHeight: 50, borderRadius: 13, overflow: 'hidden', marginTop: 11 },
+  shareButtonGradient: {
+    minHeight: 50,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: `${C.gold}AA`,
+    borderRadius: 13,
+  },
+  shareButtonText: { color: C.bg, fontWeight: '900', fontSize: 11, letterSpacing: 0.6 },
+  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 18 },
+  statCard: {
+    flexBasis: '48%',
+    flexGrow: 1,
+    minWidth: 140,
+    minHeight: 76,
+    backgroundColor: C.card,
+    borderRadius: 15,
+    padding: 11,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  statTopRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  statIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 10,
+    backgroundColor: `${C.gold}16`,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statValue: { color: C.gold, fontSize: 20, fontWeight: '900' },
+  statLabel: { color: C.sub, fontSize: 9, fontWeight: '800', letterSpacing: 0.65, marginTop: 7 },
+  sectionHeading: { color: C.gold, fontSize: 12, fontWeight: '900', letterSpacing: 1.1, marginBottom: 10 },
+  emptyCard: {
+    backgroundColor: C.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 20,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  emptyTitle: { color: C.text, fontWeight: '900', fontSize: 13, marginTop: 8 },
+  referralCard: { backgroundColor: C.card, borderRadius: 16, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: C.border },
   referralHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 },
   referralIdentity: { flex: 1, minWidth: 0 },
   referralName: { color: C.text, fontSize: 14, fontWeight: '800' },

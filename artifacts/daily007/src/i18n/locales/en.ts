@@ -244,6 +244,8 @@ const en = {
   "Copies this value to your clipboard.": "Copies this value to your clipboard.",
   "EARN COINS": "EARN COINS",
   "Invite friends and track referral rewards": "Invite friends and track referral rewards",
+  "Complete Tasks • Invite Friends • Earn Rewards": "Complete Tasks • Invite Friends • Earn Rewards",
+  "INVITE & EARN": "INVITE & EARN",
   "10 coins for your friend at signup": "10 coins for your friend at signup",
   "You earn 5 coins once their recharge of at least 50 coins is approved by an administrator.": "You earn 5 coins once their recharge of at least 50 coins is approved by an administrator.",
   "YOUR 5-LETTER REFERRAL CODE": "YOUR 5-LETTER REFERRAL CODE",

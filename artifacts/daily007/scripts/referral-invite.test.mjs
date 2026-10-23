@@ -93,13 +93,13 @@ test("a rejected browser open shows Earn's copy/share fallback without network o
   assert.doesNotMatch(inviteHelperSource, /\b(fetch|axios|useDaily007GetMyReferrals)\b/);
   assert.match(
     earnSource,
-    /const showReferralOpenFallback = \(message: string\) => \{\s*setActionError\(message\);\s*if \(Platform\.OS === 'ios'\) AccessibilityInfo\.announceForAccessibility\(message\);\s*\};/,
+    /const showReferralOpenFallback = \(message: string\) => \{\s*setActionError\(message\);\s*if \(Platform\.OS === 'ios'\) AccessibilityInfo\.announceForAccessibility\(translateExactText\(message\)\);\s*\};/,
   );
   assert.match(
     earnSource,
     /openReferralInBrowserWithFallback\(\s*dashboard\.referralLink,\s*async \(url\) => \{\s*if \(__DEV__ && simulateReferralBrowserOpenFailure\) \{\s*throw new Error\('Simulated referral browser open failure'\);\s*\}\s*return WebBrowser\.openBrowserAsync\(url\);\s*\},\s*showReferralOpenFallback,\s*\);/,
   );
-  assert.equal((earnSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length, 3);
+  assert.equal((earnSource.match(/AccessibilityInfo\.announceForAccessibility\(translateExactText\(message\)\)/g) ?? []).length, 3);
   assert.equal((earnSource.match(/showReferralOpenFallback/g) ?? []).length, 2);
   assert.match(
     earnSource,
@@ -157,7 +157,7 @@ test("Earn's development-only browser failure simulation announces recovery only
     earnSource,
     /onPress=\{\(\) => setSimulateReferralBrowserOpenFailure\(\(current\) => !current\)\}/,
   );
-  assert.equal((earnSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length, 3);
+  assert.equal((earnSource.match(/AccessibilityInfo\.announceForAccessibility\(translateExactText\(message\)\)/g) ?? []).length, 3);
 
   await makeOpenReferralLink(true, true)();
   assert.deepEqual(openedUrls, []);
@@ -219,7 +219,7 @@ test("Earn shares the same server-provided HTTPS referral link and query code", 
   assert.match(earnSource, /const dashboard = referralsQuery\.data;/);
   assert.match(
     earnSource,
-    /shareReferralInviteWithFallback\(\s*dashboard\.code,\s*dashboard\.referralLink,\s*\(content\) => Share\.share\(content\),\s*\(message\) => \{\s*setActionError\(message\);\s*if \(Platform\.OS === 'ios'\) AccessibilityInfo\.announceForAccessibility\(message\);\s*\}/,
+    /shareReferralInviteWithFallback\(\s*dashboard\.code,\s*dashboard\.referralLink,\s*\(content\) => Share\.share\(content\),\s*\(message\) => \{\s*setActionError\(message\);\s*if \(Platform\.OS === 'ios'\) AccessibilityInfo\.announceForAccessibility\(translateExactText\(message\)\);\s*\}/,
   );
   assert.match(earnSource, /testID="referral-share-invite"[\s\S]*?onPress=\{shareInvite\}/);
 });
@@ -279,7 +279,7 @@ test("a failed referral-link clipboard write shows Earn's share-button fallback 
   );
   assert.match(
     earnSource,
-    /const showReferralCopyFallback = \(message: string\) => \{\s*setActionError\(message\);\s*if \(Platform\.OS === 'ios'\) AccessibilityInfo\.announceForAccessibility\(message\);\s*\};/,
+    /const showReferralCopyFallback = \(message: string\) => \{\s*setActionError\(message\);\s*if \(Platform\.OS === 'ios'\) AccessibilityInfo\.announceForAccessibility\(translateExactText\(message\)\);\s*\};/,
   );
   assert.match(earnSource, /testID="referral-simulate-link-copy-failure"/);
   assert.match(
@@ -448,6 +448,7 @@ test("successful invite-link and referral-code copies stay silent about failures
     setTimeout() {},
     __DEV__: false,
     simulateReferralLinkCopyFailure: false,
+    showLocalizedAlert: () => {},
   });
   const copyCode = loadEarnAction(earnSource, "copyCode", {
     dashboard,
@@ -459,6 +460,7 @@ test("successful invite-link and referral-code copies stay silent about failures
     setTimeout() {},
     __DEV__: false,
     simulateReferralCodeCopyFailure: false,
+    showLocalizedAlert: () => {},
   });
 
   await copyReferralLink();
@@ -498,6 +500,7 @@ test("Earn announces copy-code recovery once for every rejected share and stays 
     AccessibilityInfo: {
       announceForAccessibility: (message) => accessibilityAnnouncements.push(message),
     },
+    translateExactText: (message) => message,
   });
 
   assert.deepEqual(accessibilityAnnouncements, []);
@@ -545,9 +548,9 @@ test("Earn announces copy-code recovery once for every rejected share and stays 
   assert.equal(networkRequests.mock.callCount(), 0);
   assert.match(
     earnSource,
-    /shareReferralInviteWithFallback\(\s*dashboard\.code,\s*dashboard\.referralLink,\s*\(content\) => Share\.share\(content\),\s*\(message\) => \{\s*setActionError\(message\);\s*if \(Platform\.OS === 'ios'\) AccessibilityInfo\.announceForAccessibility\(message\);\s*\}/,
+    /shareReferralInviteWithFallback\(\s*dashboard\.code,\s*dashboard\.referralLink,\s*\(content\) => Share\.share\(content\),\s*\(message\) => \{\s*setActionError\(message\);\s*if \(Platform\.OS === 'ios'\) AccessibilityInfo\.announceForAccessibility\(translateExactText\(message\)\);\s*\}/,
   );
-  assert.equal((earnSource.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length, 3);
+  assert.equal((earnSource.match(/AccessibilityInfo\.announceForAccessibility\(translateExactText\(message\)\)/g) ?? []).length, 3);
   assert.match(
     earnSource,
     /\{!!actionError && \(\s*<Text accessibilityRole="text" accessibilityLiveRegion="polite" style=\{s\.error\}>\s*\{actionError\}\s*<\/Text>\s*\)\}/,

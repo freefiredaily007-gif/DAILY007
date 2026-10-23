@@ -245,6 +245,8 @@ const hi: Record<string, string> = {
   "Copies this value to your clipboard.": "इस जानकारी को क्लिपबोर्ड पर कॉपी करता है।",
   "EARN COINS": "कॉइन कमाएँ",
   "Invite friends and track referral rewards": "दोस्तों को आमंत्रित करें और रेफ़रल इनाम देखें",
+  "Complete Tasks • Invite Friends • Earn Rewards": "टास्क पूरे करें • दोस्तों को आमंत्रित करें • इनाम कमाएँ",
+  "INVITE & EARN": "आमंत्रित करें और कमाएँ",
   "10 coins for your friend at signup": "दोस्त के साइन अप पर 10 कॉइन",
   "You earn 5 coins once their recharge of at least 50 coins is approved by an administrator.": "उनके कम-से-कम 50 कॉइन के रिचार्ज को एडमिन मंज़ूर करे, तो आपको 5 कॉइन मिलेंगे।",
   "YOUR 5-LETTER REFERRAL CODE": "आपका 5-अक्षर वाला रेफ़रल कोड",
