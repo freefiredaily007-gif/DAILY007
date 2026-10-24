@@ -12,7 +12,7 @@ import { submodeRouteParams } from '../lib/tournamentFilters';
 import { getTournamentFormatCapacity } from '../lib/tournamentFormatCapacity';
 
 type ModeKey = 'battle_royale' | 'clash_squad' | 'lone_wolf';
-type TeamType = 'solo' | 'duo' | 'trio' | 'squad';
+type TeamType = 'solo' | 'duo' | 'squad';
 
 const MODES: Record<ModeKey, { title: string; kicker: string; icon: keyof typeof Ionicons.glyphMap; accent: string }> = {
   battle_royale: { title: 'BATTLE ROYALE', kicker: 'CLASSIC SURVIVAL', icon: 'flame-outline', accent: C.gold },
@@ -23,7 +23,6 @@ const MODES: Record<ModeKey, { title: string; kicker: string; icon: keyof typeof
 const FORMATS: { type: TeamType; title: string; size: number; accent: string }[] = [
   { type: 'solo', title: 'SOLO', size: 1, accent: C.blue },
   { type: 'duo', title: 'DUO', size: 2, accent: C.orange },
-  { type: 'trio', title: 'TRIO', size: 3, accent: C.neon },
   { type: 'squad', title: 'SQUAD', size: 4, accent: C.purple },
 ];
 
@@ -101,7 +100,7 @@ export default function ModeSubmodes() {
         <Text style={styles.liveCountError}>LIVE COUNTS UNAVAILABLE · RETRYING</Text>
       )}
       <View style={styles.formats}>
-        {FORMATS.filter((format) => gameMode !== 'battle_royale' || format.type !== 'trio').map((format) => {
+        {FORMATS.map((format) => {
           const capacity = getTournamentFormatCapacity(gameMode, format.type, format.size);
           const displayAccent = swapThemeColor(format.accent);
           const formatTitle = gameMode === 'battle_royale'

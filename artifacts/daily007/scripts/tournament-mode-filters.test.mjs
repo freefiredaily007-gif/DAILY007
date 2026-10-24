@@ -529,7 +529,8 @@ test('Battle Royale format counts stay separate and show only open Solo, Duo, an
     { solo: 2, duo: 3, trio: 0, squad: 5 },
   );
   assert.match(homeSource, /onOpenMode=\{\(params\) => nav\.navigate\('ModeSubmodes', params\)\}/);
-  assert.match(modeSubmodesSource, /FORMATS\.filter\(\(format\) => gameMode !== 'battle_royale' \|\| format\.type !== 'trio'\)/);
+  assert.match(modeSubmodesSource, /FORMATS\.map\(\(format\) =>/);
+  assert.doesNotMatch(modeSubmodesSource, /\{ type: 'trio', title: 'TRIO'/);
   assert.match(modeSubmodesSource, /const mutedLiveCount = count === 0 \|\| count === undefined/);
   assert.match(modeSubmodesSource, /liveBadgeMuted/);
   assert.match(modeSubmodesSource, /LIVE \$\{count\}/);
@@ -640,9 +641,10 @@ test('format cards stack their details and remain scrollable at 1.5x Android tex
   assert.doesNotMatch(formatCardStyle, /(?:^|,)\s*height\s*:/);
   assert.doesNotMatch(formatSection, /numberOfLines=|ellipsizeMode=/);
 
-  for (const [type, title] of [['solo', 'SOLO'], ['duo', 'DUO'], ['trio', 'TRIO'], ['squad', 'SQUAD']]) {
+  for (const [type, title] of [['solo', 'SOLO'], ['duo', 'DUO'], ['squad', 'SQUAD']]) {
     assert.match(modeSubmodesSource, new RegExp(`\\{ type: '${type}', title: '${title}'`));
   }
+  assert.doesNotMatch(formatSection, /3 VS 3|TRIO/);
   assert.match(formatSection, /testID=\{`format-\$\{gameMode\}-\$\{format\.type\}`\}/);
   assert.match(formatSection, /accessibilityLabel=\{`\$\{mode\.title\}, \$\{formatTitle\}[\s\S]*?\$\{liveLabel\}/);
   assert.match(
@@ -694,8 +696,8 @@ test('Home mode cards keep every lifecycle tab mode-scoped and the format picker
     /navigation\.push\('Tournaments', \{\s*\.\.\.submodeRouteParams\(gameMode,\s*format\.type,\s*mode\.title\),\s*registrationOnly: true,/,
   );
 
-  assert.match(homeGameModeCardsSource, /capacity: '1 VS 1 · 2 VS 2 · 3 VS 3 · 4 VS 4'/);
-  assert.match(homeGameModeCardsSource, /formatLinkLabel: '1 VS 1 \/ 2 VS 2 \/ 3 VS 3 \/ 4 VS 4'/);
+  assert.match(homeGameModeCardsSource, /capacity: '1 VS 1 · 2 VS 2 · 4 VS 4'/);
+  assert.match(homeGameModeCardsSource, /formatLinkLabel: '1 VS 1 \/ 2 VS 2 \/ 4 VS 4'/);
   assert.match(homeGameModeCardsSource, /Choose \$\{mode\.mode\} tournament format/);
 
   for (const card of HOME_GAME_MODE_CARDS) {
