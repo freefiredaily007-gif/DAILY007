@@ -568,9 +568,7 @@ export default function Tournaments() {
         )}
         renderItem={({ item }) => {
           const state = lifecycleOf(item);
-          const cardItem = registrationOnly
-            ? { ...item, status: 'upcoming' }
-            : state === 'ongoing' && item.status !== 'ongoing'
+          const cardItem = state === 'ongoing' && item.status !== 'ongoing'
             ? { ...item, status: 'ongoing' }
             : item;
           const registration = item.myRegistration;

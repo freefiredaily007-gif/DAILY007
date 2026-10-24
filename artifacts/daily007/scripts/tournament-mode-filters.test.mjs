@@ -424,7 +424,11 @@ test('all selectable Clash Squad and Lone Wolf formats show only published, open
   assert.match(tournamentsSource, /items\.filter\(\(tournament\) => isHomeTournamentOpenForRegistration\(tournament, clockNow\)\)/);
   assert.match(tournamentsSource, /registrationOnly \? modeScopedTabs\.upcoming : modeScopedTabs\[tab\]/);
   assert.match(tournamentsSource, /'NO LIVE TOURNAMENTS AVAILABLE'/);
-  assert.match(tournamentsSource, /registrationOnly\s*\?\s*\{\s*\.\.\.item,\s*status: 'upcoming'\s*\}/);
+  assert.match(
+    tournamentsSource,
+    /const state = lifecycleOf\(item\);\s*const cardItem = state === 'ongoing' && item\.status !== 'ongoing'\s*\?\s*\{ \.\.\.item, status: 'ongoing' \}\s*:\s*item;/,
+    'displayed card status must follow the canonical lifecycle when server status is stale',
+  );
 });
 
 test('format live counts stay separate by mode and exclude closed, expired, full, or unpublished matches', () => {
