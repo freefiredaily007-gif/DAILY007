@@ -278,6 +278,7 @@ const en = {
   "SUBMIT FOLLOW CLAIM FOR REVIEW": "SUBMIT FOLLOW CLAIM FOR REVIEW",
   "Open the official Daily007 Instagram account": "Open the official Daily007 Instagram account",
   "Submit Instagram follow claim for administrator review": "Submit Instagram follow claim for administrator review",
+  "Follow the account, return to Daily007, then submit your claim for review.": "Follow the account, return to Daily007, then submit your claim for review.",
   "Could not open Instagram. Try again or open the account in your browser.": "Could not open Instagram. Try again or open the account in your browser.",
   "Could not submit your Instagram claim: {{error}}": "Could not submit your Instagram claim: {{error}}",
   "Transaction ID: {{id}}": "Transaction ID: {{id}}",

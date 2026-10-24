@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -22,6 +22,7 @@ let socket;
 let messageId = 0;
 const phoneViewport = { width: 390, height: 844, deviceScaleFactor: 1, mobile: true };
 const tournamentDetailOnly = process.argv.includes("--tournament-detail-only");
+const instagramClaimOnly = process.argv.includes("--instagram-claim-only");
 const previewGroups = [
   {
     config: "vite.admin-narrow.config.ts",
@@ -129,6 +130,85 @@ const previewGroups = [
         screen: "Tournament list",
         markers: ["IST Start Boundary", 'data-testid="tournament-tab-upcoming"'],
         phoneMarkers: ['data-testid="tournament-tab-upcoming"'],
+      },
+    ],
+  },
+  {
+    config: "vite.instagram-claim-preview.config.ts",
+    entries: [
+      {
+        path: "/instagram-claim-preview.html",
+        screen: "Instagram claim review",
+        scrollMarker: "Instagram Preview Player",
+        markers: [
+          "INSTAGRAM FOLLOW TASK",
+          "Instagram Preview Player",
+          "instagram.preview.player@example.invalid",
+          "Daily007 user ID: preview-instagram-player-id",
+          "Reward: 3 coins",
+          "PENDING",
+        ],
+        phoneMarkers: [
+          "Instagram Preview Player",
+          "Daily007 user ID: preview-instagram-player-id",
+          "Reward: 3 coins",
+          "PENDING",
+        ],
+        textMarkers: [
+          "instagram.preview.player@example.invalid",
+          "Daily007 user ID: preview-instagram-player-id",
+        ],
+        interactiveMarkers: [
+          { label: "APPROVE & CREDIT" },
+          { label: "REJECT" },
+        ],
+        saveScreenshotBeforeInteraction: true,
+        interaction: {
+          selector: '[role="button"][aria-label="APPROVE & CREDIT"]',
+          markers: [
+            "Approve Instagram claim?",
+            "verify this Daily007 account's Instagram follow",
+            "Instagram Preview Player's wallet",
+          ],
+          phoneMarkers: [
+            "Approve Instagram claim?",
+            "verify this Daily007 account's Instagram follow",
+          ],
+        },
+      },
+      {
+        path: "/instagram-claim-preview.html?review-action=reject",
+        screen: "Instagram claim rejection",
+        scrollMarker: "Instagram Preview Player",
+        markers: [
+          "INSTAGRAM FOLLOW TASK",
+          "Instagram Preview Player",
+          "Daily007 user ID: preview-instagram-player-id",
+          "Reward: 3 coins",
+          "PENDING",
+        ],
+        phoneMarkers: [
+          "Instagram Preview Player",
+          "Daily007 user ID: preview-instagram-player-id",
+          "Reward: 3 coins",
+          "PENDING",
+        ],
+        interactiveMarkers: [
+          { label: "APPROVE & CREDIT" },
+          { label: "REJECT" },
+        ],
+        interaction: {
+          selector: '[role="button"][aria-label="REJECT"]',
+          markers: [
+            "Reject Instagram claim?",
+            "This claim will be rejected.",
+            "user can follow the account and submit a new claim",
+          ],
+          phoneMarkers: [
+            "Reject Instagram claim?",
+            "This claim will be rejected.",
+          ],
+        },
       },
     ],
   },
@@ -398,7 +478,9 @@ async function checkPreviewInteraction(entry) {
       while ((node = walker.nextNode())) {
         if (node.nodeValue?.includes(marker)) return node.parentElement;
       }
-      return null;
+      return [...document.querySelectorAll("body *")]
+        .filter((element) => (element.textContent ?? "").includes(marker))
+        .sort((left, right) => left.textContent.length - right.textContent.length)[0] ?? null;
     };
     const missing = markers.filter((marker) =>
       marker.startsWith('data-testid="') ? !html.includes(marker) : !text.includes(marker)
@@ -608,6 +690,33 @@ async function checkPreview(url, entry) {
   if (navigation.errorText) {
     throw new Error(`${entry.screen} preview navigation failed: ${navigation.errorText}`);
   }
+  if (entry.scrollMarker) {
+    const marker = JSON.stringify(entry.scrollMarker);
+    const scrollDeadline = Date.now() + 10_000;
+    let scrolled = false;
+    while (Date.now() < scrollDeadline && !scrolled) {
+      scrolled = await evaluate(`(() => {
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = walker.nextNode())) {
+          if (node.nodeValue?.includes(${marker})) {
+            node.parentElement?.scrollIntoView({ block: "center" });
+            return true;
+          }
+        }
+        return false;
+      })()`);
+      if (!scrolled) await delay(100);
+    }
+    if (!scrolled) {
+      const pageText = await evaluate("document.body?.innerText ?? ''");
+      throw new Error(
+        `${entry.screen} preview could not scroll to ${entry.scrollMarker}.` +
+          ` Browser errors: ${browserErrors.join(" | ") || "none"}.` +
+          `\nPage text:\n${String(pageText).slice(0, 2_000)}`,
+      );
+    }
+  }
 
   const expectedMarkers = JSON.stringify(entry.markers);
   const expectedPhoneMarkers = JSON.stringify(entry.phoneMarkers ?? entry.markers);
@@ -639,7 +748,9 @@ async function checkPreview(url, entry) {
       while ((node = walker.nextNode())) {
         if (node.nodeValue?.includes(marker)) return node.parentElement;
       }
-      return null;
+      return [...document.querySelectorAll("body *")]
+        .filter((element) => (element.textContent ?? "").includes(marker))
+        .sort((left, right) => left.textContent.length - right.textContent.length)[0] ?? null;
     };
     const layoutWidth = root?.clientWidth ?? 0;
     const scrollWidth = Math.max(
@@ -688,8 +799,11 @@ async function checkPreview(url, entry) {
       .filter((layout) => layout.missing || layout.overflowX || layout.overflowY);
     const unusableInteractiveMarkers = interactiveMarkers
       .map(({ testId, label }) => {
-        const element = [...document.querySelectorAll("[data-testid]")]
-          .find((candidate) => candidate.getAttribute("data-testid") === testId);
+        const element = testId
+          ? [...document.querySelectorAll("[data-testid]")]
+              .find((candidate) => candidate.getAttribute("data-testid") === testId)
+          : [...document.querySelectorAll('[role="button"]')]
+              .find((candidate) => candidate.getAttribute("aria-label") === label);
         if (!element) return { testId, missing: true };
         const rect = element.getBoundingClientRect();
         return {
@@ -815,6 +929,19 @@ async function checkPreview(url, entry) {
       }
       state = await evaluate(expression);
       if (state.ready && !state.hasViteError && state.phoneViewportOk) {
+        if (
+          entry.saveScreenshotBeforeInteraction
+          && process.env.DAILY007_PREVIEW_SCREENSHOT_PATH
+        ) {
+          const screenshot = await cdp("Page.captureScreenshot", {
+            format: "png",
+            captureBeyondViewport: true,
+          });
+          await writeFile(
+            process.env.DAILY007_PREVIEW_SCREENSHOT_PATH,
+            Buffer.from(screenshot.data, "base64"),
+          );
+        }
         await checkPreviewInteraction(entry);
         await checkPreviewClipboard(entry);
         return;
@@ -856,9 +983,12 @@ try {
   await startChromium(path.join(temporaryRoot, "chromium-profile"));
 
   for (const group of previewGroups) {
-    const entries = tournamentDetailOnly
-      ? group.entries.filter((entry) => entry.screen === "Tournament Details")
-      : group.entries;
+    const entries = instagramClaimOnly
+      ? group.entries.filter((entry) =>
+          entry.screen === "Instagram claim review" || entry.screen === "Instagram claim rejection")
+      : tournamentDetailOnly
+        ? group.entries.filter((entry) => entry.screen === "Tournament Details")
+        : group.entries;
     if (entries.length === 0) continue;
 
     const port = await getFreePort();
@@ -928,5 +1058,12 @@ try {
   socket?.close();
   await stopProcess(activeChromium);
   await stopProcess(activeVite);
-  if (temporaryRoot) await rm(temporaryRoot, { recursive: true, force: true });
+  if (temporaryRoot) {
+    await rm(temporaryRoot, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
+  }
 }

@@ -280,6 +280,7 @@ const gu: Record<string, string> = {
   "SUBMIT FOLLOW CLAIM FOR REVIEW": "તપાસ માટે ફોલોનો દાવો મોકલો",
   "Open the official Daily007 Instagram account": "Daily007નું સત્તાવાર Instagram એકાઉન્ટ ખોલો",
   "Submit Instagram follow claim for administrator review": "એડમિનની તપાસ માટે Instagram ફોલોનો દાવો મોકલો",
+  "Follow the account, return to Daily007, then submit your claim for review.": "એકાઉન્ટને ફોલો કરો, Daily007 પર પાછા આવો, પછી તપાસ માટે તમારો દાવો મોકલો.",
   "Could not open Instagram. Try again or open the account in your browser.": "Instagram ખોલી શકાયું નથી. ફરી પ્રયાસ કરો અથવા બ્રાઉઝરમાં એકાઉન્ટ ખોલો.",
   "Could not submit your Instagram claim: {{error}}": "તમારો Instagram દાવો મોકલી શકાયો નથી: {{error}}",
   "Transaction ID: {{id}}": "વ્યવહાર ID: {{id}}",

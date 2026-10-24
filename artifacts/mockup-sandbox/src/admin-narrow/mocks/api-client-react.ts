@@ -708,6 +708,45 @@ export function useDaily007AdminReviewYoutubeSubscribeClaim() {
   return noMutation();
 }
 
+const previewInstagramClaim = {
+  id: "preview-instagram-follow-claim",
+  userId: "preview-instagram-player-id",
+  userName: "Instagram Preview Player",
+  email: "instagram.preview.player@example.invalid",
+  status: "pending" as "pending" | "approved" | "rejected",
+  rewardCoins: 3,
+  createdAt: "2026-10-24T09:30:00.000Z",
+  reviewedAt: null,
+  reviewReason: null,
+  transactionId: null,
+};
+
+export function useDaily007AdminListInstagramFollowClaims() {
+  const [, setRevision] = useState(0);
+  const data = {
+    claims: [{ ...previewInstagramClaim }],
+    totalCompleted: previewInstagramClaim.status === "approved" ? 1 : 0,
+  };
+  return {
+    ...noQuery(data),
+    refetch: async () => {
+      setRevision((revision) => revision + 1);
+      return { data };
+    },
+  };
+}
+
+export function useDaily007AdminReviewInstagramFollowClaim() {
+  return {
+    ...noMutation(),
+    mutateAsync: async ({ action }: { action: "approve" | "reject" }) => {
+      previewInstagramClaim.status = action === "approve" ? "approved" : "rejected";
+      previewInstagramClaim.reviewedAt = new Date().toISOString();
+      return { ...previewInstagramClaim };
+    },
+  };
+}
+
 export function useDaily007AdminListVideos() {
   const scale = Number(
     (globalThis as typeof globalThis & { __daily007LargeTextScale?: number })

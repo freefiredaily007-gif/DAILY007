@@ -483,6 +483,11 @@ export default function Earn() {
                   </Text>
                 </LinearGradient>
               </Pressable>
+              {!returnedFromInstagram ? (
+                <Text style={s.taskHint}>
+                  {t('Follow the account, return to Daily007, then submit your claim for review.')}
+                </Text>
+              ) : null}
             </>
           ) : (
             <Text style={s.taskHint}>This task is temporarily unavailable.</Text>

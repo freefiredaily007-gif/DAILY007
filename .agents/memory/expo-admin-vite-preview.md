@@ -39,6 +39,18 @@ For React Native Web checks that shrink the viewport to simulate an open keyboar
 
 **How to apply:** When an Admin screen adds a generated API hook, add a no-network query or mutation stub to the mock API client used by the Admin preview.
 
+For React Native Web text markers that combine literal labels and interpolated values, exact text-node searches can miss content that is visible in `innerText`. Fall back to the smallest element whose `textContent` contains the complete marker.
+
+**Why:** Daily007 user-ID and reward rows render correctly, but React Native Web can split their displayed strings across descendant text nodes, making exact text-node lookup report false missing or hidden content.
+
+**How to apply:** Keep exact text-node matching for simple labels, then locate composite text through element content when browser preview checks need its bounds or scroll position.
+
+Chromium can exit before its temporary profile finishes flushing files; recursive cleanup may briefly fail with `ENOTEMPTY`.
+
+**Why:** Headless-browser tests occasionally reach cleanup while Chromium child processes still have profile files open.
+
+**How to apply:** Retry temporary profile removal a few times instead of treating the test as failed after all browser assertions passed.
+
 **Rule:** In isolated React Native Web Android previews, prefer visible button text to locate and activate `Pressable` actions when accessibility or test selectors do not resolve.
 
 **Why:** An action can render visibly while its expected selector is not available to the browser-driven test, making the test fail on the harness rather than on the screen behavior.
