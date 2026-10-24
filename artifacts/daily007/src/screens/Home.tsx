@@ -59,6 +59,13 @@ function tournamentModeFallback(t: any): number {
   return 48;
 }
 
+function isKillEarnTournament(t: any): boolean {
+  const gameMode = String(t?.gameMode ?? t?.mode ?? '')
+    .toLowerCase()
+    .replace(/[\s&-]+/g, '_');
+  return gameMode === 'battle_royale_kill_earn';
+}
+
 type HomeTournamentItem = Record<string, any> & { id: string | number; joined: boolean };
 type HomeTournamentResponse = Record<string, any> & { id: string | number };
 
@@ -511,6 +518,8 @@ export default function Home() {
               const showFormatArt = formatPresentation.showFormatBanner;
               const showBattleRoyalePoster = formatPresentation.showBattleRoyalePoster;
               const br = showBattleRoyalePoster;
+              const isKillEarn = isKillEarnTournament(t);
+              const perKillCoins = Number(t.perKillCoins ?? t.killRewardCoins ?? 0);
               const schedule = getRoomCredentialSchedule(t.startsAt);
               const matchMetaDate = showBattleRoyalePoster
                 ? schedule?.date ?? fmtDate(t.date)
@@ -539,7 +548,11 @@ export default function Home() {
             <GCard
               testID={`home-upcoming-card-${t.id}`}
               onPress={() => openTournamentDetail(t.id)}
-              accessibilityLabel={`Upcoming match: ${t.name ?? 'Match'}. ${cardPosition}.`}
+               accessibilityLabel={[
+                 `Upcoming match: ${t.name ?? 'Match'}.`,
+                 isKillEarn ? `${perKillCoins} coins per kill.` : '',
+                 `${cardPosition}.`,
+               ].filter(Boolean).join(' ')}
               accessibilityHint="Opens match details."
               accessibilityState={{ selected }}
               glowColor={ongoing ? C.red : br ? C.orange : C.purple}
@@ -605,18 +618,24 @@ export default function Home() {
                 </View>
               )}
               <Text style={s.mSub}>{matchMetaDate} • <Text style={s.mTime}>{fmtTime12(schedule?.startTime24 ?? t.time)} IST</Text></Text>
-              <View style={s.mStats}>
-                <View style={s.mStat}>
-                  <Text style={s.mStatL}>ENTRY</Text>
-                  <Text style={[s.mStatV, { color: C.orange }]}>🪙 {t.entryCoins ?? 0}</Text>
+              <View style={[s.mStats, isKillEarn && s.mStatsKillEarn]}>
+                <View style={[s.mStat, isKillEarn && s.mStatKillEarn]}>
+                  <Text style={isKillEarn ? s.mStatLKillEarn : s.mStatL}>ENTRY</Text>
+                  <Text style={[s.mStatV, isKillEarn && s.mStatVKillEarn, { color: C.orange }]}>🪙 {t.entryCoins ?? 0}</Text>
                 </View>
-                <View style={s.mStat}>
-                  <Text style={s.mStatL}>PRIZE POOL</Text>
-                  <Text style={[s.mStatV, { color: C.green }]}>🪙 {t.prizePool ?? 0}</Text>
+                {isKillEarn && (
+                  <View testID={`home-upcoming-per-kill-${t.id}`} style={[s.mStat, s.mStatKillEarn]}>
+                    <Text style={s.mStatLKillEarn}>PER KILL</Text>
+                    <Text style={[s.mStatV, s.mStatVKillEarn, { color: C.gold }]}>🪙 {perKillCoins}</Text>
+                  </View>
+                )}
+                <View style={[s.mStat, isKillEarn && s.mStatKillEarn]}>
+                  <Text style={isKillEarn ? s.mStatLKillEarn : s.mStatL}>PRIZE POOL</Text>
+                  <Text style={[s.mStatV, isKillEarn && s.mStatVKillEarn, { color: C.green }]}>🪙 {t.prizePool ?? 0}</Text>
                 </View>
-                <View style={s.mStat}>
-                  <Text style={s.mStatL}>{isIndividualSquad ? 'PLAYER SLOTS' : 'SLOTS'}</Text>
-                  <Text style={s.mStatV}>{filled}/{total}</Text>
+                <View style={[s.mStat, isKillEarn && s.mStatKillEarn]}>
+                  <Text style={isKillEarn ? s.mStatLKillEarn : s.mStatL}>{isIndividualSquad ? 'PLAYER SLOTS' : 'SLOTS'}</Text>
+                  <Text style={[s.mStatV, isKillEarn && s.mStatVKillEarn]}>{filled}/{total}</Text>
                 </View>
               </View>
               <View style={s.slotBar}>
@@ -797,9 +816,13 @@ const s = StyleSheet.create({
   mTime: { color: C.gold, fontSize: 15, fontWeight: '900' },
   mDivider: { height: 1, backgroundColor: C.border, marginVertical: 10 },
   mStats: { flexDirection: 'row' },
+  mStatsKillEarn: { alignItems: 'stretch' },
   mStat: { flex: 1, alignItems: 'center' },
+  mStatKillEarn: { minWidth: 0, paddingHorizontal: 1 },
   mStatL: { color: C.dim, fontSize: 9, letterSpacing: 1.5, fontWeight: '800' },
+  mStatLKillEarn: { color: C.dim, fontSize: 8, letterSpacing: 0.6, fontWeight: '800', textAlign: 'center' },
   mStatV: { color: C.text, fontWeight: '900', fontSize: 14, marginTop: 3 },
+  mStatVKillEarn: { fontSize: 12, letterSpacing: -0.4 },
   slotBar: { height: 4, backgroundColor: '#1a2136', borderRadius: 2, marginTop: 10, overflow: 'hidden' },
   slotFill: { height: 4, backgroundColor: C.neon, borderRadius: 2 },
   teamSlotSummary: { color: C.sub, fontSize: 10, fontWeight: '700', textAlign: 'center', marginTop: 6 },
