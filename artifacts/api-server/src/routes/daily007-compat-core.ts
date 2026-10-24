@@ -122,6 +122,7 @@ type MatchRow = {
   prize_pool: number; starts_at: Date | string; status: string; is_full: boolean;
   rules: string; banner: string; image_url: string | null; prize_distribution: string; enabled: boolean;
   has_winner?: boolean; has_started?: boolean;
+  registration_open?: boolean;
   completed_at?: Date | string | null;
   room_id: string | null; room_password: string | null; room_time: string; room_published: boolean;
   registered_count: number;
@@ -267,6 +268,7 @@ function tournament(row: MatchRow, includeRoomCredentials = false) {
     date,
     time,
     startsAt: tournamentInstantFromStored(row.starts_at).toISOString(),
+    registrationOpen: row.registration_open,
     completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
     entryCoins: row.entry_coins,
     prizePool: row.prize_pool,
@@ -302,6 +304,7 @@ async function getMatches(id?: string, enabledOnly = false, includeCancelled = f
             m.status, m.is_full, m.rules, m.banner, m.image_url, m.prize_distribution, m.enabled,
             m.room_id, m.room_password, m.room_time, m.room_published,
             m.starts_at <= clock_timestamp() + interval '5 hours 30 minutes' AS has_started,
+            m.starts_at > clock_timestamp() + interval '5 hours 30 minutes' AS registration_open,
             EXISTS (
               SELECT 1 FROM daily007_v2_result_awards award
                WHERE award.match_id = m.id AND award.rank = 1
@@ -310,7 +313,7 @@ async function getMatches(id?: string, enabledOnly = false, includeCancelled = f
                 FROM daily007_v2_result_awards result_award
                WHERE result_award.match_id = m.id AND result_award.rank = 1) AS completed_at,
              CASE
-              WHEN m.team_type IN ('duo', 'squad') OR
+              WHEN m.team_type IN ('duo', 'trio', 'squad') OR
                    (m.game_mode IS NULL AND m.mode IN ('squad', 'clash')) THEN
                  (SELECT count(DISTINCT COALESCE(team.id::text, active.id::text))::integer
                     FROM daily007_v2_registrations active
@@ -321,7 +324,7 @@ async function getMatches(id?: string, enabledOnly = false, includeCancelled = f
                ELSE count(r.id) FILTER (WHERE r.status IN ('approved', 'pending'))::integer
              END AS registered_count,
              CASE
-                WHEN m.team_type IN ('duo', 'squad') OR
+                WHEN m.team_type IN ('duo', 'trio', 'squad') OR
                      (m.game_mode IS NULL AND m.mode IN ('squad', 'clash')) THEN
                  (SELECT COALESCE(sum(
                            CASE WHEN EXISTS (
@@ -339,6 +342,7 @@ async function getMatches(id?: string, enabledOnly = false, includeCancelled = f
                    WHERE active.match_id = m.id AND active.status IN ('approved', 'pending'))
                ELSE count(r.id) FILTER (WHERE r.status IN ('approved', 'pending'))::integer *
                     CASE WHEN m.team_type = 'duo' THEN 2
+                         WHEN m.team_type = 'trio' THEN 3
                          WHEN m.team_type = 'squad' OR m.mode IN ('squad', 'clash') THEN 4
                          ELSE 1 END
              END AS registered_player_count
@@ -1177,7 +1181,7 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
                   ON result_registration.id = published.registration_id
                 WHERE published.match_id = m.id AND m.status <> 'cancelled') AS match_results,
             award.rank AS result_rank, award.kills AS result_kills, award.prize_coins AS result_prize_coins,
-             CASE WHEN m.team_type IN ('duo', 'squad') OR
+             CASE WHEN m.team_type IN ('duo', 'trio', 'squad') OR
                          (m.game_mode IS NULL AND m.mode IN ('squad', 'clash')) THEN
                (SELECT count(DISTINCT COALESCE(team.id::text, active.id::text))::integer
                   FROM daily007_v2_registrations active
@@ -1188,7 +1192,7 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
              ELSE (SELECT count(*)::integer FROM daily007_v2_registrations active
                     WHERE active.match_id = m.id AND active.status IN ('approved', 'pending'))
              END AS registered_count,
-              CASE WHEN m.team_type IN ('duo', 'squad') OR
+              CASE WHEN m.team_type IN ('duo', 'trio', 'squad') OR
                         (m.game_mode IS NULL AND m.mode IN ('squad', 'clash')) THEN
                (SELECT COALESCE(sum(
                          CASE WHEN EXISTS (
@@ -1207,6 +1211,7 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
              ELSE (SELECT count(*)::integer FROM daily007_v2_registrations active
                     WHERE active.match_id = m.id AND active.status IN ('approved', 'pending')) *
                    CASE WHEN m.team_type = 'duo' THEN 2
+                       WHEN m.team_type = 'trio' THEN 3
                        WHEN m.team_type = 'squad' OR m.mode IN ('squad', 'clash') THEN 4
                        ELSE 1 END
              END AS registered_player_count

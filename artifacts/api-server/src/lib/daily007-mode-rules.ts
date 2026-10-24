@@ -1,5 +1,5 @@
 export type GameModeKey = "battle_royale" | "clash_squad" | "lone_wolf";
-export type TeamTypeKey = "solo" | "duo" | "squad";
+export type TeamTypeKey = "solo" | "duo" | "trio" | "squad";
 export type SlotUnit = "player" | "team";
 
 export type TournamentMode = {
@@ -31,6 +31,7 @@ const GAME_MODES: Record<string, { key: GameModeKey; label: string }> = {
 const TEAM_TYPES: Record<string, { key: TeamTypeKey; label: string; size: number }> = {
   solo: { key: "solo", label: "Solo", size: 1 },
   duo: { key: "duo", label: "Duo", size: 2 },
+  trio: { key: "trio", label: "Trio", size: 3 },
   squad: { key: "squad", label: "Squad", size: 4 },
 };
 
@@ -69,6 +70,7 @@ export function resolveTournamentMode(gameModeValue: unknown, teamTypeValue: unk
   if (!game || !team) return null;
 
   if (game.key === "battle_royale") {
+    if (team.key === "trio") return null;
     const capacity = team.key === "solo" ? 48 : team.key === "duo" ? 24 : 12;
     return {
       gameMode: game.key, gameModeLabel: game.label,

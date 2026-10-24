@@ -28,6 +28,7 @@ test('format options use mode-specific labels while retaining the same saved for
       [
         { value: 'Solo', label: '1 VS 1' },
         { value: 'Duo', label: '2 VS 2' },
+        { value: 'Trio', label: '3 VS 3' },
         { value: 'Squad', label: '4 VS 4' },
       ],
     );
@@ -38,8 +39,10 @@ test('generated tournament titles combine the selected game mode and displayed f
   assert.equal(getAdminTournamentTitle('Battle Royale', 'Solo'), 'Battle Royale Solo');
   assert.equal(getAdminTournamentTitle('Battle Royale', 'Duo'), 'Battle Royale Duo');
   assert.equal(getAdminTournamentTitle('Clash Squad', 'Solo'), 'Clash Squad 1 VS 1');
+  assert.equal(getAdminTournamentTitle('Clash Squad', 'Trio'), 'Clash Squad 3 VS 3');
   assert.equal(getAdminTournamentTitle('Clash Squad', 'Squad'), 'Clash Squad 4 VS 4');
   assert.equal(getAdminTournamentTitle('Lone Wolf', 'Duo'), 'Lone Wolf 2 VS 2');
+  assert.equal(getAdminTournamentTitle('Lone Wolf', 'Trio'), 'Lone Wolf 3 VS 3');
 });
 
 test('selected format determines canonical slot and player capacities', () => {
@@ -63,13 +66,17 @@ test('selected format determines canonical slot and player capacities', () => {
     slots: 2,
     label: '2 team slots · 4 players',
   });
+  assert.deepEqual(getAdminTournamentCapacity('Lone Wolf', 'Trio'), {
+    slots: 2,
+    label: '2 team slots · 6 players',
+  });
   assert.deepEqual(getAdminTournamentCapacity('Clash Squad', 'Squad'), {
     slots: 2,
     label: '2 team slots · 8 players',
   });
 });
 
-test('all six Clash Squad and Lone Wolf admin formats resolve to the correct stored mode and team type', () => {
+test('all eight Clash Squad and Lone Wolf admin formats resolve to the correct stored mode and team type', () => {
   for (const [mode, gameMode] of [
     ['Clash Squad', 'clash_squad'],
     ['Lone Wolf', 'lone_wolf'],
@@ -77,6 +84,7 @@ test('all six Clash Squad and Lone Wolf admin formats resolve to the correct sto
     for (const [teamType, size] of [
       ['Solo', 1],
       ['Duo', 2],
+      ['Trio', 3],
       ['Squad', 4],
     ]) {
       const resolved = resolveTournamentMode(mode, teamType);

@@ -33,7 +33,7 @@ export async function ensureLegacySquadTeams(
       WHERE r.match_id = $1
         AND r.status IN ('approved', 'pending')
         AND (
-          m.team_type IN ('duo', 'squad')
+          m.team_type IN ('duo', 'trio', 'squad')
           OR (m.game_mode IS NULL AND m.mode IN ('squad', 'clash'))
         )
         AND NOT EXISTS (

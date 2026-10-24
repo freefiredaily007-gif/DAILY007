@@ -1,5 +1,5 @@
 export type TournamentGameMode = 'battle_royale' | 'clash_squad' | 'lone_wolf';
-export type TournamentTeamType = 'solo' | 'duo' | 'squad';
+export type TournamentTeamType = 'solo' | 'duo' | 'trio' | 'squad';
 
 export type TournamentFormatCapacity = {
   playersPerTeam: number;

@@ -74,7 +74,11 @@ export default function JoinForm({ tournament: t, user, registration, seatGroupN
   const editing = !!registration?.id;
   const teamType = String(t.teamType || 'Solo');
   const gameMode = String(t.mode || 'Battle Royale');
-  const teamSize = Number(t.teamSize) || (teamType.toLowerCase() === 'squad' ? 4 : teamType.toLowerCase() === 'duo' ? 2 : 1);
+  const teamSize = Number(t.teamSize) || (
+    teamType.toLowerCase() === 'squad' ? 4
+      : teamType.toLowerCase() === 'trio' ? 3
+        : teamType.toLowerCase() === 'duo' ? 2 : 1
+  );
   const isTeam = teamSize > 1;
   const seatLayout = getTournamentSeatLayout(t);
   const slotUnit = seatLayout?.groupKind === 'player'

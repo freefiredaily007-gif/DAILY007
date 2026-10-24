@@ -30,16 +30,18 @@ test("team roster size follows the selected format while game UIDs remain option
   assert.equal(parseTeamMembers([{ name: "A", uid: "UID" }, { name: "B", uid: "uid" }]), null);
 });
 
-test("all main modes expose their fixed Solo, Duo, and Squad capacities", () => {
+test("all supported game modes expose their fixed Solo, Duo, Trio, and Squad capacities", () => {
   const expected = [
     ["battle_royale", "solo", 48, 1, "player"],
     ["battle_royale", "duo", 24, 2, "team"],
     ["battle_royale", "squad", 12, 4, "team"],
     ["clash_squad", "solo", 2, 1, "team"],
     ["clash_squad", "duo", 2, 2, "team"],
+    ["clash_squad", "trio", 2, 3, "team"],
     ["clash_squad", "squad", 2, 4, "team"],
     ["lone_wolf", "solo", 2, 1, "team"],
     ["lone_wolf", "duo", 2, 2, "team"],
+    ["lone_wolf", "trio", 2, 3, "team"],
     ["lone_wolf", "squad", 2, 4, "team"],
   ] as const;
   for (const [gameMode, teamType, capacity, teamSize, slotUnit] of expected) {
@@ -49,6 +51,7 @@ test("all main modes expose their fixed Solo, Duo, and Squad capacities", () => 
     assert.equal(resolved.teamSize, teamSize);
     assert.equal(resolved.slotUnit, slotUnit);
   }
+  assert.equal(resolveTournamentMode("battle_royale", "trio"), null);
 });
 
 test("referral links are clickable HTTPS URLs with the code in the query", () => {

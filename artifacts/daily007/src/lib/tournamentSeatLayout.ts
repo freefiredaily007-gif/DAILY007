@@ -1,6 +1,6 @@
 export type TournamentSeatLayout = {
   gameMode: 'battle_royale' | 'clash_squad' | 'lone_wolf';
-  teamType: 'solo' | 'duo' | 'squad';
+  teamType: 'solo' | 'duo' | 'trio' | 'squad';
   groupCount: number;
   slotsPerGroup: number;
   groupKind: 'player' | 'team';
@@ -23,7 +23,7 @@ export function getTournamentSeatLayout(tournament: {
   const explicitGameMode = normalized(tournament.gameMode);
   const rawMode = explicitGameMode || normalized(tournament.mode);
   const gameMode = rawMode === 'br' || rawMode === 'battle_royale' || rawMode === 'battle_royale_mode' ||
-    (!explicitGameMode && ['solo', 'duo', 'squad'].includes(rawMode))
+    (!explicitGameMode && ['solo', 'duo', 'trio', 'squad'].includes(rawMode))
     ? 'battle_royale'
     : rawMode === 'clash' || rawMode === 'cs' || rawMode === 'clash_squad'
       ? 'clash_squad'
@@ -31,12 +31,14 @@ export function getTournamentSeatLayout(tournament: {
         ? 'lone_wolf'
         : null;
   const teamTypeValue = normalized(tournament.teamType);
-  const teamType = teamTypeValue === 'solo' || teamTypeValue === 'duo' || teamTypeValue === 'squad'
+  const teamType = teamTypeValue === 'solo' || teamTypeValue === 'duo' ||
+    teamTypeValue === 'trio' || teamTypeValue === 'squad'
     ? teamTypeValue
     : null;
   if (!gameMode || !teamType) return null;
 
-  const slotsPerGroup = teamType === 'solo' ? 1 : teamType === 'duo' ? 2 : 4;
+  if (gameMode === 'battle_royale' && teamType === 'trio') return null;
+  const slotsPerGroup = teamType === 'solo' ? 1 : teamType === 'duo' ? 2 : teamType === 'trio' ? 3 : 4;
   if (gameMode === 'battle_royale') {
     const groupCount = teamType === 'solo' ? 48 : teamType === 'duo' ? 24 : 12;
     return {

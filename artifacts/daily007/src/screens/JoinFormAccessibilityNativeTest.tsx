@@ -6,9 +6,9 @@ import { Btn, C, Card } from '../components/ui';
 import { ReadableText as Text } from '../components/typography';
 import JoinForm from './JoinForm';
 
-type TeamType = 'Solo' | 'Duo' | 'Squad';
+type TeamType = 'Solo' | 'Duo' | 'Trio' | 'Squad';
 
-const TEAM_TYPES: TeamType[] = ['Solo', 'Duo', 'Squad'];
+const TEAM_TYPES: TeamType[] = ['Solo', 'Duo', 'Trio', 'Squad'];
 const FIXTURE_USER: User = {
   id: 'native-join-label-fixture-user',
   name: 'Native Label Player',
@@ -16,16 +16,18 @@ const FIXTURE_USER: User = {
 };
 
 function fixtureTournament(teamType: TeamType) {
-  const teamSize = teamType === 'Squad' ? 4 : teamType === 'Duo' ? 2 : 1;
+  const teamSize = teamType === 'Squad' ? 4 : teamType === 'Trio' ? 3 : teamType === 'Duo' ? 2 : 1;
+  const isBattleRoyale = teamType !== 'Trio';
   return {
     id: `native-join-label-${teamType.toLowerCase()}`,
     name: `${teamType} registration label fixture`,
-    mode: 'Battle Royale',
+    mode: isBattleRoyale ? 'Battle Royale' : 'Clash Squad',
+    gameMode: isBattleRoyale ? 'battle_royale' : 'clash_squad',
     teamType,
     teamSize,
     slotUnit: 'team',
-    totalSlots: teamSize > 1 ? 12 : 48,
-    totalPlayerSlots: teamSize > 1 ? 12 * teamSize : 48,
+    totalSlots: isBattleRoyale ? (teamSize === 1 ? 48 : teamSize === 2 ? 24 : 12) : 2,
+    totalPlayerSlots: isBattleRoyale ? 48 : 2 * teamSize,
     filledSlots: 0,
     filledPlayerSlots: 0,
     availableSlots: 12,
@@ -57,7 +59,7 @@ function JoinFormAccessibilityFixture() {
           DEVELOPMENT FIXTURE · LOCAL DATA ONLY
         </Text>
         <Text style={{ color: C.sub, marginTop: 6 }}>
-          Native accessibility labels for Solo, Duo, and Squad registration forms.
+          Native accessibility labels for Solo, Duo, Trio, and Squad registration forms.
         </Text>
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
           {TEAM_TYPES.map((type) => (

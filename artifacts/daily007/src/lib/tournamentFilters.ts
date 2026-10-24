@@ -25,6 +25,9 @@ export type HomeRegistrationTournament = TournamentModeItem & {
   registration_open?: unknown;
 };
 
+export type TournamentTeamFormat = 'solo' | 'duo' | 'trio' | 'squad';
+export type HomeOpenFormatCounts = Record<TournamentTeamFormat, number>;
+
 export const HOME_GAME_MODE_CARDS = [
   { mode: 'Battle Royale', gameMode: 'battle_royale' },
   { mode: 'Clash Squad', gameMode: 'clash_squad' },
@@ -96,7 +99,9 @@ export function isHomeTournamentOpenForRegistration(
   const startsAt = Date.parse(String(tournament.startsAt ?? ''));
   const status = String(tournament.status ?? '').toLowerCase();
   if (!Number.isFinite(startsAt) || startsAt <= now ||
-      ['cancelled', 'live', 'closed', 'completed', 'ongoing'].includes(status)) return false;
+      ['cancelled', 'live', 'closed', 'registration_closed', 'expired', 'completed', 'ongoing'].includes(status)) {
+    return false;
+  }
 
   const rawTeamSize = Number(tournament.teamSize ?? 1);
   const teamSize = Number.isSafeInteger(rawTeamSize) && rawTeamSize > 0 ? rawTeamSize : 1;
@@ -116,6 +121,22 @@ export function isHomeTournamentOpenForRegistration(
     Number.isSafeInteger(filledPlayerSlots) &&
     filledPlayerSlots >= 0 &&
     filledPlayerSlots < totalPlayerSlots;
+}
+
+export function countOpenHomeTournamentsByFormat(
+  tournaments: readonly HomeRegistrationTournament[],
+  gameMode: string,
+  now = Date.now(),
+): HomeOpenFormatCounts {
+  const formats: TournamentTeamFormat[] = ['solo', 'duo', 'trio', 'squad'];
+  return Object.fromEntries(
+    formats.map((teamType) => [
+      teamType,
+      filterTournamentsForRoute(tournaments, { gameMode, teamType })
+        .filter((tournament) => isHomeTournamentOpenForRegistration(tournament, now))
+        .length,
+    ]),
+  ) as HomeOpenFormatCounts;
 }
 
 export function countOpenHomeTournamentsByMode(

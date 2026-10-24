@@ -51,6 +51,29 @@ appId: host.exp.exponent
 
 - scrollUntilVisible:
     element:
+      id: join-form-accessibility-select-trio
+    direction: UP
+- tapOn:
+    id: join-form-accessibility-select-trio
+- assertVisible:
+    text: "Current format: Trio"
+- scrollUntilVisible:
+    element:
+      text: "PLAYER 2 Free Fire in-game name"
+    direction: DOWN
+- tapOn:
+    text: "PLAYER 2 Free Fire in-game name"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: "PLAYER 2 Free Fire UID"
+    direction: DOWN
+- tapOn:
+    text: "PLAYER 2 Free Fire UID"
+- hideKeyboard
+
+- scrollUntilVisible:
+    element:
       id: join-form-accessibility-select-squad
     direction: UP
 - tapOn:

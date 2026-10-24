@@ -63,6 +63,18 @@ test('non-Battle-Royale tournaments keep their format art and banner behavior', 
   );
   assert.equal(loneWolf.image, tournamentFormatArt.solo);
   assert.equal(loneWolf.showFormatBanner, true);
+
+  for (const gameMode of ['clash_squad', 'lone_wolf']) {
+    const trio = getTournamentFormatPresentation(
+      { gameMode, teamType: 'trio' },
+      { tournamentFormatArt, battleRoyalePosterArt },
+    );
+    assert.equal(trio.image, tournamentFormatArt.duo);
+    assert.equal(trio.format, 'trio');
+    assert.equal(trio.matchup, '3 VS 3');
+    assert.equal(trio.showBattleRoyalePoster, false);
+    assert.equal(trio.showFormatBanner, true);
+  }
 });
 
 test('the tournament card retains its title, status, values, slot counts, and Join navigation', () => {

@@ -10,6 +10,7 @@ import {
 } from '@react-navigation/routers';
 import {
   HOME_GAME_MODE_CARDS,
+  countOpenHomeTournamentsByFormat,
   homeModeRouteParams,
   isHomeTournamentOpenForRegistration,
   submodeRouteParams,
@@ -99,6 +100,10 @@ const roomCredentialsPanelSource = await readFile(
 );
 const appSource = await readFile(
   new URL('../src/App.tsx', import.meta.url),
+  'utf8',
+);
+const apiTournamentSource = await readFile(
+  new URL('../../api-server/src/routes/daily007-compat-core.ts', import.meta.url),
   'utf8',
 );
 
@@ -344,8 +349,8 @@ function findDetailTitleExpression() {
   return titleExpression;
 }
 
-test('Solo, Duo, and Squad selections keep the selected game mode in their route params', () => {
-  for (const teamType of ['solo', 'duo', 'squad']) {
+test('Solo, Duo, Trio, and Squad selections keep the selected game mode in their route params', () => {
+  for (const teamType of ['solo', 'duo', 'trio', 'squad']) {
     assert.deepEqual(
       submodeRouteParams('clash_squad', teamType, 'CLASH SQUAD'),
       {
@@ -365,11 +370,12 @@ test('Solo, Duo, and Squad selections keep the selected game mode in their route
   assert.match(modeSubmodesSource, /`\$\{format\.size\} VS \$\{format\.size\}`/);
 });
 
-test('all six Clash Squad and Lone Wolf formats show only published, open matches for their exact mode and format', () => {
+test('all eight Clash Squad and Lone Wolf formats show only published, open matches for their exact mode and format', () => {
   const now = Date.now();
   const formats = [
     { teamType: 'solo', size: 1 },
     { teamType: 'duo', size: 2 },
+    { teamType: 'trio', size: 3 },
     { teamType: 'squad', size: 4 },
   ];
   const matches = ['clash_squad', 'lone_wolf'].flatMap((gameMode) =>
@@ -422,10 +428,71 @@ test('all six Clash Squad and Lone Wolf formats show only published, open matche
   assert.match(tournamentsSource, /registrationOnly\s*\?\s*\{\s*\.\.\.item,\s*status: 'upcoming'\s*\}/);
 });
 
+test('format live counts stay separate by mode and exclude closed, expired, full, or unpublished matches', () => {
+  const now = Date.now();
+  const start = new Date(now + 60 * 60 * 1000).toISOString();
+  const teamSizes = { solo: 1, duo: 2, trio: 3, squad: 4 };
+  const openMatches = [];
+  for (const gameMode of ['clash_squad', 'lone_wolf']) {
+    for (const [teamType, size] of Object.entries(teamSizes)) {
+      const baseCount = 1;
+      const extraCount = gameMode === 'clash_squad' && teamType === 'solo'
+        ? 1
+        : gameMode === 'lone_wolf' && teamType === 'squad'
+          ? 2
+          : 0;
+      for (let index = 0; index < baseCount + extraCount; index++) {
+        openMatches.push({
+          id: `${gameMode}-${teamType}-${index}`,
+          gameMode,
+          teamType,
+          teamSize: size,
+          enabled: true,
+          status: 'upcoming',
+          startsAt: start,
+          totalSlots: 2,
+          filledSlots: 2,
+          totalPlayerSlots: size * 2,
+          filledPlayerSlots: size * 2 - 1,
+        });
+      }
+    }
+  }
+  const unavailable = [
+    { ...openMatches[0], id: 'unpublished-count', enabled: false },
+    { ...openMatches[1], id: 'cancelled-count', status: 'cancelled' },
+    { ...openMatches[2], id: 'expired-count', status: 'expired' },
+    { ...openMatches[3], id: 'closed-count', registrationOpen: false },
+    { ...openMatches[4], id: 'completed-count', status: 'completed' },
+    {
+      ...openMatches[5],
+      id: 'full-count',
+      filledPlayerSlots: openMatches[5].totalPlayerSlots,
+    },
+    { ...openMatches[6], id: 'started-count', startsAt: new Date(now - 1).toISOString() },
+  ];
+  const records = [...openMatches, ...unavailable];
+
+  assert.deepEqual(
+    countOpenHomeTournamentsByFormat(records, 'clash_squad', now),
+    { solo: 2, duo: 1, trio: 1, squad: 1 },
+  );
+  assert.deepEqual(
+    countOpenHomeTournamentsByFormat(records, 'lone_wolf', now),
+    { solo: 1, duo: 1, trio: 1, squad: 3 },
+  );
+  assert.match(modeSubmodesSource, /api\.tournaments\('\?enabled=true'\)/);
+  assert.match(modeSubmodesSource, /countOpenHomeTournamentsByFormat\(response,\s*gameMode,\s*Date\.now\(\)\)/);
+  assert.match(modeSubmodesSource, /setInterval\(\(\) => void refreshCounts\(\), 30_000\)/);
+  assert.match(modeSubmodesSource, /LIVE \$\{count\}/);
+  assert.match(apiTournamentSource, /m\.starts_at > clock_timestamp\(\) \+ interval '5 hours 30 minutes' AS registration_open/);
+  assert.match(apiTournamentSource, /registrationOpen: row\.registration_open/);
+});
+
 test('format cards announce one mode, format, and capacity action without decorative focus stops', () => {
   assert.match(
     modeSubmodesSource,
-    /accessibilityGroup\s+accessibilityLabel=\{`\$\{mode\.title\}, \$\{formatTitle\}, \$\{capacity\.playersPerTeam\} \$\{capacity\.playersPerTeam === 1 \? 'player' : 'players'\} per team, \$\{capacity\.label\}`\}/,
+    /accessibilityGroup\s+accessibilityLabel=\{`\$\{mode\.title\}, \$\{formatTitle\}[\s\S]*?\$\{liveLabel\}/,
   );
   assert.match(
     modeSubmodesSource,
@@ -437,14 +504,17 @@ test('format cards announce one mode, format, and capacity action without decora
   assert.match(uiSource, /importantForAccessibility=\{accessibilityGroup \? 'no-hide-descendants' : undefined\}/);
 
   const tournaments = HOME_GAME_MODE_CARDS.flatMap(({ gameMode }) =>
-    ['Solo', 'Duo', 'Squad'].map((teamType) => ({
+    (gameMode === 'battle_royale' ? ['Solo', 'Duo', 'Squad'] : ['Solo', 'Duo', 'Trio', 'Squad']).map((teamType) => ({
       id: `${gameMode}-${teamType.toLowerCase()}`,
       gameMode,
       teamType,
     })),
   );
   for (const mode of HOME_GAME_MODE_CARDS) {
-    for (const teamType of ['solo', 'duo', 'squad']) {
+    const modeFormats = mode.gameMode === 'battle_royale'
+      ? ['solo', 'duo', 'squad']
+      : ['solo', 'duo', 'trio', 'squad'];
+    for (const teamType of modeFormats) {
       const routeParams = submodeRouteParams(mode.gameMode, teamType, mode.mode);
       assert.deepEqual(routeParams, {
         gameMode: mode.gameMode,
@@ -467,9 +537,11 @@ test('format capacity counts and labels are correct for every mode and team size
     { gameMode: 'battle_royale', teamType: 'squad', playersPerTeam: 4, slots: 12, totalPlayers: 48, label: '12 team slots · 48 players' },
     { gameMode: 'clash_squad', teamType: 'solo', playersPerTeam: 1, slots: 2, totalPlayers: 2, label: '2 team slots · 2 players' },
     { gameMode: 'clash_squad', teamType: 'duo', playersPerTeam: 2, slots: 2, totalPlayers: 4, label: '2 team slots · 4 players' },
+    { gameMode: 'clash_squad', teamType: 'trio', playersPerTeam: 3, slots: 2, totalPlayers: 6, label: '2 team slots · 6 players' },
     { gameMode: 'clash_squad', teamType: 'squad', playersPerTeam: 4, slots: 2, totalPlayers: 8, label: '2 team slots · 8 players' },
     { gameMode: 'lone_wolf', teamType: 'solo', playersPerTeam: 1, slots: 2, totalPlayers: 2, label: '2 team slots · 2 players' },
     { gameMode: 'lone_wolf', teamType: 'duo', playersPerTeam: 2, slots: 2, totalPlayers: 4, label: '2 team slots · 4 players' },
+    { gameMode: 'lone_wolf', teamType: 'trio', playersPerTeam: 3, slots: 2, totalPlayers: 6, label: '2 team slots · 6 players' },
     { gameMode: 'lone_wolf', teamType: 'squad', playersPerTeam: 4, slots: 2, totalPlayers: 8, label: '2 team slots · 8 players' },
   ];
 
@@ -488,7 +560,7 @@ test('format capacity counts and labels are correct for every mode and team size
 
   assert.match(
     modeSubmodesSource,
-    /accessibilityLabel=\{`\$\{mode\.title\}, \$\{formatTitle\}, \$\{capacity\.playersPerTeam\} \$\{capacity\.playersPerTeam === 1 \? 'player' : 'players'\} per team, \$\{capacity\.label\}`\}/,
+    /accessibilityLabel=\{`\$\{mode\.title\}, \$\{formatTitle\}[\s\S]*?\$\{liveLabel\}/,
   );
   assert.match(
     modeSubmodesSource,
@@ -520,11 +592,11 @@ test('format cards stack their details and remain scrollable at 1.5x Android tex
   assert.doesNotMatch(formatCardStyle, /(?:^|,)\s*height\s*:/);
   assert.doesNotMatch(formatSection, /numberOfLines=|ellipsizeMode=/);
 
-  for (const [type, title] of [['solo', 'SOLO'], ['duo', 'DUO'], ['squad', 'SQUAD']]) {
+  for (const [type, title] of [['solo', 'SOLO'], ['duo', 'DUO'], ['trio', 'TRIO'], ['squad', 'SQUAD']]) {
     assert.match(modeSubmodesSource, new RegExp(`\\{ type: '${type}', title: '${title}'`));
   }
   assert.match(formatSection, /testID=\{`format-\$\{gameMode\}-\$\{format\.type\}`\}/);
-  assert.match(formatSection, /accessibilityLabel=\{`\$\{mode\.title\}, \$\{formatTitle\}, \$\{capacity\.playersPerTeam\} \$\{capacity\.playersPerTeam === 1 \? 'player' : 'players'\} per team, \$\{capacity\.label\}`\}/);
+  assert.match(formatSection, /accessibilityLabel=\{`\$\{mode\.title\}, \$\{formatTitle\}[\s\S]*?\$\{liveLabel\}/);
   assert.match(formatSection, /const params = submodeRouteParams\(gameMode,\s*format\.type,\s*mode\.title\)/);
   assert.match(formatSection, /navigation\.push\('Tournaments', \{ \.\.\.params, registrationOnly: true \}\)/);
   assert.match(formatSection, /style=\{styles\.formatName\}>\{formatTitle\}<\/Text>/);
@@ -534,9 +606,13 @@ test('format cards stack their details and remain scrollable at 1.5x Android tex
 
 test('Home mode cards keep every lifecycle tab mode-scoped and the format picker format-scoped', () => {
   const lifecycleTabs = ['upcoming', 'ongoing', 'completed'];
-  const formats = ['Solo', 'Duo', 'Squad'];
+  const formatsByMode = {
+    battle_royale: ['Solo', 'Duo', 'Squad'],
+    clash_squad: ['Solo', 'Duo', 'Trio', 'Squad'],
+    lone_wolf: ['Solo', 'Duo', 'Trio', 'Squad'],
+  };
   const tournaments = HOME_GAME_MODE_CARDS.flatMap(({ gameMode }) =>
-    formats.flatMap((teamType) =>
+    formatsByMode[gameMode].flatMap((teamType) =>
       lifecycleTabs.map((lifecycle) => ({
         id: `${gameMode}-${teamType.toLowerCase()}-${lifecycle}`,
         gameMode,
@@ -568,8 +644,8 @@ test('Home mode cards keep every lifecycle tab mode-scoped and the format picker
     /navigation\.push\('Tournaments', \{ \.\.\.params, registrationOnly: true \}\)/,
   );
 
-  assert.match(homeGameModeCardsSource, /capacity: '1 VS 1 · 2 VS 2 · 4 VS 4'/);
-  assert.match(homeGameModeCardsSource, /formatLinkLabel: '1 VS 1 \/ 2 VS 2 \/ 4 VS 4'/);
+  assert.match(homeGameModeCardsSource, /capacity: '1 VS 1 · 2 VS 2 · 3 VS 3 · 4 VS 4'/);
+  assert.match(homeGameModeCardsSource, /formatLinkLabel: '1 VS 1 \/ 2 VS 2 \/ 3 VS 3 \/ 4 VS 4'/);
   assert.match(homeGameModeCardsSource, /Choose \$\{mode\.mode\} tournament format/);
 
   for (const card of HOME_GAME_MODE_CARDS) {
@@ -585,6 +661,7 @@ test('Home mode cards keep every lifecycle tab mode-scoped and the format picker
       directParams,
       lifecycleOf,
     );
+    const formats = formatsByMode[card.gameMode].map((format) => format.toLowerCase());
     for (const lifecycle of lifecycleTabs) {
       assert.deepEqual(
         directTabs[lifecycle].map((tournament) => tournament.id),

@@ -337,8 +337,10 @@ test("Squad slots charge each player atomically, preserve captain control, and t
       const formats = [
         { title: "BR Duo", mode: "squad", gameMode: "battle_royale", teamType: "duo", teamSize: 2, capacity: 24, teamNumber: 24 },
         { title: "Clash Squad Duo", mode: "clash", gameMode: "clash_squad", teamType: "duo", teamSize: 2, capacity: 2, teamNumber: 2 },
+        { title: "Clash Squad Trio", mode: "clash", gameMode: "clash_squad", teamType: "trio", teamSize: 3, capacity: 2, teamNumber: 2 },
         { title: "Clash Squad Squad", mode: "clash", gameMode: "clash_squad", teamType: "squad", teamSize: 4, capacity: 2, teamNumber: 2 },
         { title: "Lone Wolf Duo", mode: "clash", gameMode: "lone_wolf", teamType: "duo", teamSize: 2, capacity: 2, teamNumber: 2 },
+        { title: "Lone Wolf Trio", mode: "clash", gameMode: "lone_wolf", teamType: "trio", teamSize: 3, capacity: 2, teamNumber: 2 },
         { title: "Lone Wolf Squad", mode: "clash", gameMode: "lone_wolf", teamType: "squad", teamSize: 4, capacity: 2, teamNumber: 2 },
       ] as const;
 

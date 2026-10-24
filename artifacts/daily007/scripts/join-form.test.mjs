@@ -224,7 +224,7 @@ test("new-registration accessibility labels identify the selected player for eve
   assert.match(joinFormSource, /Each player joins and pays for their own slot\./);
 });
 
-test("Android release verification opens native Solo, Duo, and Squad label flows", () => {
+test("Android release verification opens native Solo, Duo, Trio, and Squad label flows", () => {
   assert.match(nativeLabelRouteSource, /JoinFormAccessibilityNativeTest/);
   assert.match(rootLayoutSource, /<Stack\.Screen name="join-form-accessibility-test" \/>/);
   assert.match(nativeLabelFixtureSource, /if \(!__DEV__\) return <Redirect href="\/" \/>/);
@@ -260,6 +260,13 @@ test("Android release verification opens native Solo, Duo, and Squad label flows
     },
     {
       name: "Duo",
+      labels: [
+        "PLAYER 2 Free Fire in-game name",
+        "PLAYER 2 Free Fire UID",
+      ],
+    },
+    {
+      name: "Trio",
       labels: [
         "PLAYER 2 Free Fire in-game name",
         "PLAYER 2 Free Fire UID",

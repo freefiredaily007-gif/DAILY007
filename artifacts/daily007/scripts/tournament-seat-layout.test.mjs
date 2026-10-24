@@ -62,6 +62,12 @@ test('Clash Squad and Lone Wolf use two sides with exact slot counts', () => {
     assert.equal(duo?.groupKind, 'team');
     assert.equal(duo?.directDuel, false);
 
+    const trio = getTournamentSeatLayout({ gameMode, teamType: 'trio' });
+    assert.equal(trio?.groupCount, 2);
+    assert.equal(trio?.slotsPerGroup, 3);
+    assert.equal(trio?.groupKind, 'team');
+    assert.equal(trio?.directDuel, false);
+
     const squad = getTournamentSeatLayout({ gameMode, teamType: 'squad' });
     assert.equal(squad?.groupCount, 2);
     assert.equal(squad?.slotsPerGroup, 4);
@@ -72,6 +78,7 @@ test('Clash Squad and Lone Wolf use two sides with exact slot counts', () => {
 test('unknown tournament formats do not get a slot layout', () => {
   assert.equal(getTournamentSeatLayout({ gameMode: 'custom', teamType: 'solo' }), null);
   assert.equal(getTournamentSeatLayout({ gameMode: 'clash_squad', teamType: 'unknown' }), null);
+  assert.equal(getTournamentSeatLayout({ gameMode: 'battle_royale', teamType: 'trio' }), null);
 });
 
 test('seat availability refreshes while open details are focused and pauses otherwise', () => {

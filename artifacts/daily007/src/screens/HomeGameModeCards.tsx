@@ -45,8 +45,8 @@ export default function HomeGameModeCards({
       img: modeClashLogo,
       category: 'TEAM BATTLE',
       title: 'CLASH SQUAD',
-      capacity: '1 VS 1 · 2 VS 2 · 4 VS 4',
-      formatLinkLabel: '1 VS 1 / 2 VS 2 / 4 VS 4',
+      capacity: '1 VS 1 · 2 VS 2 · 3 VS 3 · 4 VS 4',
+      formatLinkLabel: '1 VS 1 / 2 VS 2 / 3 VS 3 / 4 VS 4',
       accent: C.neon,
     },
     {
@@ -54,8 +54,8 @@ export default function HomeGameModeCards({
       img: modeSoloLogo,
       category: '1V1 DUELS',
       title: 'LONE WOLF',
-      capacity: '1 VS 1 · 2 VS 2 · 4 VS 4',
-      formatLinkLabel: '1 VS 1 / 2 VS 2 / 4 VS 4',
+      capacity: '1 VS 1 · 2 VS 2 · 3 VS 3 · 4 VS 4',
+      formatLinkLabel: '1 VS 1 / 2 VS 2 / 3 VS 3 / 4 VS 4',
       accent: C.purple,
     },
   ];
