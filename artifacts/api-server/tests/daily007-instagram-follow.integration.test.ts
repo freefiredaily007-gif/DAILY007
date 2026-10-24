@@ -131,18 +131,14 @@ test("Instagram follow claims are authenticated, reviewable, and credit the rewa
       assert.equal(invalid.status, 400);
 
       const submitted = await call(origin, "/earn/instagram-follow/claims", "POST", playerToken, {
-        instagramUsername: "@daily007.player",
-        proofText: "Followed from my public profile.",
       });
       assert.equal(submitted.status, 201);
       assert.equal(submitted.body.status, "pending");
-      assert.equal(submitted.body.instagramUsername, "daily007.player");
-      assert.equal(submitted.body.proofText, "Followed from my public profile.");
+      assert.equal(submitted.body.instagramUsername, null);
+      assert.equal(submitted.body.proofText, null);
       const claimId = submitted.body.id as string;
 
-      const duplicate = await call(origin, "/earn/instagram-follow/claims", "POST", playerToken, {
-        instagramUsername: "another_name",
-      });
+      const duplicate = await call(origin, "/earn/instagram-follow/claims", "POST", playerToken, {});
       assert.equal(duplicate.status, 200);
       assert.equal(duplicate.body.id, claimId);
 
@@ -158,8 +154,11 @@ test("Instagram follow claims are authenticated, reviewable, and credit the rewa
 
       const listed = await call(origin, "/admin/earn/instagram-follow/claims", "GET", adminToken);
       assert.equal(listed.status, 200);
-      assert.equal(listed.body.claims[0].instagramUsername, "daily007.player");
-      assert.equal(listed.body.claims[0].proofText, "Followed from my public profile.");
+      assert.equal(listed.body.claims[0].userId, playerId);
+      assert.equal(listed.body.claims[0].userName, "Instagram Player");
+      assert.equal(listed.body.claims[0].email, `player-${playerId}@example.test`);
+      assert.equal("instagramUsername" in listed.body.claims[0], false);
+      assert.equal("proofText" in listed.body.claims[0], false);
 
       const approvals = await Promise.all([
         call(origin, `/admin/earn/instagram-follow/claims/${claimId}/approve`, "POST", adminToken),
@@ -185,16 +184,14 @@ test("Instagram follow claims are authenticated, reviewable, and credit the rewa
 
       const completed = await call(origin, "/earn/instagram-follow", "GET", playerToken);
       assert.equal(completed.body.completed, true);
+      assert.equal(completed.body.claim.instagramUsername, null);
+      assert.equal(completed.body.claim.proofText, null);
       assert.equal(completed.body.claim.transactionId, ledger.rows[0]?.id);
-      const repeat = await call(origin, "/earn/instagram-follow/claims", "POST", playerToken, {
-        instagramUsername: "daily007.player",
-      });
+      const repeat = await call(origin, "/earn/instagram-follow/claims", "POST", playerToken, {});
       assert.equal(repeat.status, 200);
       assert.equal(repeat.body.status, "approved");
 
-      const rejectedClaim = await call(origin, "/earn/instagram-follow/claims", "POST", rejectedPlayerToken, {
-        instagramUsername: "rejected.player",
-      });
+      const rejectedClaim = await call(origin, "/earn/instagram-follow/claims", "POST", rejectedPlayerToken, {});
       assert.equal(rejectedClaim.status, 201);
       const rejected = await call(
         origin,

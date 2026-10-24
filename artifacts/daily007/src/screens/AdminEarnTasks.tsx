@@ -166,7 +166,7 @@ export default function AdminEarnTasks() {
 
         <SectionTitle
           title="INSTAGRAM FOLLOW TASK"
-          sub="Review the submitted Instagram username and proof before approving wallet credits."
+          sub="Review each claim using the player's Daily007 account details before approving wallet credits."
         />
         <Card style={st.summary}>
           <Text style={st.summaryValue}>{instagramClaimsQuery.data?.totalCompleted ?? 0}</Text>
@@ -194,8 +194,6 @@ export default function AdminEarnTasks() {
                 <StatusTag status={claim.status} />
               </View>
               <Text selectable style={st.detail}>Daily007 user ID: {claim.userId}</Text>
-              <Text selectable style={st.detail}>Instagram username: @{claim.instagramUsername}</Text>
-              <Text style={st.detail}>Proof / note: {claim.proofText || 'Not provided'}</Text>
               <Text style={st.detail}>Reward: {claim.rewardCoins} coins</Text>
               <Text style={st.detail}>Submitted: {formatAdminDateTime(claim.createdAt)}</Text>
               {claim.reviewedAt ? (
@@ -248,7 +246,7 @@ export default function AdminEarnTasks() {
         visible={!!instagramReviewTarget}
         title={instagramReviewTarget?.action === 'approve' ? 'Approve Instagram claim?' : 'Reject Instagram claim?'}
         message={instagramReviewTarget?.action === 'approve'
-          ? `After you verify @${instagramReviewTarget.claim.instagramUsername}, this will add ${instagramReviewTarget.claim.rewardCoins} coins to ${instagramReviewTarget.claim.userName}'s wallet and permanently complete the task for this account.`
+          ? `After you verify this Daily007 account's Instagram follow, this will add ${instagramReviewTarget.claim.rewardCoins} coins to ${instagramReviewTarget.claim.userName}'s wallet and permanently complete the task for this account.`
           : 'This claim will be rejected. The user can follow the account and submit a new claim.'}
         confirmTitle={instagramReviewTarget?.action === 'approve' ? 'APPROVE & CREDIT' : 'REJECT CLAIM'}
         danger={instagramReviewTarget?.action === 'reject'}

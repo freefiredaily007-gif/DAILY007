@@ -8,7 +8,7 @@ export interface InstagramClaimClient {
 interface InstagramClaimRow {
   id: string;
   user_id: string;
-  instagram_username: string;
+  instagram_username: string | null;
   proof_text: string | null;
   reward_coins: number;
   status: InstagramClaimStatus;
@@ -48,7 +48,7 @@ export function instagramClaimResponse(row: InstagramClaimRow, walletCoins: numb
 export async function submitInstagramFollowClaim(
   client: InstagramClaimClient,
   userId: string,
-  instagramUsername: string,
+  instagramUsername: string | null,
   proofText: string | null,
   rewardCoins: number,
 ): Promise<{ claim: ReturnType<typeof instagramClaimResponse>; created: boolean }> {

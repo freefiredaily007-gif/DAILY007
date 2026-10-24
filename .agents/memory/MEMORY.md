@@ -60,6 +60,7 @@
 - [Daily007 database CHECK constraints](daily007-role-constraint-verification.md) — compare dev/prod definitions; rename same-name stale checks to make Publish detect expression drift.
 - [Drizzle CHECK constraint drift](drizzle-check-constraints.md) — after changing a Drizzle CHECK, verify the live PostgreSQL definition; a successful push can leave it stale.
 - [Daily007 video rewards](daily007-video-rewards.md) — Full Admin-managed YouTube views award one coin per completion, including replays; playback reports are not tamper-proof.
+- [Daily007 Instagram claims](daily007-instagram-claims.md) — Admins verify follows using the player's Daily007 account; do not require Instagram username or proof submission.
 - [Daily007 video catalog concurrency](daily007-video-catalog-concurrency.md) — cancel superseded refetches and ignore older retry outcomes before they change announcements.
 - [Daily007 Android video catalog lifecycle](daily007-video-catalog-android.md) — iQOO Neo 10 / Android 16 confirmed resume and offline refresh recovery, including cached-card access.
 - [Daily007 YouTube link behavior](daily007-youtube-link-behavior.md) — only the explicit YouTube action leaves the in-app player; Android opens the selected video in YouTube first, with browser fallback.

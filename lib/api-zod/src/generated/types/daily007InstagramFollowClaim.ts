@@ -27,11 +27,7 @@ import type { Daily007InstagramFollowClaimStatus } from './daily007InstagramFoll
 export interface Daily007InstagramFollowClaim {
   id: string;
   status: Daily007InstagramFollowClaimStatus;
-  /**
-     * @minLength 1
-     * @maxLength 30
-     */
-  instagramUsername: string;
+  instagramUsername: string | null;
   /**
      * @maxLength 1000
      * @nullable

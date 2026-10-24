@@ -24,7 +24,7 @@ import {
   useDaily007SubmitInstagramFollowClaim,
   useDaily007SubmitYoutubeSubscribeClaim,
 } from '@workspace/api-client-react';
-import { C, Input } from '../components/ui';
+import { C } from '../components/ui';
 import { apiError } from '../lib/api';
 import {
   copyReferralLinkToClipboardWithFallback,
@@ -53,9 +53,6 @@ export default function Earn() {
   const [simulateReferralCodeCopyFailure, setSimulateReferralCodeCopyFailure] = useState(false);
   const [taskError, setTaskError] = useState('');
   const [instagramTaskError, setInstagramTaskError] = useState('');
-  const [instagramUsername, setInstagramUsername] = useState('');
-  const [instagramProof, setInstagramProof] = useState('');
-  const [focusedInstagramField, setFocusedInstagramField] = useState<'username' | 'proof' | null>(null);
   const [returnedFromYoutube, setReturnedFromYoutube] = useState(false);
   const [returnedFromInstagram, setReturnedFromInstagram] = useState(false);
   const waitingForYoutubeReturn = useRef(false);
@@ -204,21 +201,11 @@ export default function Earn() {
 
   const submitInstagramTask = async () => {
     setInstagramTaskError('');
-    const normalizedUsername = instagramUsername.trim().replace(/^@/, '');
-    if (!/^[A-Za-z0-9._]{1,30}$/.test(normalizedUsername)) {
-      setInstagramTaskError(t('Enter a valid Instagram username.'));
-      return;
-    }
     try {
       await submitInstagramClaim.mutateAsync({
-        data: {
-          instagramUsername: normalizedUsername,
-          proofText: instagramProof.trim() || null,
-        },
+        data: {},
       });
       setReturnedFromInstagram(false);
-      setInstagramUsername('');
-      setInstagramProof('');
       await instagramTaskQuery.refetch();
       showLocalizedAlert(
         'Claim submitted',
@@ -441,14 +428,6 @@ export default function Earn() {
               <Text style={s.detailText}>
                 {instagramTask.claim.rewardCoins} coins will be credited if approved.
               </Text>
-              <Text style={s.detailText}>
-                {t('Instagram username: @{{username}}', { username: instagramTask.claim.instagramUsername })}
-              </Text>
-              {instagramTask.claim.proofText ? (
-                <Text style={s.detailText}>
-                  {t('Proof / note: {{proof}}', { proof: instagramTask.claim.proofText })}
-                </Text>
-              ) : null}
             </View>
           </View>
         ) : instagramTask?.claim?.status === 'rejected' ? (
@@ -479,46 +458,6 @@ export default function Earn() {
                   <Text style={s.youtubeButtonText}>FOLLOW ON INSTAGRAM</Text>
                 </LinearGradient>
               </Pressable>
-              <Text style={s.fieldLabel}>Instagram username</Text>
-              <View style={[s.taskInputShell, focusedInstagramField === 'username' && s.taskInputShellFocused]}>
-                <Feather name="at-sign" size={16} color={C.purple} />
-                <Input
-                  accessibilityLabel={t('Instagram username')}
-                  testID="instagram-task-username"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  maxLength={31}
-                  placeholder="Enter your Instagram username"
-                  value={instagramUsername}
-                  onChangeText={setInstagramUsername}
-                  onFocus={() => setFocusedInstagramField('username')}
-                  onBlur={() => setFocusedInstagramField((current) => current === 'username' ? null : current)}
-                  style={s.taskInput}
-                />
-              </View>
-              <Text style={s.fieldLabel}>Proof / note (optional)</Text>
-              <View
-                style={[
-                  s.taskInputShell,
-                  s.proofInputShell,
-                  focusedInstagramField === 'proof' && s.taskInputShellFocused,
-                ]}
-              >
-                <Feather name="message-square" size={16} color={C.purple} />
-                <Input
-                  accessibilityLabel={t('Proof / note (optional)')}
-                  testID="instagram-task-proof"
-                  autoCapitalize="sentences"
-                  maxLength={1000}
-                  multiline
-                  placeholder="Add a verification note or proof link (optional)"
-                  value={instagramProof}
-                  onChangeText={setInstagramProof}
-                  onFocus={() => setFocusedInstagramField('proof')}
-                  onBlur={() => setFocusedInstagramField((current) => current === 'proof' ? null : current)}
-                  style={[s.taskInput, s.proofInput]}
-                />
-              </View>
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={t('Submit Instagram follow claim for administrator review')}
@@ -544,11 +483,6 @@ export default function Earn() {
                   </Text>
                 </LinearGradient>
               </Pressable>
-              {!returnedFromInstagram ? (
-                <Text style={s.taskHint}>
-                  Follow the account, return to Daily007, then submit your Instagram username for review.
-                </Text>
-              ) : null}
             </>
           ) : (
             <Text style={s.taskHint}>This task is temporarily unavailable.</Text>
@@ -565,7 +499,7 @@ export default function Earn() {
               </View>
               <Text style={s.inviteTitle}>INVITE &amp; EARN</Text>
             </View>
-            <Text style={s.sectionLabel}>YOUR 5-LETTER REFERRAL CODE</Text>
+            <Text style={s.sectionLabel}>{t('REFERRAL CODE')}</Text>
             <View style={s.codeRow}>
               <Text selectable style={s.code}>{dashboard.code}</Text>
               <Pressable
@@ -578,7 +512,7 @@ export default function Earn() {
                 <Feather name={copied ? 'check' : 'copy'} size={18} color={C.gold} />
               </Pressable>
             </View>
-            <Text style={[s.sectionLabel, { marginTop: 16 }]}>CLICKABLE INVITE LINK</Text>
+            <Text style={[s.sectionLabel, { marginTop: 16 }]}>{t('INVITE LINK')}</Text>
             <View style={s.linkRow}>
               <Pressable
                 accessibilityRole="link"
@@ -893,40 +827,6 @@ const s = StyleSheet.create({
   },
   youtubeButtonText: { color: C.text, fontWeight: '900', fontSize: 11, letterSpacing: 0.5 },
   buttonPressed: { transform: [{ scale: 0.985 }], opacity: 0.92 },
-  fieldLabel: { color: C.sub, fontSize: 10, fontWeight: '900', letterSpacing: 0.8, marginTop: 10, marginBottom: 5 },
-  taskInputShell: {
-    minHeight: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-    backgroundColor: C.bg2,
-    borderColor: C.border,
-    borderWidth: 1,
-    borderRadius: 13,
-    paddingHorizontal: 12,
-  },
-  taskInputShellFocused: {
-    borderColor: C.purple,
-    shadowColor: C.purple,
-    shadowOpacity: 0.28,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  proofInputShell: { alignItems: 'flex-start', paddingTop: 10 },
-  taskInput: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: 44,
-    backgroundColor: 'transparent',
-    borderColor: 'transparent',
-    borderWidth: 0,
-    borderRadius: 0,
-    color: C.text,
-    paddingHorizontal: 0,
-    paddingVertical: 10,
-    fontSize: 13,
-  },
-  proofInput: { minHeight: 78, textAlignVertical: 'top' },
   claimButton: { minHeight: 48, borderRadius: 13, overflow: 'hidden', marginTop: 10 },
   claimButtonDisabled: { opacity: 0.48 },
   claimButtonGradient: {

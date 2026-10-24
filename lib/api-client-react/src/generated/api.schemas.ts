@@ -1093,7 +1093,7 @@ export interface Daily007InstagramFollowClaimBody {
      * @maxLength 31
      * @pattern ^@?[A-Za-z0-9._]{1,30}$
      */
-  instagramUsername: string;
+  instagramUsername?: string;
   /**
      * @maxLength 1000
      * @nullable
@@ -1113,11 +1113,7 @@ export const Daily007InstagramFollowClaimStatus = {
 export interface Daily007InstagramFollowClaim {
   id: string;
   status: Daily007InstagramFollowClaimStatus;
-  /**
-     * @minLength 1
-     * @maxLength 30
-     */
-  instagramUsername: string;
+  instagramUsername: string | null;
   /**
      * @maxLength 1000
      * @nullable
@@ -1155,16 +1151,6 @@ export interface Daily007AdminInstagramFollowClaim {
   userId: string;
   userName: string;
   email: string;
-  /**
-     * @minLength 1
-     * @maxLength 30
-     */
-  instagramUsername: string;
-  /**
-     * @maxLength 1000
-     * @nullable
-     */
-  proofText: string | null;
   status: Daily007AdminInstagramFollowClaimStatus;
   /** @minimum 1 */
   rewardCoins: number;

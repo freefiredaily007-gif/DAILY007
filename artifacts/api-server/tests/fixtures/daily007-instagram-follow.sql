@@ -41,8 +41,8 @@ CREATE TABLE daily007_v2_notifications (
 CREATE TABLE daily007_v2_instagram_follow_claims (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES daily007_v2_users(id),
-  instagram_username text NOT NULL
-    CHECK (instagram_username ~ '^[A-Za-z0-9._]{1,30}$'),
+  instagram_username text
+    CHECK (instagram_username IS NULL OR instagram_username ~ '^[A-Za-z0-9._]{1,30}$'),
   proof_text text CHECK (proof_text IS NULL OR length(proof_text) <= 1000),
   reward_coins integer NOT NULL CHECK (reward_coins BETWEEN 1 AND 2147483647),
   status text NOT NULL DEFAULT 'pending'

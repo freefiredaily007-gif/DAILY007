@@ -951,7 +951,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Daily007InstagramFollowClaim" }
-        "400": { description: Invalid Instagram username or proof text }
+        "400": { description: Invalid optional legacy Instagram username or proof text }
         "401": { description: Missing or invalid bearer token }
         "409": { description: Task is disabled or the user already completed it }
   /admin/earn/instagram-follow/claims:
@@ -961,7 +961,7 @@ paths:
       security: [{ bearerAuth: [] }]
       responses:
         "200":
-          description: Claim history with Instagram username, proof, and user identity
+          description: Claim history with the player's Daily007 account identity
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Daily007AdminInstagramFollowClaims" }
@@ -2121,13 +2121,15 @@ components:
       properties:
         instagramUsername: { type: string, minLength: 1, maxLength: 31, pattern: "^@?[A-Za-z0-9._]{1,30}$" }
         proofText: { type: [string, "null"], maxLength: 1000 }
-      required: [instagramUsername]
     Daily007InstagramFollowClaim:
       type: object
       properties:
         id: { type: string, format: uuid }
         status: { type: string, enum: [pending, approved, rejected] }
-        instagramUsername: { type: string, minLength: 1, maxLength: 30 }
+        instagramUsername:
+          anyOf:
+            - { type: string, minLength: 1, maxLength: 30 }
+            - { type: "null" }
         proofText: { type: [string, "null"], maxLength: 1000 }
         rewardCoins: { type: integer, minimum: 1 }
         createdAt: { type: string, format: date-time }
@@ -2167,8 +2169,6 @@ components:
         userId: { type: string, format: uuid }
         userName: { type: string }
         email: { type: string, format: email }
-        instagramUsername: { type: string, minLength: 1, maxLength: 30 }
-        proofText: { type: [string, "null"], maxLength: 1000 }
         status: { type: string, enum: [pending, approved, rejected] }
         rewardCoins: { type: integer, minimum: 1 }
         createdAt: { type: string, format: date-time }
@@ -2184,7 +2184,7 @@ components:
           anyOf:
             - { type: string, format: uuid }
             - { type: "null" }
-      required: [id, userId, userName, email, instagramUsername, proofText, status, rewardCoins, createdAt, reviewedAt, reviewReason, transactionId]
+      required: [id, userId, userName, email, status, rewardCoins, createdAt, reviewedAt, reviewReason, transactionId]
     Daily007AdminInstagramFollowClaims:
       type: object
       properties:

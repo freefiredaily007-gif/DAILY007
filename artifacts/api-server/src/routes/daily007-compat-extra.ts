@@ -1549,10 +1549,13 @@ router.post("/earn/instagram-follow/claims", authenticate, async (req, res): Pro
   const body = req.body as unknown;
   if (!isObject(body) ||
       Object.keys(body).some((key) => !["instagramUsername", "proofText"].includes(key))) {
-    error(res, 400, "Expected an Instagram username and optional proof text."); return;
+    error(res, 400, "Instagram claim details are invalid."); return;
   }
-  const instagramUsername = normalizeInstagramUsername(body.instagramUsername);
-  if (!instagramUsername) {
+  let instagramUsername: string | null = null;
+  if (body.instagramUsername !== undefined && body.instagramUsername !== null) {
+    instagramUsername = normalizeInstagramUsername(body.instagramUsername);
+  }
+  if (body.instagramUsername !== undefined && body.instagramUsername !== null && !instagramUsername) {
     error(res, 400, "Enter a valid Instagram username using 1–30 letters, numbers, periods, or underscores."); return;
   }
   let proofText: string | null = null;
@@ -1586,8 +1589,7 @@ router.get("/admin/earn/instagram-follow/claims", authenticate, async (req, res)
     ),
     pool.query(
       `SELECT c.id, c.user_id AS "userId", COALESCE(u.name, 'Player') AS "userName",
-              COALESCE(u.email, '') AS email, c.instagram_username AS "instagramUsername",
-              c.proof_text AS "proofText", c.status, c.reward_coins AS "rewardCoins",
+              COALESCE(u.email, '') AS email, c.status, c.reward_coins AS "rewardCoins",
               c.created_at AS "createdAt", c.reviewed_at AS "reviewedAt",
               c.review_reason AS "reviewReason", c.reward_ledger_id AS "transactionId"
          FROM daily007_v2_instagram_follow_claims c

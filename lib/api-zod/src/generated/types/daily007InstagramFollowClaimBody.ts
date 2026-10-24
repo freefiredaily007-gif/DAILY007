@@ -29,7 +29,7 @@ export interface Daily007InstagramFollowClaimBody {
      * @maxLength 31
      * @pattern ^@?[A-Za-z0-9._]{1,30}$
      */
-  instagramUsername: string;
+  instagramUsername?: string;
   /**
      * @maxLength 1000
      * @nullable

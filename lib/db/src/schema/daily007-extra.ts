@@ -142,7 +142,7 @@ export const daily007YoutubeSubscribeClaimsTable = pgTable("daily007_v2_youtube_
 export const daily007InstagramFollowClaimsTable = pgTable("daily007_v2_instagram_follow_claims", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id").notNull().references(() => daily007UsersTable.id),
-  instagramUsername: text("instagram_username").notNull(),
+  instagramUsername: text("instagram_username"),
   proofText: text("proof_text"),
   rewardCoins: integer("reward_coins").notNull(),
   status: text("status").notNull().default("pending"),

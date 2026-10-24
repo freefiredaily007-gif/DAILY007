@@ -1571,7 +1571,7 @@ export const Daily007AdminReviewYoutubeSubscribeClaimResponse = zod.object({
  * @summary Get Instagram follow task settings and the current user's claim status
  */
 
-export const daily007GetInstagramFollowTaskResponseClaimOneInstagramUsernameMax = 30;
+export const daily007GetInstagramFollowTaskResponseClaimOneInstagramUsernameOneMax = 30;
 
 export const daily007GetInstagramFollowTaskResponseClaimOneProofTextMax = 1000;
 
@@ -1588,7 +1588,7 @@ export const Daily007GetInstagramFollowTaskResponse = zod.object({
   "claim": zod.union([zod.object({
   "id": zod.string().uuid(),
   "status": zod.enum(['pending', 'approved', 'rejected']),
-  "instagramUsername": zod.string().min(1).max(daily007GetInstagramFollowTaskResponseClaimOneInstagramUsernameMax),
+  "instagramUsername": zod.union([zod.string().min(1).max(daily007GetInstagramFollowTaskResponseClaimOneInstagramUsernameOneMax),zod.null()]),
   "proofText": zod.string().max(daily007GetInstagramFollowTaskResponseClaimOneProofTextMax).nullable(),
   "rewardCoins": zod.number().int().min(1),
   "createdAt": zod.coerce.date(),
@@ -1613,11 +1613,11 @@ export const daily007SubmitInstagramFollowClaimBodyProofTextMax = 1000;
 
 
 export const Daily007SubmitInstagramFollowClaimBody = zod.object({
-  "instagramUsername": zod.string().min(1).max(daily007SubmitInstagramFollowClaimBodyInstagramUsernameMax).regex(daily007SubmitInstagramFollowClaimBodyInstagramUsernameRegExp),
+  "instagramUsername": zod.string().min(1).max(daily007SubmitInstagramFollowClaimBodyInstagramUsernameMax).regex(daily007SubmitInstagramFollowClaimBodyInstagramUsernameRegExp).optional(),
   "proofText": zod.string().max(daily007SubmitInstagramFollowClaimBodyProofTextMax).nullish()
 })
 
-export const daily007SubmitInstagramFollowClaimResponseInstagramUsernameMax = 30;
+export const daily007SubmitInstagramFollowClaimResponseInstagramUsernameOneMax = 30;
 
 export const daily007SubmitInstagramFollowClaimResponseProofTextMax = 1000;
 
@@ -1629,7 +1629,7 @@ export const daily007SubmitInstagramFollowClaimResponseWalletCoinsOneMin = 0;
 export const Daily007SubmitInstagramFollowClaimResponse = zod.object({
   "id": zod.string().uuid(),
   "status": zod.enum(['pending', 'approved', 'rejected']),
-  "instagramUsername": zod.string().min(1).max(daily007SubmitInstagramFollowClaimResponseInstagramUsernameMax),
+  "instagramUsername": zod.union([zod.string().min(1).max(daily007SubmitInstagramFollowClaimResponseInstagramUsernameOneMax),zod.null()]),
   "proofText": zod.string().max(daily007SubmitInstagramFollowClaimResponseProofTextMax).nullable(),
   "rewardCoins": zod.number().int().min(1),
   "createdAt": zod.coerce.date(),
@@ -1645,10 +1645,6 @@ export const Daily007SubmitInstagramFollowClaimResponse = zod.object({
  */
 export const daily007AdminListInstagramFollowClaimsResponseTotalCompletedMin = 0;
 
-export const daily007AdminListInstagramFollowClaimsResponseClaimsItemInstagramUsernameMax = 30;
-
-export const daily007AdminListInstagramFollowClaimsResponseClaimsItemProofTextMax = 1000;
-
 
 
 
@@ -1659,8 +1655,6 @@ export const Daily007AdminListInstagramFollowClaimsResponse = zod.object({
   "userId": zod.string().uuid(),
   "userName": zod.string(),
   "email": zod.string().email(),
-  "instagramUsername": zod.string().min(1).max(daily007AdminListInstagramFollowClaimsResponseClaimsItemInstagramUsernameMax),
-  "proofText": zod.string().max(daily007AdminListInstagramFollowClaimsResponseClaimsItemProofTextMax).nullable(),
   "status": zod.enum(['pending', 'approved', 'rejected']),
   "rewardCoins": zod.number().int().min(1),
   "createdAt": zod.coerce.date(),
@@ -1688,7 +1682,7 @@ export const Daily007AdminReviewInstagramFollowClaimBody = zod.object({
   "reason": zod.string().max(daily007AdminReviewInstagramFollowClaimBodyReasonMax).optional()
 })
 
-export const daily007AdminReviewInstagramFollowClaimResponseInstagramUsernameMax = 30;
+export const daily007AdminReviewInstagramFollowClaimResponseInstagramUsernameOneMax = 30;
 
 export const daily007AdminReviewInstagramFollowClaimResponseProofTextMax = 1000;
 
@@ -1700,7 +1694,7 @@ export const daily007AdminReviewInstagramFollowClaimResponseWalletCoinsOneMin = 
 export const Daily007AdminReviewInstagramFollowClaimResponse = zod.object({
   "id": zod.string().uuid(),
   "status": zod.enum(['pending', 'approved', 'rejected']),
-  "instagramUsername": zod.string().min(1).max(daily007AdminReviewInstagramFollowClaimResponseInstagramUsernameMax),
+  "instagramUsername": zod.union([zod.string().min(1).max(daily007AdminReviewInstagramFollowClaimResponseInstagramUsernameOneMax),zod.null()]),
   "proofText": zod.string().max(daily007AdminReviewInstagramFollowClaimResponseProofTextMax).nullable(),
   "rewardCoins": zod.number().int().min(1),
   "createdAt": zod.coerce.date(),

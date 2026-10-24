@@ -29,16 +29,6 @@ export interface Daily007AdminInstagramFollowClaim {
   userId: string;
   userName: string;
   email: string;
-  /**
-     * @minLength 1
-     * @maxLength 30
-     */
-  instagramUsername: string;
-  /**
-     * @maxLength 1000
-     * @nullable
-     */
-  proofText: string | null;
   status: Daily007AdminInstagramFollowClaimStatus;
   /** @minimum 1 */
   rewardCoins: number;
