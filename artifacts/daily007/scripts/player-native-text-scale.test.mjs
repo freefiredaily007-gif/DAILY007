@@ -40,8 +40,9 @@ test('Home, Wallet, and Profile Maestro flows verify 2× text, full-width conten
   assert.match(homeFlow, /Home labels fit their available width at 2×/);
   for (const mode of ['battle-royale', 'clash-squad', 'lone-wolf']) {
     assert.match(homeFlow, new RegExp(`id: home-mode-${mode}`));
-    assert.match(homeFlow, /text: "BROWSE TOURNAMENTS"/);
   }
+  assert.doesNotMatch(homeFlow, /text: "BROWSE TOURNAMENTS"/);
+  assert.match(homeFixture, /<HomeGameModeCards/);
   assert.match(homeFixture, /nativeTextScaleLayoutsFit/);
   assert.match(homeFixture, /onTextScaleLayout=/);
 

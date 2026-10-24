@@ -29,7 +29,7 @@ test("native route renders the shared Home game-mode cards with deterministic de
   );
 });
 
-test("Maestro scrolls to each Home mode card, checks its action, and verifies the route filter", () => {
+test("Maestro scrolls to each Home mode card, taps it directly, and verifies the route filter", () => {
   for (const [id, title, mode] of [
     ["battle-royale", "BATTLE ROYALE", "battle_royale"],
     ["clash-squad", "CLASH SQUAD", "clash_squad"],
@@ -38,9 +38,10 @@ test("Maestro scrolls to each Home mode card, checks its action, and verifies th
   ]) {
     assert.ok(flow.includes(`id: home-mode-${id}`), `Missing scroll/tap target for ${title}`);
     assert.ok(flow.includes(`text: "${title}"`), `Missing title assertion for ${title}`);
-    assert.ok(flow.includes('text: "BROWSE TOURNAMENTS"'), `Missing Browse Tournaments assertion for ${title}`);
     assert.ok(flow.includes(`text: "Game mode filter: ${mode}"`), `Missing destination filter check for ${title}`);
   }
+  assert.doesNotMatch(cards, /CLASSIC SURVIVAL|SOLO · DUO · SQUAD|BROWSE TOURNAMENTS|CHOOSE FORMAT/);
+  assert.match(cards, /onPress=\{\(\) => onOpenMode\(routeParams\)\}/);
   assert.match(flow, /font scale 1\.50/);
 });
 

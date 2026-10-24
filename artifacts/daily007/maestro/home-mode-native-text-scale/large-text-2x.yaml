@@ -18,11 +18,7 @@ appId: host.exp.exponent
       id: home-mode-battle-royale
     direction: DOWN
 - assertVisible:
-    text: "CLASSIC SURVIVAL"
-- assertVisible:
     text: "BATTLE ROYALE"
-- assertVisible:
-    text: "BROWSE TOURNAMENTS"
 - tapOn:
     id: home-mode-battle-royale
 - assertVisible:
@@ -37,11 +33,7 @@ appId: host.exp.exponent
       id: home-mode-clash-squad
     direction: DOWN
 - assertVisible:
-    text: "TEAM BATTLE"
-- assertVisible:
     text: "CLASH SQUAD"
-- assertVisible:
-    text: "BROWSE TOURNAMENTS"
 - tapOn:
     id: home-mode-clash-squad
 - assertVisible:
@@ -56,11 +48,7 @@ appId: host.exp.exponent
       id: home-mode-lone-wolf
     direction: DOWN
 - assertVisible:
-    text: "1V1 DUELS"
-- assertVisible:
     text: "LONE WOLF"
-- assertVisible:
-    text: "BROWSE TOURNAMENTS"
 - tapOn:
     id: home-mode-lone-wolf
 - assertVisible:
@@ -75,11 +63,7 @@ appId: host.exp.exponent
       id: home-mode-battle-royale-kill-earn
     direction: DOWN
 - assertVisible:
-    text: "ELIMINATION REWARDS"
-- assertVisible:
     text: "BATTLE ROYALE KILL & EARN"
-- assertVisible:
-    text: "BROWSE TOURNAMENTS"
 - tapOn:
     id: home-mode-battle-royale-kill-earn
 - assertVisible:

@@ -15,8 +15,6 @@ appId: host.exp.exponent
     direction: DOWN
 - assertVisible:
     text: "BATTLE ROYALE"
-- assertVisible:
-    text: "BROWSE TOURNAMENTS"
 - tapOn:
     id: home-mode-battle-royale
 - assertVisible:
@@ -32,8 +30,6 @@ appId: host.exp.exponent
     direction: DOWN
 - assertVisible:
     text: "CLASH SQUAD"
-- assertVisible:
-    text: "BROWSE TOURNAMENTS"
 - tapOn:
     id: home-mode-clash-squad
 - assertVisible:
@@ -49,8 +45,6 @@ appId: host.exp.exponent
     direction: DOWN
 - assertVisible:
     text: "LONE WOLF"
-- assertVisible:
-    text: "BROWSE TOURNAMENTS"
 - tapOn:
     id: home-mode-lone-wolf
 - assertVisible:
@@ -66,8 +60,6 @@ appId: host.exp.exponent
     direction: DOWN
 - assertVisible:
     text: "BATTLE ROYALE KILL & EARN"
-- assertVisible:
-    text: "BROWSE TOURNAMENTS"
 - tapOn:
     id: home-mode-battle-royale-kill-earn
 - assertVisible:

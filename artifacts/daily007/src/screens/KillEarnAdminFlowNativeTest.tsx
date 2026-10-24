@@ -160,7 +160,6 @@ function FixtureHome({
         modeCounts={modeCounts}
         modeCountsReady
         onOpenMode={(params) => navigation.navigate('Tournaments', params)}
-        onChooseFormat={(params) => navigation.navigate('ModeSubmodes', params)}
       />
     </ScrollView>
   );

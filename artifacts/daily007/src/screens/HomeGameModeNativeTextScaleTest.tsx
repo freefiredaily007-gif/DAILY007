@@ -23,11 +23,10 @@ function NativeFixture() {
   const [selectedMode, setSelectedMode] = useState<ModeRouteParams | null>(null);
   const [textLayouts, setTextLayouts] = useState<Record<string, NativeTextScaleLayout>>({});
   const requiredTextLayouts = [
-    'battle_royale:category', 'battle_royale:title', 'battle_royale:capacity', 'battle_royale:action',
-    'battle_royale_kill_earn:category', 'battle_royale_kill_earn:title',
-    'battle_royale_kill_earn:capacity', 'battle_royale_kill_earn:action',
-    'clash_squad:category', 'clash_squad:title', 'clash_squad:capacity', 'clash_squad:action',
-    'lone_wolf:category', 'lone_wolf:title', 'lone_wolf:capacity', 'lone_wolf:action',
+    'battle_royale:title',
+    'battle_royale_kill_earn:title',
+    'clash_squad:title',
+    'lone_wolf:title',
   ];
   const textFits = nativeTextScaleLayoutsFit(textLayouts, requiredTextLayouts);
 
@@ -69,7 +68,6 @@ function NativeFixture() {
       </Text>
       <HomeGameModeCards
         onOpenMode={setSelectedMode}
-        onChooseFormat={() => {}}
         onTextScaleLayout={(key, update) => {
           setTextLayouts((current) => mergeNativeTextScaleLayout(current, key, update));
         }}

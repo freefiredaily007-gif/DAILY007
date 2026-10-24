@@ -691,21 +691,17 @@ test('Home mode cards keep every lifecycle tab mode-scoped and the format picker
     /onPress=\{\(\) => onOpenMode\(routeParams\)\}/,
   );
   assert.match(
-    homeSource,
-    /onChooseFormat=\{\(params\) => nav\.navigate\('ModeSubmodes', params\)\}/,
-  );
-  assert.match(
-    homeGameModeCardsSource,
-    /onPress=\{\(\) => onChooseFormat\(routeParams\)\}/,
-  );
-  assert.match(
     modeSubmodesSource,
     /navigation\.push\('Tournaments', \{\s*\.\.\.submodeRouteParams\(gameMode,\s*format\.type,\s*mode\.title\),\s*registrationOnly: true,/,
   );
-
-  assert.match(homeGameModeCardsSource, /capacity: '1 VS 1 · 2 VS 2 · 4 VS 4'/);
-  assert.match(homeGameModeCardsSource, /formatLinkLabel: '1 VS 1 \/ 2 VS 2 \/ 4 VS 4'/);
-  assert.match(homeGameModeCardsSource, /Choose \$\{mode\.mode\} tournament format/);
+  assert.doesNotMatch(
+    homeGameModeCardsSource,
+    /CLASSIC SURVIVAL|SOLO · DUO · SQUAD|BROWSE TOURNAMENTS|CHOOSE FORMAT|formatLink/,
+  );
+  assert.match(
+    homeGameModeCardsSource,
+    /accessibilityHint="Opens the format choices for this game mode"/,
+  );
 
   for (const card of HOME_GAME_MODE_CARDS) {
     const directParams = homeModeRouteParams(card);
@@ -761,24 +757,18 @@ test('Home mode cards reflow and stay tappable with Android text scaled to 1.5x'
   assert.match(homeGameModeCardsSource, /style=\{\[s\.modeCard,\s*largeModeCard && s\.modeCardLarge/);
   assert.match(homeGameModeCardsSource, /modeArtWrap,\s*largeModeCard && s\.modeArtWrapLarge/);
   assert.match(homeGameModeCardsSource, /modeBody,\s*largeModeCard && s\.modeBodyLarge/);
-  assert.match(homeGameModeCardsSource, /modeBtn,\s*largeModeCard && s\.modeBtnLarge/);
   assert.match(homeGameModeCardsSource, /modeCardLarge:\s*\{\s*flexDirection:\s*'column'/);
   assert.match(homeGameModeCardsSource, /modeArtWrapLarge:\s*\{\s*width:\s*'100%'/);
   assert.match(
     homeGameModeCardsSource,
     /modeBodyLarge:\s*\{\s*flexGrow:\s*0,\s*flexShrink:\s*0,\s*flexBasis:\s*'auto'/,
   );
-  assert.match(homeGameModeCardsSource, /modeBtnLarge:\s*\{\s*marginTop:\s*12,\s*minHeight:\s*52/);
-  assert.match(homeGameModeCardsSource, /modeBtnTLarge:\s*\{\s*fontSize:\s*12/);
   assert.doesNotMatch(baseModeCardStyle, /(?:^|,)\s*height\s*:/);
   assert.doesNotMatch(homeGameModeCardsSource, /numberOfLines=|ellipsizeMode=/);
 
   assert.match(homeSource, /<ScrollView style=\{\{\s*flex:\s*1,/);
-  assert.match(homeGameModeCardsSource, /accessibilityLabel=\{versusFormatMode\s*\?/);
-  assert.match(homeGameModeCardsSource, /Choose \$\{mode\.mode\} tournament format/);
-  assert.match(homeGameModeCardsSource, /Open \$\{mode\.mode\} tournaments\./);
+  assert.match(homeGameModeCardsSource, /accessibilityLabel=\{`Open \$\{mode\.mode\} formats and tournaments/);
   assert.match(homeGameModeCardsSource, /testID=\{`home-mode-\$\{mode\.mode/);
-  assert.match(homeGameModeCardsSource, />\s*BROWSE TOURNAMENTS\s*<\/Text>/);
 
   assert.match(typographySource, /<NativeText\s+\{\.\.\.props\}/);
   assert.doesNotMatch(typographySource, /allowFontScaling\s*=\s*\{false\}/);
