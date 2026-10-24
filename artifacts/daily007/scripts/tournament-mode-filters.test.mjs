@@ -481,10 +481,14 @@ test('format live counts stay separate by mode and exclude closed, expired, full
     countOpenHomeTournamentsByFormat(records, 'lone_wolf', now),
     { solo: 1, duo: 1, trio: 1, squad: 3 },
   );
-  assert.match(modeSubmodesSource, /api\.tournaments\('\?enabled=true'\)/);
-  assert.match(modeSubmodesSource, /countOpenHomeTournamentsByFormat\(response,\s*gameMode,\s*Date\.now\(\)\)/);
+  assert.match(modeSubmodesSource, /useGetTournamentLiveCounts/);
+  assert.match(modeSubmodesSource, /liveCountsQuery\.data\?\.\[gameMode\]/);
+  assert.match(modeSubmodesSource, /await refreshLiveCounts\(\)/);
   assert.match(modeSubmodesSource, /setInterval\(\(\) => void refreshCounts\(\), 30_000\)/);
   assert.match(modeSubmodesSource, /LIVE \$\{count\}/);
+  assert.match(apiTournamentSource, /router\.get\("\/tournaments\/live-counts"/);
+  assert.match(apiTournamentSource, /starts_at > database_clock\.now \+ interval '5 hours 30 minutes'/);
+  assert.match(apiTournamentSource, /registered\.filled_player_slots, 0\) < eligible\.capacity \* eligible\.team_size/);
   assert.match(apiTournamentSource, /m\.starts_at > clock_timestamp\(\) \+ interval '5 hours 30 minutes' AS registration_open/);
   assert.match(apiTournamentSource, /registrationOpen: row\.registration_open/);
 });

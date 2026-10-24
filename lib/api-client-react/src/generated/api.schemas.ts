@@ -316,6 +316,23 @@ export interface TournamentParticipantsResponse {
   participants: TournamentParticipant[];
 }
 
+export interface TournamentLiveFormatCounts {
+  /** @minimum 0 */
+  solo: number;
+  /** @minimum 0 */
+  duo: number;
+  /** @minimum 0 */
+  trio: number;
+  /** @minimum 0 */
+  squad: number;
+}
+
+export interface TournamentLiveCountsResponse {
+  battle_royale: TournamentLiveFormatCounts;
+  clash_squad: TournamentLiveFormatCounts;
+  lone_wolf: TournamentLiveFormatCounts;
+}
+
 export interface Daily007V2SquadJoinBody {
   /**
      * @minimum 1

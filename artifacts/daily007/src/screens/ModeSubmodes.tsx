@@ -4,12 +4,11 @@ import { ReadableText as Text, swapThemeColor } from '../components/typography';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { C, GCard, SectionTitle } from '../components/ui';
-import { api } from '../lib/api';
 import {
-  countOpenHomeTournamentsByFormat,
-  submodeRouteParams,
-  type HomeOpenFormatCounts,
-} from '../lib/tournamentFilters';
+  getGetTournamentLiveCountsQueryKey,
+  useGetTournamentLiveCounts,
+} from '@workspace/api-client-react';
+import { submodeRouteParams } from '../lib/tournamentFilters';
 import { getTournamentFormatCapacity } from '../lib/tournamentFormatCapacity';
 
 type ModeKey = 'battle_royale' | 'clash_squad' | 'lone_wolf';
@@ -33,27 +32,33 @@ export default function ModeSubmodes() {
   const route: any = useRoute();
   const { fontScale } = useWindowDimensions();
   const largeText = fontScale >= 1.5;
-  const [liveCounts, setLiveCounts] = useState<HomeOpenFormatCounts | null>(null);
   const [liveCountError, setLiveCountError] = useState(false);
   const gameMode = String(route.params?.gameMode || '') as ModeKey;
   const mode = MODES[gameMode];
+  const liveCountsQuery = useGetTournamentLiveCounts({
+    query: {
+      queryKey: getGetTournamentLiveCountsQueryKey(),
+      enabled: false,
+      retry: 0,
+      staleTime: 0,
+    },
+  });
+  const refreshLiveCounts = liveCountsQuery.refetch;
+  const liveCounts = liveCountsQuery.data?.[gameMode] ?? null;
 
   useFocusEffect(React.useCallback(() => {
     if (!mode) return undefined;
 
     let focused = true;
     let requestInFlight = false;
-    setLiveCounts(null);
     setLiveCountError(false);
     const refreshCounts = async () => {
       if (requestInFlight) return;
       requestInFlight = true;
       try {
-        const response = await api.tournaments('?enabled=true');
-        if (!Array.isArray(response)) throw new Error('Invalid tournament list response');
+        const response = await refreshLiveCounts();
         if (!focused) return;
-        setLiveCounts(countOpenHomeTournamentsByFormat(response, gameMode, Date.now()));
-        setLiveCountError(false);
+        setLiveCountError(response.isError);
       } catch {
         if (focused) setLiveCountError(true);
       } finally {
@@ -67,7 +72,7 @@ export default function ModeSubmodes() {
       focused = false;
       clearInterval(interval);
     };
-  }, [gameMode, mode]));
+  }, [gameMode, mode, refreshLiveCounts]));
 
   if (!mode) {
     return (

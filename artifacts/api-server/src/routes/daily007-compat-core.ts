@@ -36,6 +36,9 @@ import {
 
 const router: IRouter = Router();
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+type LiveCountGameMode = "battle_royale" | "clash_squad" | "lone_wolf";
+type LiveCountTeamType = "solo" | "duo" | "trio" | "squad";
+type TournamentLiveCounts = Record<LiveCountGameMode, Record<LiveCountTeamType, number>>;
 
 // Allow at most five incorrect current-password checks per account in a
 // 15-minute window. Reservations are persisted atomically so every API process
@@ -641,6 +644,130 @@ router.patch("/auth/me", authenticate, async (req, res): Promise<void> => {
 router.get("/tournaments", async (req, res): Promise<void> => {
   const enabledOnly = req.query.enabled === "true";
   res.json((await getMatches(undefined, enabledOnly)).map((row) => tournament(row)));
+});
+
+router.get("/tournaments/live-counts", async (_req, res): Promise<void> => {
+  const result = await pool.query<{
+    game_mode: LiveCountGameMode;
+    team_type: LiveCountTeamType;
+    tournament_count: number | string;
+  }>(
+    `WITH database_clock AS MATERIALIZED (
+       SELECT clock_timestamp() AS now
+     ),
+     raw_matches AS (
+       SELECT m.id, m.mode, m.game_mode, m.team_type, m.capacity, m.starts_at, m.status, m.enabled,
+              LOWER(REGEXP_REPLACE(BTRIM(COALESCE(m.game_mode, '')), '[- ]+', '_', 'g')) AS raw_game_mode,
+              LOWER(REGEXP_REPLACE(BTRIM(COALESCE(m.team_type, '')), '[- ]+', '_', 'g')) AS raw_team_type
+         FROM daily007_v2_matches m
+     ),
+     resolved_matches AS (
+       SELECT raw_matches.*,
+              CASE
+                WHEN raw_game_mode IN ('battle_royale', 'battleroyale', 'br')
+                     AND raw_team_type IN ('solo', 'duo', 'squad') THEN 'battle_royale'
+                WHEN raw_game_mode IN ('clash_squad', 'clash', 'cs')
+                     AND raw_team_type IN ('solo', 'duo', 'trio', 'squad') THEN 'clash_squad'
+                WHEN raw_game_mode IN ('lone_wolf', 'lonewolf', 'lw')
+                     AND raw_team_type IN ('solo', 'duo', 'trio', 'squad') THEN 'lone_wolf'
+                WHEN raw_game_mode IN ('solo', 'squad')
+                     AND raw_team_type IN ('solo', 'duo', 'squad') THEN 'battle_royale'
+                ELSE NULL
+              END AS resolved_game_mode
+         FROM raw_matches
+     ),
+     classified_matches AS (
+       SELECT resolved_matches.*,
+              COALESCE(
+                resolved_game_mode,
+                CASE WHEN mode = 'clash' THEN 'clash_squad' ELSE 'battle_royale' END
+              ) AS count_game_mode,
+              CASE
+                WHEN resolved_game_mode IS NOT NULL THEN raw_team_type
+                WHEN mode IN ('clash', 'squad') THEN 'squad'
+                ELSE 'solo'
+              END AS count_team_type
+         FROM resolved_matches
+     ),
+     eligible_matches AS (
+       SELECT classified_matches.*,
+              CASE count_team_type
+                WHEN 'duo' THEN 2
+                WHEN 'trio' THEN 3
+                WHEN 'squad' THEN 4
+                ELSE 1
+              END AS team_size
+         FROM classified_matches
+         CROSS JOIN database_clock
+        WHERE enabled = true
+          AND LOWER(COALESCE(status, '')) NOT IN (
+            'cancelled', 'live', 'closed', 'registration_closed', 'expired', 'completed', 'ongoing'
+          )
+          AND starts_at > database_clock.now + interval '5 hours 30 minutes'
+          AND capacity > 0
+     ),
+     active_registrations AS (
+       SELECT registration.id, registration.match_id
+         FROM eligible_matches eligible
+         JOIN daily007_v2_registrations registration
+           ON registration.match_id = eligible.id
+          AND registration.status IN ('approved', 'pending')
+     ),
+     active_team_members AS (
+       SELECT member.registration_id, COUNT(*)::integer AS player_count
+         FROM daily007_v2_squad_team_members member
+         JOIN active_registrations registration ON registration.id = member.registration_id
+        WHERE member.is_active = true
+        GROUP BY member.registration_id
+     ),
+     roster_players AS (
+       SELECT roster.registration_id, COUNT(*)::integer AS player_count
+         FROM daily007_v2_roster roster
+         JOIN active_registrations registration ON registration.id = roster.registration_id
+        GROUP BY roster.registration_id
+     ),
+     registered_players AS (
+       SELECT registration.match_id,
+              SUM(
+                CASE
+                  WHEN LOWER(COALESCE(eligible.team_type, '')) IN ('duo', 'trio', 'squad')
+                       OR (eligible.game_mode IS NULL AND eligible.mode IN ('squad', 'clash')) THEN
+                    CASE
+                      WHEN COALESCE(team_members.player_count, 0) > 0 THEN team_members.player_count
+                      ELSE 1 + COALESCE(roster.player_count, 0)
+                    END
+                  ELSE eligible.team_size
+                END
+              )::integer AS filled_player_slots
+         FROM active_registrations registration
+         JOIN eligible_matches eligible ON eligible.id = registration.match_id
+         LEFT JOIN active_team_members team_members ON team_members.registration_id = registration.id
+         LEFT JOIN roster_players roster ON roster.registration_id = registration.id
+        GROUP BY registration.match_id
+     )
+     SELECT eligible.count_game_mode AS game_mode,
+            eligible.count_team_type AS team_type,
+            COUNT(*)::integer AS tournament_count
+       FROM eligible_matches eligible
+       LEFT JOIN registered_players registered ON registered.match_id = eligible.id
+      WHERE COALESCE(registered.filled_player_slots, 0) < eligible.capacity * eligible.team_size
+      GROUP BY eligible.count_game_mode, eligible.count_team_type`,
+  );
+
+  const counts: TournamentLiveCounts = {
+    battle_royale: { solo: 0, duo: 0, trio: 0, squad: 0 },
+    clash_squad: { solo: 0, duo: 0, trio: 0, squad: 0 },
+    lone_wolf: { solo: 0, duo: 0, trio: 0, squad: 0 },
+  };
+  for (const row of result.rows) {
+    const count = Number(row.tournament_count);
+    if (Number.isSafeInteger(count) && count >= 0) {
+      counts[row.game_mode][row.team_type] = count;
+    }
+  }
+
+  res.setHeader("Cache-Control", "no-store");
+  res.json(counts);
 });
 
 router.get("/admin/tournaments", authenticate, async (req, res): Promise<void> => {

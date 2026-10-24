@@ -2004,6 +2004,60 @@ export const Daily007AdminSaveWalletSettingsResponse = zod.unknown()
 
 
 /**
+ * Returns only counts for published, uncancelled matches that are before
+ * their IST registration cutoff and still have available player capacity.
+ * No player details or room credentials are returned.
+ * @summary Get compact open-registration tournament counts by game mode and format
+ */
+export const getTournamentLiveCountsResponseBattleRoyaleSoloMin = 0;
+
+export const getTournamentLiveCountsResponseBattleRoyaleDuoMin = 0;
+
+export const getTournamentLiveCountsResponseBattleRoyaleTrioMin = 0;
+
+export const getTournamentLiveCountsResponseBattleRoyaleSquadMin = 0;
+
+export const getTournamentLiveCountsResponseClashSquadSoloMin = 0;
+
+export const getTournamentLiveCountsResponseClashSquadDuoMin = 0;
+
+export const getTournamentLiveCountsResponseClashSquadTrioMin = 0;
+
+export const getTournamentLiveCountsResponseClashSquadSquadMin = 0;
+
+export const getTournamentLiveCountsResponseLoneWolfSoloMin = 0;
+
+export const getTournamentLiveCountsResponseLoneWolfDuoMin = 0;
+
+export const getTournamentLiveCountsResponseLoneWolfTrioMin = 0;
+
+export const getTournamentLiveCountsResponseLoneWolfSquadMin = 0;
+
+
+
+export const GetTournamentLiveCountsResponse = zod.object({
+  "battle_royale": zod.object({
+  "solo": zod.number().int().min(getTournamentLiveCountsResponseBattleRoyaleSoloMin),
+  "duo": zod.number().int().min(getTournamentLiveCountsResponseBattleRoyaleDuoMin),
+  "trio": zod.number().int().min(getTournamentLiveCountsResponseBattleRoyaleTrioMin),
+  "squad": zod.number().int().min(getTournamentLiveCountsResponseBattleRoyaleSquadMin)
+}),
+  "clash_squad": zod.object({
+  "solo": zod.number().int().min(getTournamentLiveCountsResponseClashSquadSoloMin),
+  "duo": zod.number().int().min(getTournamentLiveCountsResponseClashSquadDuoMin),
+  "trio": zod.number().int().min(getTournamentLiveCountsResponseClashSquadTrioMin),
+  "squad": zod.number().int().min(getTournamentLiveCountsResponseClashSquadSquadMin)
+}),
+  "lone_wolf": zod.object({
+  "solo": zod.number().int().min(getTournamentLiveCountsResponseLoneWolfSoloMin),
+  "duo": zod.number().int().min(getTournamentLiveCountsResponseLoneWolfDuoMin),
+  "trio": zod.number().int().min(getTournamentLiveCountsResponseLoneWolfTrioMin),
+  "squad": zod.number().int().min(getTournamentLiveCountsResponseLoneWolfSquadMin)
+})
+})
+
+
+/**
  * Lists active approved and pending registrations with Free Fire in-game names only; account IDs, contact details, game UIDs, and application profile names are not exposed.
  * @summary List the joined public player names and teams for a tournament
  */

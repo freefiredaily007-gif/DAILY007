@@ -28,7 +28,9 @@ if (
   throw new Error("This integration test must run through the isolated PostgreSQL test runner.");
 }
 
-type TournamentFormat = "solo" | "duo" | "squad";
+type GameMode = "battle_royale" | "clash_squad" | "lone_wolf";
+type TournamentFormat = "solo" | "duo" | "trio" | "squad";
+type LiveCountsByMode = Record<GameMode, Record<TournamentFormat, number>>;
 type ListedTournament = HomeRegistrationTournament & {
   id: string;
   title: string;
@@ -103,9 +105,10 @@ function futureSchedule(hours = 48): { date: string; time: string } {
   };
 }
 
-async function createBattleRoyaleTournament(
+async function createTournament(
   origin: string,
   token: string,
+  gameMode: GameMode,
   teamType: TournamentFormat,
   enabled = true,
 ): Promise<ListedTournament> {
@@ -114,8 +117,8 @@ async function createBattleRoyaleTournament(
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({
-      name: `Synthetic Battle Royale ${teamType} ${randomUUID().slice(0, 8)}`,
-      mode: "battle_royale",
+      name: `Synthetic ${gameMode} ${teamType} ${randomUUID().slice(0, 8)}`,
+      mode: gameMode,
       teamType,
       entryCoins: 0,
       prizePool: 100,
@@ -153,13 +156,30 @@ async function setPublished(
 async function liveCountSnapshot(origin: string, now = Date.now()): Promise<{
   rows: ListedTournament[];
   counts: ReturnType<typeof countOpenHomeTournamentsByFormat>;
+  aggregateCounts: LiveCountsByMode;
 }> {
-  const response = await fetch(`${origin}/tournaments?enabled=true`);
-  assert.equal(response.status, 200);
-  const rows = await response.json() as ListedTournament[];
+  const [tournamentResponse, countsResponse] = await Promise.all([
+    fetch(`${origin}/tournaments?enabled=true`),
+    fetch(`${origin}/tournaments/live-counts`),
+  ]);
+  assert.equal(tournamentResponse.status, 200);
+  assert.equal(countsResponse.status, 200);
+  const rows = await tournamentResponse.json() as ListedTournament[];
+  const aggregateCounts = await countsResponse.json() as LiveCountsByMode;
+  const uiCounts = {
+    battle_royale: countOpenHomeTournamentsByFormat(rows, "battle_royale", now),
+    clash_squad: countOpenHomeTournamentsByFormat(rows, "clash_squad", now),
+    lone_wolf: countOpenHomeTournamentsByFormat(rows, "lone_wolf", now),
+  };
+  assert.deepEqual(
+    aggregateCounts,
+    uiCounts,
+    "The compact API counts must match the existing UI registration eligibility rules for every mode and format.",
+  );
   return {
     rows,
     counts: countOpenHomeTournamentsByFormat(rows, "battle_royale", now),
+    aggregateCounts,
   };
 }
 
@@ -240,27 +260,41 @@ async function seed48SoloSeats(matchId: string): Promise<void> {
   );
 }
 
-test("Battle Royale format counts stay aligned with the isolated PostgreSQL tournament-list API", async () => {
+test("live format counts stay aligned with the isolated PostgreSQL tournament-list API", async () => {
   const admin = await createUser("admin");
   try {
     await withServer(async (origin) => {
-      const baseMatches = new Map<TournamentFormat, ListedTournament>();
-      for (const format of ["solo", "duo", "squad"] as const) {
-        baseMatches.set(format, await createBattleRoyaleTournament(origin, admin.token, format));
+      const baseMatches = new Map<string, ListedTournament>();
+      for (const gameMode of ["battle_royale", "clash_squad", "lone_wolf"] as const) {
+        const formats = gameMode === "battle_royale"
+          ? ["solo", "duo", "squad"] as const
+          : ["solo", "duo", "trio", "squad"] as const;
+        for (const format of formats) {
+          baseMatches.set(
+            `${gameMode}:${format}`,
+            await createTournament(origin, admin.token, gameMode, format),
+          );
+        }
       }
 
       const initial = await liveCountSnapshot(origin);
       assert.deepEqual(initial.counts, { solo: 1, duo: 1, trio: 0, squad: 1 });
-      for (const [format, tournament] of baseMatches) {
+      assert.deepEqual(initial.aggregateCounts, {
+        battle_royale: { solo: 1, duo: 1, trio: 0, squad: 1 },
+        clash_squad: { solo: 1, duo: 1, trio: 1, squad: 1 },
+        lone_wolf: { solo: 1, duo: 1, trio: 1, squad: 1 },
+      });
+      for (const [key, tournament] of baseMatches) {
+        const [gameMode, format] = key.split(":") as [GameMode, TournamentFormat];
         const apiRow = initial.rows.find((row) => row.id === tournament.id);
         assert.ok(apiRow, `${format} should be returned by the enabled tournament-list API.`);
-        assert.equal(apiRow.gameMode, "battle_royale");
+        assert.equal(apiRow.gameMode, gameMode);
         assert.equal(apiRow.teamType.toLowerCase(), format);
         assert.equal(apiRow.enabled, true);
         assert.equal(apiRow.registrationOpen, true);
       }
 
-      const unpublishedDuo = await createBattleRoyaleTournament(origin, admin.token, "duo", false);
+      const unpublishedDuo = await createTournament(origin, admin.token, "battle_royale", "duo", false);
       let snapshot = await liveCountSnapshot(origin);
       assert.equal(snapshot.rows.some((row) => row.id === unpublishedDuo.id), false);
       assert.equal(snapshot.counts.duo, 1, "an unpublished Duo must not increase the live count.");
@@ -275,7 +309,7 @@ test("Battle Royale format counts stay aligned with the isolated PostgreSQL tour
       assert.equal(snapshot.rows.some((row) => row.id === unpublishedDuo.id), false);
       assert.equal(snapshot.counts.duo, 1, "closing a Duo must remove it from the next live-count read.");
 
-      const fullSolo = await createBattleRoyaleTournament(origin, admin.token, "solo");
+      const fullSolo = await createTournament(origin, admin.token, "battle_royale", "solo");
       await seed48SoloSeats(fullSolo.id);
 
       const fullSnapshot = await liveCountSnapshot(origin);

@@ -1176,6 +1176,20 @@ paths:
         "200": { description: Saved settings }
         "400": { description: Invalid settings or unverified QR upload }
         "403": { description: Administrator required }
+  /tournaments/live-counts:
+    get:
+      operationId: getTournamentLiveCounts
+      summary: Get compact open-registration tournament counts by game mode and format
+      description: |
+        Returns only counts for published, uncancelled matches that are before
+        their IST registration cutoff and still have available player capacity.
+        No player details or room credentials are returned.
+      responses:
+        "200":
+          description: Live tournament counts for each supported mode and format
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TournamentLiveCountsResponse" }
   /tournaments/{id}/participants:
     get:
       operationId: getTournamentParticipants
@@ -1666,6 +1680,23 @@ components:
           type: array
           items: { $ref: "#/components/schemas/TournamentParticipant" }
       required: [tournamentId, participants]
+    TournamentLiveFormatCounts:
+      type: object
+      additionalProperties: false
+      properties:
+        solo: { type: integer, minimum: 0 }
+        duo: { type: integer, minimum: 0 }
+        trio: { type: integer, minimum: 0 }
+        squad: { type: integer, minimum: 0 }
+      required: [solo, duo, trio, squad]
+    TournamentLiveCountsResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        battle_royale: { $ref: "#/components/schemas/TournamentLiveFormatCounts" }
+        clash_squad: { $ref: "#/components/schemas/TournamentLiveFormatCounts" }
+        lone_wolf: { $ref: "#/components/schemas/TournamentLiveFormatCounts" }
+      required: [battle_royale, clash_squad, lone_wolf]
     Daily007V2SquadJoinBody:
       type: object
       additionalProperties: false

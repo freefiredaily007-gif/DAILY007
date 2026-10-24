@@ -111,6 +111,7 @@ import type {
   Daily007YoutubeSubscribeTaskStatus,
   HealthStatus,
   TournamentLifecycleUpdate,
+  TournamentLiveCountsResponse,
   TournamentParticipantsResponse,
   TournamentResultPublishResponse,
   TournamentResultSubmission,
@@ -5603,6 +5604,86 @@ export const useDaily007AdminSaveWalletSettings = <TError = ErrorType<void>,
       > => {
       return useMutation(getDaily007AdminSaveWalletSettingsMutationOptions(options));
     }
+
+export const getGetTournamentLiveCountsUrl = () => {
+
+
+
+
+  return `/api/tournaments/live-counts`
+}
+
+/**
+ * Returns only counts for published, uncancelled matches that are before
+ * their IST registration cutoff and still have available player capacity.
+ * No player details or room credentials are returned.
+ * @summary Get compact open-registration tournament counts by game mode and format
+ */
+export const getTournamentLiveCounts = async ( options?: Parameters<typeof customFetch>[1]): Promise<TournamentLiveCountsResponse> => {
+
+  return customFetch<TournamentLiveCountsResponse>(getGetTournamentLiveCountsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetTournamentLiveCountsQueryKey = () => {
+    return [
+    `/api/tournaments/live-counts`
+    ] as const;
+    }
+
+
+export const getGetTournamentLiveCountsQueryOptions = <TData = Awaited<ReturnType<typeof getTournamentLiveCounts>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTournamentLiveCounts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTournamentLiveCountsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTournamentLiveCounts>>> = ({ signal }) => getTournamentLiveCounts({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTournamentLiveCounts>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetTournamentLiveCountsQueryResult = NonNullable<Awaited<ReturnType<typeof getTournamentLiveCounts>>>
+export type GetTournamentLiveCountsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get compact open-registration tournament counts by game mode and format
+ */
+
+export function useGetTournamentLiveCounts<TData = Awaited<ReturnType<typeof getTournamentLiveCounts>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTournamentLiveCounts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetTournamentLiveCountsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetTournamentParticipantsUrl = (id: string,) => {
 
