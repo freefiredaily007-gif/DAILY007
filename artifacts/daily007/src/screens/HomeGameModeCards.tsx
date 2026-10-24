@@ -31,14 +31,39 @@ export default function HomeGameModeCards({
   const { fontScale } = useWindowDimensions();
   const largeModeCard = fontScale >= 1.5;
   const modes = [
-    { ...HOME_GAME_MODE_CARDS[0], img: modeSquadLogo, category: 'CLASSIC SURVIVAL', title: 'BATTLE ROYALE', capacity: 'SOLO · DUO · SQUAD', accent: C.gold },
-    { ...HOME_GAME_MODE_CARDS[1], img: modeClashLogo, category: 'TEAM BATTLE', title: 'CLASH SQUAD', capacity: 'SOLO · DUO · SQUAD', accent: C.neon },
-    { ...HOME_GAME_MODE_CARDS[2], img: modeSoloLogo, category: '1V1 DUELS', title: 'LONE WOLF', capacity: 'SOLO · DUO · SQUAD', accent: C.purple },
+    {
+      ...HOME_GAME_MODE_CARDS[0],
+      img: modeSquadLogo,
+      category: 'CLASSIC SURVIVAL',
+      title: 'BATTLE ROYALE',
+      capacity: 'SOLO · DUO · SQUAD',
+      formatLinkLabel: 'SOLO / DUO / SQUAD',
+      accent: C.gold,
+    },
+    {
+      ...HOME_GAME_MODE_CARDS[1],
+      img: modeClashLogo,
+      category: 'TEAM BATTLE',
+      title: 'CLASH SQUAD',
+      capacity: '1 VS 1 · 2 VS 2 · 4 VS 4',
+      formatLinkLabel: '1 VS 1 / 2 VS 2 / 4 VS 4',
+      accent: C.neon,
+    },
+    {
+      ...HOME_GAME_MODE_CARDS[2],
+      img: modeSoloLogo,
+      category: '1V1 DUELS',
+      title: 'LONE WOLF',
+      capacity: '1 VS 1 · 2 VS 2 · 4 VS 4',
+      formatLinkLabel: '1 VS 1 / 2 VS 2 / 4 VS 4',
+      accent: C.purple,
+    },
   ];
 
   return (
     <>
       {modes.map((mode) => {
+        const versusFormatMode = mode.gameMode !== 'battle_royale';
         const spokenCapacity = mode.capacity
           .split('·')
           .map((size) => size.trim().toLowerCase())
@@ -53,8 +78,12 @@ export default function HomeGameModeCards({
           <View key={mode.gameMode}>
             <GCard
               onPress={() => onOpenMode(routeParams)}
-              accessibilityLabel={`Open ${mode.mode} tournaments.${showLiveCount ? ` ${liveCount} currently open for registration.` : ''} Available team sizes: ${spokenCapacity}.`}
-              accessibilityHint="Shows upcoming, ongoing, and completed tournaments for this game mode"
+              accessibilityLabel={versusFormatMode
+                ? `Choose ${mode.mode} tournament format. Available formats: ${spokenCapacity}.`
+                : `Open ${mode.mode} tournaments.${showLiveCount ? ` ${liveCount} currently open for registration.` : ''} Available team sizes: ${spokenCapacity}.`}
+              accessibilityHint={versusFormatMode
+                ? 'Opens the 1 versus 1, 2 versus 2, and 4 versus 4 format choices'
+                : 'Shows upcoming, ongoing, and completed tournaments for this game mode'}
               testID={`home-mode-${mode.mode.toLowerCase().replace(/[^a-z]+/g, '-')}`}
               glowColor={mode.accent}
               style={[s.modeCard, largeModeCard && s.modeCardLarge, { borderLeftColor: mode.accent }]}
@@ -128,11 +157,11 @@ export default function HomeGameModeCards({
               style={s.formatLink}
               onPress={() => onChooseFormat(routeParams)}
               accessibilityRole="button"
-              accessibilityLabel={`Choose Solo, Duo, or Squad ${mode.mode} tournaments`}
+              accessibilityLabel={`Choose ${mode.formatLinkLabel.replace(/ \/ /g, ', ')} ${mode.mode} tournaments`}
               accessibilityHint="Opens the tournament format choices"
               testID={`home-format-${mode.gameMode}`}
             >
-              <Text style={s.formatLinkText}>CHOOSE FORMAT · SOLO / DUO / SQUAD</Text>
+              <Text style={s.formatLinkText}>CHOOSE FORMAT · {mode.formatLinkLabel}</Text>
               <Text style={s.formatLinkArrow} accessibilityElementsHidden>›</Text>
             </Pressable>
           </View>

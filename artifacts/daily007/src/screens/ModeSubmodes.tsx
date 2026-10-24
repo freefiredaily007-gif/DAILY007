@@ -57,30 +57,39 @@ export default function ModeSubmodes() {
         {FORMATS.map((format) => {
           const capacity = getTournamentFormatCapacity(gameMode, format.type, format.size);
           const displayAccent = swapThemeColor(format.accent);
+          const formatTitle = gameMode === 'battle_royale'
+            ? format.title
+            : `${format.size} VS ${format.size}`;
           return (
             <GCard
               key={format.type}
               testID={`format-${gameMode}-${format.type}`}
               accessibilityGroup
-              accessibilityLabel={`${mode.title}, ${format.title}, ${capacity.playersPerTeam} ${capacity.playersPerTeam === 1 ? 'player' : 'players'} per team, ${capacity.label}`}
+              accessibilityLabel={`${mode.title}, ${formatTitle}, ${capacity.playersPerTeam} ${capacity.playersPerTeam === 1 ? 'player' : 'players'} per team, ${capacity.label}`}
               accessibilityHint="Opens available tournaments for this format"
-              onPress={() => navigation.navigate(
-                'Tournaments',
-                submodeRouteParams(gameMode, format.type, mode.title),
-              )}
+              onPress={() => {
+                const params = submodeRouteParams(gameMode, format.type, mode.title);
+                if (gameMode === 'battle_royale') {
+                  navigation.navigate('Tournaments', params);
+                } else {
+                  navigation.push('Tournaments', { ...params, registrationOnly: true });
+                }
+              }}
               glowColor={displayAccent}
               style={[styles.formatCard, largeText && styles.formatCardLarge]}
             >
               <View style={[styles.formatContent, largeText && styles.formatContentLarge]}>
                 <View style={[styles.formatTopRow, largeText && styles.formatTopRowLarge]}>
                   <View style={[styles.sizeBadge, { borderColor: `${displayAccent}88`, backgroundColor: `${displayAccent}16` }]}>
-                    <Text style={[styles.sizeText, { color: format.accent }]}>{capacity.playersPerTeam}P</Text>
+                    <Text style={[styles.sizeText, { color: format.accent }]}>
+                      {gameMode === 'battle_royale' ? `${capacity.playersPerTeam}P` : `${format.size}V${format.size}`}
+                    </Text>
                   </View>
                   {largeText && <Ionicons name="chevron-forward" size={20} color={C.sub} />}
                 </View>
                 <View style={[styles.formatInfo, largeText && styles.formatInfoLarge]}>
-                  <Text style={styles.formatName}>{format.title}</Text>
-                   <Text style={styles.formatPlayers}>{capacity.playersPerTeam} {capacity.playersPerTeam === 1 ? 'player' : 'players'} per team</Text>
+                  <Text style={styles.formatName}>{formatTitle}</Text>
+                  <Text style={styles.formatPlayers}>{capacity.playersPerTeam} {capacity.playersPerTeam === 1 ? 'player' : 'players'} per team</Text>
                   <Text style={styles.capacity}>{capacity.label}</Text>
                 </View>
                 {!largeText && <Ionicons name="chevron-forward" size={20} color={C.sub} />}

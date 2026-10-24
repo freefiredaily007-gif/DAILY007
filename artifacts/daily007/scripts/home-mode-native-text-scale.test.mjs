@@ -23,7 +23,10 @@ test("native route renders the shared Home game-mode cards with deterministic de
   assert.match(fixture, /Game mode filter: \{selectedMode\.gameMode\}/);
   assert.match(route, /HomeGameModeNativeTextScaleTest/);
   assert.match(cards, /export default function HomeGameModeCards/);
-  assert.match(home, /onOpenMode=\{\(params\) => nav\.navigate\('Tournaments', params\)\}/);
+  assert.match(
+    home,
+    /onOpenMode=\{\(params\) => \{\s*if \(params\.gameMode === 'battle_royale'\) nav\.navigate\('Tournaments', params\);\s*else nav\.navigate\('ModeSubmodes', params\);\s*\}\}/,
+  );
 });
 
 test("Maestro scrolls to each Home mode card, checks its action, and verifies the route filter", () => {

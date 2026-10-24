@@ -6,6 +6,7 @@ import {
   getAdminTournamentFormatOptions,
   getAdminTournamentTitle,
 } from '../src/lib/adminTournamentForm.ts';
+import { resolveTournamentMode } from '../../api-server/src/lib/daily007-mode-rules.ts';
 
 const screenSource = await readFile(
   new URL('../src/screens/AdminTournaments.tsx', import.meta.url),
@@ -68,11 +69,34 @@ test('selected format determines canonical slot and player capacities', () => {
   });
 });
 
+test('all six Clash Squad and Lone Wolf admin formats resolve to the correct stored mode and team type', () => {
+  for (const [mode, gameMode] of [
+    ['Clash Squad', 'clash_squad'],
+    ['Lone Wolf', 'lone_wolf'],
+  ]) {
+    for (const [teamType, size] of [
+      ['Solo', 1],
+      ['Duo', 2],
+      ['Squad', 4],
+    ]) {
+      const resolved = resolveTournamentMode(mode, teamType);
+      assert.ok(resolved);
+      assert.equal(resolved.gameMode, gameMode);
+      assert.equal(resolved.teamType, teamType.toLowerCase());
+      assert.equal(resolved.teamSize, size);
+      assert.equal(resolved.capacity, 2);
+      assert.equal(resolved.storageMode, 'clash');
+      assert.equal(getAdminTournamentTitle(mode, teamType).startsWith(mode), true);
+    }
+  }
+});
+
 test('create and edit forms show a read-only title and save its generated value', () => {
   assert.match(screenSource, /testID="admin-tournament-generated-title"/);
   assert.doesNotMatch(screenSource, /Tournament name \*/);
   assert.doesNotMatch(screenSource, /form\.name\.trim\(\)/);
   assert.match(screenSource, /name: getAdminTournamentTitle\(form\.mode, form\.teamType\)/);
+  assert.match(screenSource, /mode: form\.mode, teamType: form\.teamType/);
   assert.match(screenSource, /getAdminTournamentFormatOptions\(form\.mode\)\.map/);
   assert.match(screenSource, /totalSlots: capacity\.slots/);
 });

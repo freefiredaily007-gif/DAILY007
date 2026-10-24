@@ -22,7 +22,11 @@ import {
   getRoomCredentialSchedule,
   hasServerAuthorizedRoomCredentials,
 } from '../lib/roomCredentialTiming';
-import { tournamentListEmptyMessage, tournamentTabsForRoute } from '../lib/tournamentFilters';
+import {
+  isHomeTournamentOpenForRegistration,
+  tournamentListEmptyMessage,
+  tournamentTabsForRoute,
+} from '../lib/tournamentFilters';
 import { createLatestRequestGuard } from '../lib/latestRequestGuard';
 import {
   createNetworkEventRevision,
@@ -108,6 +112,11 @@ export default function Tournaments() {
   const legacyMode = route?.params?.mode as string | undefined;
   const teamType = route?.params?.teamType as string | undefined;
   const heading = route?.params?.gameModeLabel || legacyMode || gameMode;
+  const normalizedRouteMode = String(gameMode || legacyMode || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+  const registrationOnly = route?.params?.registrationOnly === true &&
+    (normalizedRouteMode === 'clashsquad' || normalizedRouteMode === 'lonewolf');
 
   const loadLatest = useCallback(async (trigger: TournamentLoadTrigger) => {
     const request = loadRequests.current.begin();
@@ -411,12 +420,17 @@ export default function Tournaments() {
   }, [items, clockNow, load]);
 
   const lifecycleOf = (tournament: any) => getTournamentLifecycleState(tournament, clockNow);
-  const modeScopedTabs = tournamentTabsForRoute(items, {
+  const registrationOpenItems = registrationOnly
+    ? items.filter((tournament) => isHomeTournamentOpenForRegistration(tournament, clockNow))
+    : items;
+  const modeScopedTabs = tournamentTabsForRoute(registrationOpenItems, {
     gameMode: gameMode || legacyMode,
     teamType,
   }, lifecycleOf);
-  const visible = modeScopedTabs[tab];
-  const orderedVisible = tab === 'completed'
+  const visible = registrationOnly ? modeScopedTabs.upcoming : modeScopedTabs[tab];
+  const orderedVisible = registrationOnly
+    ? visible
+    : tab === 'completed'
     ? mostRecentCompletedTournaments(visible)
     : tab === 'ongoing' ? [...visible].sort(compareTournamentStartTime) : visible;
   const tabs: Exclude<TournamentLifecycleState, 'closed'>[] = ['upcoming', 'ongoing', 'completed'];
@@ -425,7 +439,9 @@ export default function Tournaments() {
     ongoing: 'Ongoing',
     completed: 'Completed',
   };
-  const emptyMessage = tournamentListEmptyMessage(false, tabLabel[tab], heading, teamType);
+  const emptyMessage = registrationOnly
+    ? 'NO LIVE TOURNAMENTS AVAILABLE'
+    : tournamentListEmptyMessage(false, tabLabel[tab], heading, teamType);
 
   const onRefresh = async () => {
     if (refreshingRequest.current) return;
@@ -494,28 +510,30 @@ export default function Tournaments() {
         ListHeaderComponent={
           <View>
             <SectionTitle accent={C.neon}>{heading ? `${String(heading).toUpperCase()} TOURNAMENTS` : 'ALL TOURNAMENTS'}</SectionTitle>
-            <View style={[s.tabs, largeText && s.tabsLarge]}>
-              {tabs.map((value) => {
-                const count = modeScopedTabs[value].length;
-                const displayedCount = value === 'completed' ? Math.min(count, MAX_COMPLETED_TOURNAMENTS) : count;
-                const selected = tab === value;
-                return (
-                  <Pressable
-                    key={value}
-                    testID={`tournament-tab-${value}`}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected }}
-                    accessibilityLabel={`${tabLabel[value]} tournaments, ${displayedCount}`}
-                    onPress={() => setTab(value)}
-                    style={[s.tab, largeText && s.tabLarge, selected && s.tabOn]}
-                  >
-                    <Text style={[s.tabText, largeText && s.tabTextLarge, selected && s.tabTextOn]}>
-                      {tabLabel[value]} <Text style={[s.tabCount, selected && s.tabTextOn]}>{displayedCount}</Text>
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+            {!registrationOnly && (
+              <View style={[s.tabs, largeText && s.tabsLarge]}>
+                {tabs.map((value) => {
+                  const count = modeScopedTabs[value].length;
+                  const displayedCount = value === 'completed' ? Math.min(count, MAX_COMPLETED_TOURNAMENTS) : count;
+                  const selected = tab === value;
+                  return (
+                    <Pressable
+                      key={value}
+                      testID={`tournament-tab-${value}`}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                      accessibilityLabel={`${tabLabel[value]} tournaments, ${displayedCount}`}
+                      onPress={() => setTab(value)}
+                      style={[s.tab, largeText && s.tabLarge, selected && s.tabOn]}
+                    >
+                      <Text style={[s.tabText, largeText && s.tabTextLarge, selected && s.tabTextOn]}>
+                        {tabLabel[value]} <Text style={[s.tabCount, selected && s.tabTextOn]}>{displayedCount}</Text>
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
             {!!error && (
               <Msg
                 kind="err"
@@ -548,7 +566,9 @@ export default function Tournaments() {
         )}
         renderItem={({ item }) => {
           const state = lifecycleOf(item);
-          const cardItem = state === 'ongoing' && item.status !== 'ongoing'
+          const cardItem = registrationOnly
+            ? { ...item, status: 'upcoming' }
+            : state === 'ongoing' && item.status !== 'ongoing'
             ? { ...item, status: 'ongoing' }
             : item;
           const registration = item.myRegistration;

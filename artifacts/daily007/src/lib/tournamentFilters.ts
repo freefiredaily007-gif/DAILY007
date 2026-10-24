@@ -89,7 +89,7 @@ export function isHomeTournamentOpenForRegistration(
   tournament: HomeRegistrationTournament,
   now = Date.now(),
 ): boolean {
-  if (tournament.enabled === false ||
+  if (tournament.enabled !== true ||
       tournament.registrationOpen === false ||
       tournament.registration_open === false) return false;
 
