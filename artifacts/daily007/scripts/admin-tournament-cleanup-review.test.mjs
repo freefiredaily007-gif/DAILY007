@@ -10,48 +10,46 @@ const apiSource = await readFile(
   new URL('../src/lib/api.ts', import.meta.url),
   'utf8',
 );
+const routeSource = await readFile(
+  new URL('../../api-server/src/routes/daily007-compat-core.ts', import.meta.url),
+  'utf8',
+);
+const cleanupSource = await readFile(
+  new URL('../../api-server/src/lib/daily007-tournament-cleanup.ts', import.meta.url),
+  'utf8',
+);
 
-test('cleanup preview API is typed and uses a fresh read-only request', () => {
-  assert.match(apiSource, /export type TournamentCleanupPreview = \{/);
-  assert.match(apiSource, /retentionHours: 72;/);
-  assert.match(
-    apiSource,
-    /adminTournamentCleanupPreview: \(\): Promise<TournamentCleanupPreview> =>\s*unwrap\(http\.get\('\/admin\/tournaments\/cleanup-preview', \{ headers: LIVE_DATA_HEADERS \}\)\)/,
-  );
-});
-
-test('cleanup review shows its cutoff, age policy, candidates, and preserved wallet history', () => {
-  assert.match(screenSource, /AUTOMATIC CLEANUP REVIEW/);
-  assert.match(screenSource, /READ-ONLY · Shows the automatic cleanup policy/);
-  assert.match(screenSource, /cleanupPreview\.retentionHours/);
-  assert.match(screenSource, /cleanupPreview\.cutoffAt/);
-  assert.match(screenSource, /cleanupPreview\.generatedAt/);
-  assert.match(screenSource, /scheduled starts at least/);
-  assert.match(screenSource, /Cleanup deletes each listed match, its registrations/);
-  assert.match(screenSource, /matchDataToDelete\.registrations/);
-  assert.match(screenSource, /matchDataToDelete\.resultAwards/);
-  assert.match(screenSource, /walletLedgerRows/);
-  assert.match(screenSource, /walletLedgerRowsPreserved/);
-  assert.match(screenSource, /cleanupPreview\.candidates\.map/);
-  assert.match(screenSource, /formatAuditTimestamp\(candidate\.startsAt\)/);
-  assert.match(screenSource, /No expired tournaments found/);
-  assert.match(screenSource, /No tournament has reached 72 hours since its scheduled start/);
-});
-
-test('cleanup review has accessible loading, retryable error, empty, and read-only states', () => {
-  const panel = screenSource.match(
-    /<Card testID="admin-tournament-cleanup-review"[\s\S]*?<\/Card>\s*\{tab === 'completed' && resultLogsQuery\.isError/,
+test('admin tournament screen clearly states the no-age-based-deletion policy', () => {
+  const policyCard = screenSource.match(
+    /<Card testID="admin-tournament-retention-policy"[\s\S]*?<\/Card>/,
   )?.[0];
-  assert.ok(panel, 'The cleanup review panel must be rendered with the tournament admin screen.');
-  assert.match(panel, /accessibilityLiveRegion="polite"/);
-  assert.match(panel, /testID="admin-tournament-cleanup-loading"/);
-  assert.match(panel, /testID="admin-tournament-cleanup-error"/);
-  assert.match(panel, /testID="admin-tournament-cleanup-retry"/);
-  assert.match(panel, /accessibilityLabel="Retry loading cleanup review"/);
-  assert.match(panel, /testID="admin-tournament-cleanup-empty"/);
-  assert.doesNotMatch(panel, /Api\.(?:deleteTournament|adminDelete|delete)/);
+  assert.ok(policyCard, 'The retention policy must be visible on the admin tournament screen.');
+  assert.match(policyCard, /TOURNAMENT RETENTION POLICY/);
+  assert.match(policyCard, /No automatic or age-based deletion/);
   assert.match(
-    screenSource,
-    /const loadCleanupPreview = useCallback\(async \(\) => \{[\s\S]*await Api\.adminTournamentCleanupPreview\(\)[\s\S]*setCleanupPreviewError\(`Cleanup review is unavailable:[\s\S]*\}, \[\]\);/,
+    policyCard,
+    /Old unresolved matches remain available until an admin publishes results, cancels and refunds, or deletes the tournament/,
   );
+  assert.doesNotMatch(
+    policyCard,
+    /72.?hour|age cutoff|expired tournament|cleanup deletes|automatic cleanup review/i,
+  );
+  assert.doesNotMatch(policyCard, /onPress|Api\.(?:deleteTournament|adminDelete|delete)/);
+});
+
+test('the removed cleanup preview API no longer advertises age-based deletion fields', () => {
+  assert.doesNotMatch(
+    apiSource,
+    /TournamentCleanupPreview|adminTournamentCleanupPreview|cleanup-preview|retentionHours|eligibleMatches/,
+  );
+  assert.doesNotMatch(routeSource, /cleanup-preview|getDaily007TournamentCleanupPreview/);
+  assert.doesNotMatch(cleanupSource, /CleanupPreview|getDaily007TournamentCleanupPreview/);
+});
+
+test('the admin screen and API no longer contain the old automatic-cleanup review copy', () => {
+  assert.doesNotMatch(
+    screenSource,
+    /AUTOMATIC CLEANUP REVIEW|automatic cleanup policy|No tournament has reached 72 hours|MATCH DATA TO DELETE/i,
+  );
+  assert.doesNotMatch(routeSource, /72.?hour|cleanup cutoff/i);
 });

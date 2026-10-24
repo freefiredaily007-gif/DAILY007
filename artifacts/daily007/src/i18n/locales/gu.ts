@@ -274,8 +274,6 @@ const gu: Record<string, string> = {
   "Open the Daily007 YouTube channel": "Daily007 YouTube ચેનલ ખોલો",
   "This task is temporarily unavailable.": "આ કાર્ય હમણાં ઉપલબ્ધ નથી.",
   "Follow on Instagram & Earn {{count}} Coins": "Instagram પર ફોલો કરો અને {{count}} સિક્કા કમાઓ",
-  "Follow the official Daily007 Instagram account and submit your username for admin verification before coins are credited.": "સિક્કા જમા થાય તે પહેલાં Daily007ના સત્તાવાર Instagram એકાઉન્ટને ફોલો કરો અને એડમિનની તપાસ માટે તમારું યુઝરનેમ મોકલો.",
-  "ACTION REQUIRED · FOLLOW AND SUBMIT CLAIM": "કાર્ય જરૂરી · ફોલો કરીને દાવો મોકલો",
   "Instagram task unavailable: {{error}}": "Instagram કાર્ય ઉપલબ્ધ નથી: {{error}}",
   "Loading Instagram task…": "Instagram કાર્ય લોડ થઈ રહ્યું છે…",
   "FOLLOW ON INSTAGRAM": "INSTAGRAM પર ફોલો કરો",

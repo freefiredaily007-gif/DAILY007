@@ -272,8 +272,6 @@ const en = {
   "Open the Daily007 YouTube channel": "Open the Daily007 YouTube channel",
   "This task is temporarily unavailable.": "This task is temporarily unavailable.",
   "Follow on Instagram & Earn {{count}} Coins": "Follow on Instagram & Earn {{count}} Coins",
-  "Follow the official Daily007 Instagram account and submit your username for admin verification before coins are credited.": "Follow the official Daily007 Instagram account and submit your username for admin verification before coins are credited.",
-  "ACTION REQUIRED · FOLLOW AND SUBMIT CLAIM": "ACTION REQUIRED · FOLLOW AND SUBMIT CLAIM",
   "Instagram task unavailable: {{error}}": "Instagram task unavailable: {{error}}",
   "Loading Instagram task…": "Loading Instagram task…",
   "FOLLOW ON INSTAGRAM": "FOLLOW ON INSTAGRAM",

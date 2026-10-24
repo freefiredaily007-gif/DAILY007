@@ -274,8 +274,6 @@ const hi: Record<string, string> = {
   "Open the Daily007 YouTube channel": "Daily007 YouTube चैनल खोलें",
   "This task is temporarily unavailable.": "यह टास्क अभी उपलब्ध नहीं है।",
   "Follow on Instagram & Earn {{count}} Coins": "Instagram पर फ़ॉलो करें और {{count}} कॉइन कमाएँ",
-  "Follow the official Daily007 Instagram account and submit your username for admin verification before coins are credited.": "Daily007 के आधिकारिक Instagram अकाउंट को फ़ॉलो करें और कॉइन जमा होने से पहले एडमिन की जाँच के लिए अपना यूज़रनेम भेजें।",
-  "ACTION REQUIRED · FOLLOW AND SUBMIT CLAIM": "कार्रवाई ज़रूरी · फ़ॉलो करके दावा भेजें",
   "Instagram task unavailable: {{error}}": "Instagram टास्क उपलब्ध नहीं है: {{error}}",
   "Loading Instagram task…": "Instagram टास्क लोड हो रहा है…",
   "FOLLOW ON INSTAGRAM": "INSTAGRAM पर फ़ॉलो करें",

@@ -21,7 +21,6 @@ import {
   cancelTournamentAndRefundForAdmin,
   tournamentCancellationError,
 } from "../lib/daily007-tournament-cancellation";
-import { getDaily007TournamentCleanupPreview } from "../lib/daily007-tournament-cleanup";
 import {
   deactivateSquadRegistration,
   ensureLegacySquadTeams,
@@ -1021,12 +1020,6 @@ router.post("/tournaments", authenticate, async (req, res): Promise<void> => {
   if (!result.rows[0]) return fail(res, 400, "Tournament start time must still be in the future.");
   const created = await getMatches(result.rows[0].id as string);
   res.status(201).json(tournament(created[0]));
-});
-
-router.get("/admin/tournaments/cleanup-preview", authenticate, async (req, res): Promise<void> => {
-  if (!requireTournamentAdmin(req, res)) return;
-  const preview = await getDaily007TournamentCleanupPreview();
-  res.json({ success: true, data: preview });
 });
 
 router.patch("/tournaments/:id", authenticate, async (req, res): Promise<void> => {

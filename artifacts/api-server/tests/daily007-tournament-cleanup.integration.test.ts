@@ -126,6 +126,15 @@ test("unresolved matches older than 72 hours remain available for admin results 
     );
 
     await withServer(async (origin) => {
+      const cleanupPreviewResponse = await fetch(`${origin}/admin/tournaments/cleanup-preview`, {
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      assert.equal(
+        cleanupPreviewResponse.status,
+        404,
+        "the admin API must not expose a 72-hour age-based deletion preview",
+      );
+
       const tournamentResponse = await fetch(`${origin}/tournaments`);
       assert.equal(tournamentResponse.status, 200);
       const tournaments = await tournamentResponse.json() as Array<{ id: string; status: string }>;

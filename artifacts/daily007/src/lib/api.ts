@@ -50,38 +50,6 @@ export type Tournament = {
   availableSlots?: number; roomId?: string; roomPassword?: string; roomTime?: string; roomPublished?: boolean;
 };
 
-export type TournamentCleanupPreview = {
-  generatedAt: string;
-  cutoffAt: string;
-  retentionHours: 72;
-  scannedMatches: number;
-  eligibleMatches: number;
-  matchDataToDelete: {
-    registrations: number;
-    rosterRows: number;
-    squadTeams: number;
-    squadMembers: number;
-    resultAwards: number;
-  };
-  protectedHistory: {
-    matchesWithWalletHistory: number;
-    walletLedgerRows: number;
-    playerStatsRowsPreserved: number;
-  };
-  candidates: Array<{
-    id: string;
-    title: string;
-    status: string;
-    startsAt: string;
-    registrations: number;
-    rosterRows: number;
-    squadTeams: number;
-    squadMembers: number;
-    resultAwards: number;
-    walletLedgerRowsPreserved: number;
-  }>;
-};
-
 export type AdminRegistration = {
   id: string; tournamentId: string; status: string;
   playerName: string; tournamentName?: string; userName?: string;
@@ -689,8 +657,6 @@ export const Api = {
   createTournament: (b: object) => unwrap(http.post('/tournaments', b)),
   updateTournament: (id: string, b: object) => unwrap(http.patch('/tournaments/' + id, b)),
   deleteTournament: (id: string) => unwrap(http.delete('/tournaments/' + id)),
-  adminTournamentCleanupPreview: (): Promise<TournamentCleanupPreview> =>
-    unwrap(http.get('/admin/tournaments/cleanup-preview', { headers: LIVE_DATA_HEADERS })),
   adminRoom: (id: string) => unwrap(http.get('/admin/tournaments/' + id + '/room')),
   adminSaveRoom: (id: string, b: object) => unwrap(http.put('/admin/tournaments/' + id + '/room', b)),
   adminClearRoom: (id: string) => unwrap(http.delete('/admin/tournaments/' + id + '/room')),

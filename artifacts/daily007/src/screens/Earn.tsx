@@ -406,9 +406,6 @@ export default function Earn() {
             })}
           </Text>
         </View>
-        <Text style={s.youtubeCopy}>
-          Follow the official Daily007 Instagram account and submit your username for admin verification before coins are credited.
-        </Text>
         {instagramTaskQuery.isPending && !instagramTask ? (
           <View style={s.taskLoading}>
             <ActivityIndicator color={C.gold} />
@@ -420,14 +417,6 @@ export default function Earn() {
             {instagramTaskError}
           </Text>
         )}
-        {instagramTask && !instagramTask.completed && instagramTask.claim?.status !== 'pending' ? (
-          <View style={s.taskAction}>
-            <Feather name="alert-circle" size={16} color={C.purple} />
-            <Text style={[s.taskStatusTitle, { color: C.purple }]}>
-              ACTION REQUIRED · FOLLOW AND SUBMIT CLAIM
-            </Text>
-          </View>
-        ) : null}
         {instagramTask?.completed ? (
           <View style={s.taskStatus}>
             <Feather name="check-circle" size={16} color={C.green} />
@@ -862,7 +851,6 @@ const s = StyleSheet.create({
   youtubeIconShell: { backgroundColor: `${C.red}18`, borderWidth: 1, borderColor: `${C.red}44` },
   instagramIconShell: { backgroundColor: `${C.purple}18`, borderWidth: 1, borderColor: `${C.purple}44` },
   youtubeTitle: { color: C.text, fontSize: 14, lineHeight: 19, fontWeight: '900', flex: 1, minWidth: 0 },
-  youtubeCopy: { color: C.sub, fontSize: 11, lineHeight: 17, marginTop: 9, marginBottom: 8 },
   taskLoading: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
   taskStatus: {
     flexDirection: 'row',
@@ -874,17 +862,6 @@ const s = StyleSheet.create({
     marginTop: 6,
     borderWidth: 1,
     borderColor: `${C.green}55`,
-  },
-  taskAction: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: C.bg2,
-    borderRadius: 12,
-    padding: 11,
-    marginTop: 6,
-    borderWidth: 1,
-    borderColor: `${C.purple}55`,
   },
   taskStatusText: { flex: 1, minWidth: 0 },
   taskStatusTitle: { color: C.green, fontSize: 10, lineHeight: 15, fontWeight: '900', letterSpacing: 0.35 },
