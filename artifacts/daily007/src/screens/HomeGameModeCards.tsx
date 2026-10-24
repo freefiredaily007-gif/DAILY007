@@ -32,6 +32,15 @@ export default function HomeGameModeCards({
   const largeModeCard = fontScale >= 1.5;
   const modes = [
     {
+      ...HOME_GAME_MODE_CARDS[3],
+      img: modeSquadLogo,
+      category: 'ELIMINATION REWARDS',
+      title: 'BATTLE ROYALE KILL & EARN',
+      capacity: 'SOLO · DUO · SQUAD',
+      formatLinkLabel: 'SOLO / DUO / SQUAD',
+      accent: C.orange,
+    },
+    {
       ...HOME_GAME_MODE_CARDS[0],
       img: modeSquadLogo,
       category: 'CLASSIC SURVIVAL',
@@ -57,15 +66,6 @@ export default function HomeGameModeCards({
       capacity: '1 VS 1 · 2 VS 2 · 4 VS 4',
       formatLinkLabel: '1 VS 1 / 2 VS 2 / 4 VS 4',
       accent: C.purple,
-    },
-    {
-      ...HOME_GAME_MODE_CARDS[3],
-      img: modeSquadLogo,
-      category: 'ELIMINATION REWARDS',
-      title: 'BATTLE ROYALE KILL & EARN',
-      capacity: 'SOLO · DUO · SQUAD',
-      formatLinkLabel: 'SOLO / DUO / SQUAD',
-      accent: C.orange,
     },
   ];
 
