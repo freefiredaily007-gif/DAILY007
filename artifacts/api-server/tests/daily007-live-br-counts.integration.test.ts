@@ -9,6 +9,7 @@ import {
   type HomeRegistrationTournament,
 } from "../../daily007/src/lib/tournamentFilters";
 import { makeToken } from "../src/lib/daily007-session-token";
+import { storedTournamentTimeFromInstant } from "../src/lib/daily007-schedule-time";
 import daily007CompatCoreRouter from "../src/routes/daily007-compat-core";
 
 const TEST_AUTH_SECRET = "daily007-live-br-counts-integration-test-secret";
@@ -149,7 +150,7 @@ async function setPublished(
   assert.equal(body.enabled, enabled);
 }
 
-async function liveCountSnapshot(origin: string): Promise<{
+async function liveCountSnapshot(origin: string, now = Date.now()): Promise<{
   rows: ListedTournament[];
   counts: ReturnType<typeof countOpenHomeTournamentsByFormat>;
 }> {
@@ -158,8 +159,41 @@ async function liveCountSnapshot(origin: string): Promise<{
   const rows = await response.json() as ListedTournament[];
   return {
     rows,
-    counts: countOpenHomeTournamentsByFormat(rows, "battle_royale", Date.now()),
+    counts: countOpenHomeTournamentsByFormat(rows, "battle_royale", now),
   };
+}
+
+async function databaseNow(): Promise<Date> {
+  const result = await pool.query<{ now: Date }>("SELECT clock_timestamp() AS now");
+  assert.ok(result.rows[0]?.now);
+  return new Date(result.rows[0].now);
+}
+
+async function withDatabaseClock<T>(now: Date, run: () => Promise<T>): Promise<T> {
+  type MutableQuery = (queryText: string, values?: unknown[]) => Promise<unknown>;
+  const mutablePool = pool as unknown as { query: MutableQuery };
+  const originalQuery = pool.query.bind(pool) as MutableQuery;
+  mutablePool.query = (queryText, values) => {
+    if (!queryText.includes("clock_timestamp()")) return originalQuery(queryText, values);
+    const clockParameter = (values?.length ?? 0) + 1;
+    const fixedClockQuery = queryText.replaceAll(
+      "clock_timestamp()",
+      `$${clockParameter}::timestamptz`,
+    );
+    return originalQuery(fixedClockQuery, [...(values ?? []), now]);
+  };
+  try {
+    return await run();
+  } finally {
+    mutablePool.query = originalQuery;
+  }
+}
+
+async function setFixtureStart(matchId: string, startsAt: Date): Promise<void> {
+  await pool.query(
+    "UPDATE daily007_v2_matches SET starts_at = $2 WHERE id = $1",
+    [matchId, storedTournamentTimeFromInstant(startsAt)],
+  );
 }
 
 async function insertStateFixture(
@@ -292,6 +326,50 @@ test("Battle Royale format counts stay aligned with the isolated PostgreSQL tour
       assert.equal(rowById.get(exclusions.closed)?.registrationOpen, true);
       assert.equal(rowById.get(exclusions.registrationClosed)?.registrationOpen, true);
       assert.deepEqual(finalSnapshot.counts, { solo: 1, duo: 1, trio: 0, squad: 1 });
+
+      const cutoffMatchId = await insertStateFixture(
+        "Synthetic BR IST Registration Cutoff",
+        "open",
+        storedTournamentTimeFromInstant(new Date(Date.now() + 60_000)),
+      );
+
+      const beforeNow = await databaseNow();
+      const beforeCutoffStart = new Date(beforeNow.getTime() + 1);
+      await setFixtureStart(cutoffMatchId, beforeCutoffStart);
+      const beforeCutoff = await withDatabaseClock(
+        beforeNow,
+        () => liveCountSnapshot(origin, beforeNow.getTime()),
+      );
+      const beforeRow = beforeCutoff.rows.find((row) => row.id === cutoffMatchId);
+      assert.ok(beforeRow, "The enabled match remains listed just before the cutoff.");
+      assert.equal(Date.parse(beforeRow.startsAt), beforeCutoffStart.getTime());
+      assert.equal(beforeRow.registrationOpen, true);
+      assert.equal(beforeCutoff.counts.solo, finalSnapshot.counts.solo + 1);
+
+      const exactCutoffStart = await databaseNow();
+      await setFixtureStart(cutoffMatchId, exactCutoffStart);
+      const atCutoff = await withDatabaseClock(
+        exactCutoffStart,
+        () => liveCountSnapshot(origin, exactCutoffStart.getTime()),
+      );
+      const atRow = atCutoff.rows.find((row) => row.id === cutoffMatchId);
+      assert.ok(atRow, "The match remains listed at the registration cutoff.");
+      assert.equal(Date.parse(atRow.startsAt), exactCutoffStart.getTime());
+      assert.equal(atRow.registrationOpen, false, "Registration closes at the exact IST cutoff.");
+      assert.equal(atCutoff.counts.solo, finalSnapshot.counts.solo);
+
+      const afterNow = await databaseNow();
+      const afterCutoffStart = new Date(afterNow.getTime() - 1);
+      await setFixtureStart(cutoffMatchId, afterCutoffStart);
+      const afterCutoff = await withDatabaseClock(
+        afterNow,
+        () => liveCountSnapshot(origin, afterNow.getTime()),
+      );
+      const afterRow = afterCutoff.rows.find((row) => row.id === cutoffMatchId);
+      assert.ok(afterRow, "The match remains listed after registration closes.");
+      assert.equal(Date.parse(afterRow.startsAt), afterCutoffStart.getTime());
+      assert.equal(afterRow.registrationOpen, false);
+      assert.equal(afterCutoff.counts.solo, finalSnapshot.counts.solo);
     });
   } finally {
     if (createdMatchIds.length) {
