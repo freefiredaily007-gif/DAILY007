@@ -29,6 +29,7 @@ export const daily007KillEarnRewardsTable = pgTable("daily007_v2_kill_earn_rewar
   playerName: text("player_name").notNull(),
   playerUid: text("player_uid").notNull(),
   verifiedKills: integer("verified_kills").notNull(),
+  evidenceReference: text("evidence_reference"),
   rewardPerKill: integer("reward_per_kill").notNull(),
   rewardCoins: integer("reward_coins").notNull(),
   status: text("status").notNull().default("pending"),
@@ -46,6 +47,12 @@ export const daily007KillEarnRewardsTable = pgTable("daily007_v2_kill_earn_rewar
     .where(sql`${table.walletLedgerId} IS NOT NULL`),
   check("daily007_v2_kill_earn_reward_submode_valid", sql`${table.submode} IN ('solo', 'duo', 'squad')`),
   check("daily007_v2_kill_earn_reward_kills_nonnegative", sql`${table.verifiedKills} BETWEEN 0 AND 2147483647`),
+  check("daily007_v2_kill_earn_reward_evidence_reference_valid", sql`
+    ${table.evidenceReference} IS NULL OR (
+      length(${table.evidenceReference}) <= 2048
+      AND ${table.evidenceReference} ~ '^https://[^[:space:]]+$'
+    )
+  `),
   check("daily007_v2_kill_earn_reward_rate_nonnegative", sql`${table.rewardPerKill} BETWEEN 0 AND 2147483647`),
   check("daily007_v2_kill_earn_reward_coins_nonnegative", sql`${table.rewardCoins} BETWEEN 0 AND 2147483647`),
   check("daily007_v2_kill_earn_reward_total_consistent", sql`

@@ -22,6 +22,11 @@ const ids = {
   players: [randomUUID(), randomUUID(), randomUUID()],
   registrations: [randomUUID(), randomUUID(), randomUUID()],
 };
+const evidenceReferences = [
+  "https://proof.daily007.example/match/duo-player-one",
+  "https://proof.daily007.example/match/duo-player-two",
+  "https://proof.daily007.example/match/duo-player-three",
+];
 const previousAuthSecret = process.env.DAILY007_AUTH_SECRET;
 process.env.DAILY007_AUTH_SECRET = "daily007-kill-reward-test-secret-32-characters";
 
@@ -119,18 +124,25 @@ test("per-kill rewards snapshot rates and credit once atomically", async () => {
     assert.equal(players[0]?.rewardPerKill, 5);
 
     const firstSaved = await transaction((client) =>
-      saveKillEarnKills(client, ids.match, ids.registrations[0], 8),
+      saveKillEarnKills(client, ids.match, ids.registrations[0], 8, evidenceReferences[0]),
     );
     const secondSaved = await transaction((client) =>
-      saveKillEarnKills(client, ids.match, ids.registrations[1], 4),
+      saveKillEarnKills(client, ids.match, ids.registrations[1], 4, evidenceReferences[1]),
     );
     const thirdSaved = await transaction((client) =>
       saveKillEarnKills(client, ids.match, ids.registrations[2], 2),
     );
     assert.equal(firstSaved.rewardCoins, 40);
     assert.equal(firstSaved.rewardPerKill, 5);
+    assert.equal(firstSaved.evidenceReference, evidenceReferences[0]);
     assert.equal(secondSaved.rewardCoins, 20);
     assert.equal(thirdSaved.rewardCoins, 10);
+    assert.equal(thirdSaved.evidenceReference, null);
+
+    const participantsWithEvidence = await listKillEarnParticipants(pool, ids.match);
+    assert.equal(participantsWithEvidence[0]?.playerUid, "UID-ONE");
+    assert.equal(participantsWithEvidence[0]?.evidenceReference, evidenceReferences[0]);
+    assert.equal(participantsWithEvidence[2]?.evidenceReference, null);
 
     const beforeApproval = await pool.query<{ wallet_coins: number }>(
       "SELECT wallet_coins FROM daily007_v2_users WHERE id = ANY($1::uuid[]) ORDER BY id",
@@ -151,6 +163,20 @@ test("per-kill rewards snapshot rates and credit once atomically", async () => {
     await assert.rejects(
       transaction((client) => saveKillEarnKills(client, ids.match, ids.registrations[0], -1)),
       /non-negative whole number/,
+    );
+    await assert.rejects(
+      transaction((client) => saveKillEarnKills(
+        client,
+        ids.match,
+        ids.registrations[2],
+        2,
+        "http://proof.daily007.example/match/unsafe",
+      )),
+      /valid HTTPS URL/,
+    );
+    await assert.rejects(
+      transaction((client) => approveKillEarnReward(client, thirdSaved.id, ids.admin)),
+      /evidence link before approving/,
     );
 
     const firstRewardId = firstSaved.id;
@@ -178,6 +204,41 @@ test("per-kill rewards snapshot rates and credit once atomically", async () => {
         headers: { authorization: authorization(ids.admin) },
       });
       assert.equal(completedResponse.status, 200, "a tournament admin can load completed matches");
+
+      const missingEvidenceApproval = await fetch(
+        `${origin}/admin/kill-earn/rewards/${thirdSaved.id}/approve`,
+        {
+          method: "POST",
+          headers: {
+            authorization: authorization(ids.admin),
+            "content-type": "application/json",
+          },
+          body: "{}",
+        },
+      );
+      assert.equal(missingEvidenceApproval.status, 409);
+      const missingEvidenceBody = await missingEvidenceApproval.json() as { error?: string };
+      assert.match(missingEvidenceBody.error ?? "", /evidence link before approving/i);
+
+      const saveEvidenceResponse = await fetch(
+        `${origin}/admin/kill-earn/matches/${ids.match}/participants/${ids.registrations[2]}/kills`,
+        {
+          method: "PUT",
+          headers: {
+            authorization: authorization(ids.admin),
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            verifiedKills: 2,
+            evidenceReference: evidenceReferences[2],
+          }),
+        },
+      );
+      assert.equal(saveEvidenceResponse.status, 200);
+      const savedEvidenceBody = await saveEvidenceResponse.json() as {
+        data: Awaited<ReturnType<typeof approveKillEarnReward>>["reward"];
+      };
+      assert.equal(savedEvidenceBody.data.evidenceReference, evidenceReferences[2]);
 
       const payoutResponse = await fetch(`${origin}/admin/kill-earn/rewards/${firstRewardId}/approve`, {
         method: "POST",
@@ -252,6 +313,7 @@ test("per-kill rewards snapshot rates and credit once atomically", async () => {
     assert.equal(firstLedger.details.rewardPerKill, 5);
     assert.equal(firstLedger.details.creditedAmount, 40);
     assert.equal(firstLedger.details.adminId, ids.admin);
+    assert.equal(firstLedger.details.evidenceReference, evidenceReferences[0]);
     assert.ok(firstLedger.idempotency_key.includes(ids.match));
 
     const creditedHistory = await listKillEarnRewardHistory(pool, {
@@ -261,6 +323,7 @@ test("per-kill rewards snapshot rates and credit once atomically", async () => {
     });
     assert.equal(creditedHistory.length, 1);
     assert.equal(creditedHistory[0]?.walletTransactionId, firstPayout.walletTransactionId);
+    assert.equal(creditedHistory[0]?.evidenceReference, evidenceReferences[0]);
 
     const todayIst = new Intl.DateTimeFormat("en-CA", {
       timeZone: "Asia/Kolkata",
@@ -278,6 +341,7 @@ test("per-kill rewards snapshot rates and credit once atomically", async () => {
     const retainedHistory = await listKillEarnRewardHistory(pool, { tournament: ids.match });
     assert.equal(retainedHistory.length, 3, "reward snapshots remain after tournament/registration cleanup");
     assert.equal(retainedHistory[0]?.tournamentName, "Kill & Earn Duo QA");
+    assert.ok(retainedHistory.some((record) => record.evidenceReference === evidenceReferences[0]));
   } finally {
     await pool.end();
     if (previousAuthSecret === undefined) delete process.env.DAILY007_AUTH_SECRET;

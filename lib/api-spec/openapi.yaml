@@ -1718,6 +1718,11 @@ components:
         playerUid: { type: string }
         teamNumber: { type: ["integer", "null"], minimum: 1 }
         verifiedKills: { type: ["integer", "null"], minimum: 0 }
+        evidenceReference:
+          type: ["string", "null"]
+          maxLength: 2048
+          format: uri
+          description: Persistent HTTPS match-end evidence link used to verify the player's registered UID and kill count
         rewardPerKill: { type: integer, minimum: 0 }
         rewardCoins: { type: ["integer", "null"], minimum: 0 }
         rewardId: { type: ["string", "null"], format: uuid }
@@ -1729,7 +1734,7 @@ components:
         creditedAt: { type: ["string", "null"], format: date-time }
         walletTransactionId: { type: ["string", "null"], format: uuid }
         rejectionReason: { type: ["string", "null"] }
-      required: [registrationId, userId, playerName, playerUid, teamNumber, verifiedKills, rewardPerKill, rewardCoins, rewardId, status, reviewedBy, reviewedAt, creditedAt, walletTransactionId, rejectionReason]
+      required: [registrationId, userId, playerName, playerUid, teamNumber, verifiedKills, evidenceReference, rewardPerKill, rewardCoins, rewardId, status, reviewedBy, reviewedAt, creditedAt, walletTransactionId, rejectionReason]
     KillEarnParticipantsResponse:
       type: object
       properties:
@@ -1742,6 +1747,11 @@ components:
       type: object
       properties:
         verifiedKills: { type: integer, minimum: 0, maximum: 2147483647 }
+        evidenceReference:
+          type: ["string", "null"]
+          maxLength: 2048
+          format: uri
+          description: Persistent HTTPS match-end evidence link; only HTTPS links are accepted
       required: [verifiedKills]
     KillEarnRewardRejection:
       type: object
@@ -1759,6 +1769,11 @@ components:
         submode: { type: string, enum: [solo, duo, squad] }
         playerName: { type: string }
         playerUid: { type: string }
+        evidenceReference:
+          type: ["string", "null"]
+          maxLength: 2048
+          format: uri
+          description: Persistent HTTPS match-end evidence link used to verify the player's registered UID and kill count
         verifiedKills: { type: integer, minimum: 0 }
         rewardPerKill: { type: integer, minimum: 0 }
         rewardCoins: { type: integer, minimum: 0 }
@@ -1769,7 +1784,7 @@ components:
         walletTransactionId: { type: ["string", "null"], format: uuid }
         rejectionReason: { type: ["string", "null"] }
         createdAt: { type: string, format: date-time }
-      required: [id, matchId, registrationId, userId, tournamentName, submode, playerName, playerUid, verifiedKills, rewardPerKill, rewardCoins, status, reviewedBy, reviewedAt, creditedAt, walletTransactionId, rejectionReason, createdAt]
+      required: [id, matchId, registrationId, userId, tournamentName, submode, playerName, playerUid, evidenceReference, verifiedKills, rewardPerKill, rewardCoins, status, reviewedBy, reviewedAt, creditedAt, walletTransactionId, rejectionReason, createdAt]
     KillEarnRewardHistoryResponse:
       type: object
       properties:

@@ -29,4 +29,10 @@ export interface KillEarnRewardSubmission {
      * @maximum 2147483647
      */
   verifiedKills: number;
+  /**
+     * Persistent HTTPS match-end evidence link; only HTTPS links are accepted
+     * @maxLength 2048
+     * @nullable
+     */
+  evidenceReference?: string | null;
 }

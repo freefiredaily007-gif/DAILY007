@@ -34,6 +34,12 @@ export interface KillEarnRewardRecord {
   submode: KillEarnRewardRecordSubmode;
   playerName: string;
   playerUid: string;
+  /**
+     * Persistent HTTPS match-end evidence link used to verify the player's registered UID and kill count
+     * @maxLength 2048
+     * @nullable
+     */
+  evidenceReference: string | null;
   /** @minimum 0 */
   verifiedKills: number;
   /** @minimum 0 */

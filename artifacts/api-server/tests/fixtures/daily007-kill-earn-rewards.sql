@@ -77,6 +77,12 @@ CREATE TABLE daily007_v2_kill_earn_rewards (
   submode text NOT NULL CHECK (submode IN ('solo', 'duo', 'squad')),
   player_name text NOT NULL,
   player_uid text NOT NULL,
+  evidence_reference text CHECK (
+    evidence_reference IS NULL OR (
+      length(evidence_reference) <= 2048
+      AND evidence_reference ~ '^https://[^[:space:]]+$'
+    )
+  ),
   verified_kills integer NOT NULL CHECK (verified_kills >= 0),
   reward_per_kill integer NOT NULL CHECK (reward_per_kill >= 0),
   reward_coins integer NOT NULL CHECK (reward_coins >= 0),

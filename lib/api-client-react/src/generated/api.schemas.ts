@@ -281,6 +281,12 @@ export interface KillEarnParticipant {
      * @nullable
      */
   verifiedKills: number | null;
+  /**
+     * Persistent HTTPS match-end evidence link used to verify the player's registered UID and kill count
+     * @maxLength 2048
+     * @nullable
+     */
+  evidenceReference: string | null;
   /** @minimum 0 */
   rewardPerKill: number;
   /**
@@ -315,6 +321,12 @@ export interface KillEarnRewardSubmission {
      * @maximum 2147483647
      */
   verifiedKills: number;
+  /**
+     * Persistent HTTPS match-end evidence link; only HTTPS links are accepted
+     * @maxLength 2048
+     * @nullable
+     */
+  evidenceReference?: string | null;
 }
 
 export interface KillEarnRewardRejection {
@@ -353,6 +365,12 @@ export interface KillEarnRewardRecord {
   submode: KillEarnRewardRecordSubmode;
   playerName: string;
   playerUid: string;
+  /**
+     * Persistent HTTPS match-end evidence link used to verify the player's registered UID and kill count
+     * @maxLength 2048
+     * @nullable
+     */
+  evidenceReference: string | null;
   /** @minimum 0 */
   verifiedKills: number;
   /** @minimum 0 */

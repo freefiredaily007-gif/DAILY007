@@ -2414,6 +2414,8 @@ export const ListDaily007KillEarnParticipantsParams = zod.object({
 
 export const listDaily007KillEarnParticipantsResponseDataItemVerifiedKillsMin = 0;
 
+export const listDaily007KillEarnParticipantsResponseDataItemEvidenceReferenceMax = 2048;
+
 export const listDaily007KillEarnParticipantsResponseDataItemRewardPerKillMin = 0;
 
 export const listDaily007KillEarnParticipantsResponseDataItemRewardCoinsMin = 0;
@@ -2429,6 +2431,7 @@ export const ListDaily007KillEarnParticipantsResponse = zod.object({
   "playerUid": zod.string(),
   "teamNumber": zod.number().int().min(1).nullable(),
   "verifiedKills": zod.number().int().min(listDaily007KillEarnParticipantsResponseDataItemVerifiedKillsMin).nullable(),
+  "evidenceReference": zod.string().url().max(listDaily007KillEarnParticipantsResponseDataItemEvidenceReferenceMax).nullable().describe('Persistent HTTPS match-end evidence link used to verify the player\'s registered UID and kill count'),
   "rewardPerKill": zod.number().int().min(listDaily007KillEarnParticipantsResponseDataItemRewardPerKillMin),
   "rewardCoins": zod.number().int().min(listDaily007KillEarnParticipantsResponseDataItemRewardCoinsMin).nullable(),
   "rewardId": zod.string().uuid().nullable(),
@@ -2453,11 +2456,16 @@ export const SaveDaily007KillEarnKillsParams = zod.object({
 export const saveDaily007KillEarnKillsBodyVerifiedKillsMin = 0;
 export const saveDaily007KillEarnKillsBodyVerifiedKillsMax = 2147483647;
 
+export const saveDaily007KillEarnKillsBodyEvidenceReferenceMax = 2048;
+
 
 
 export const SaveDaily007KillEarnKillsBody = zod.object({
-  "verifiedKills": zod.number().int().min(saveDaily007KillEarnKillsBodyVerifiedKillsMin).max(saveDaily007KillEarnKillsBodyVerifiedKillsMax)
+  "verifiedKills": zod.number().int().min(saveDaily007KillEarnKillsBodyVerifiedKillsMin).max(saveDaily007KillEarnKillsBodyVerifiedKillsMax),
+  "evidenceReference": zod.string().url().max(saveDaily007KillEarnKillsBodyEvidenceReferenceMax).nullish().describe('Persistent HTTPS match-end evidence link; only HTTPS links are accepted')
 })
+
+export const saveDaily007KillEarnKillsResponseDataEvidenceReferenceMax = 2048;
 
 export const saveDaily007KillEarnKillsResponseDataVerifiedKillsMin = 0;
 
@@ -2478,6 +2486,7 @@ export const SaveDaily007KillEarnKillsResponse = zod.object({
   "submode": zod.enum(['solo', 'duo', 'squad']),
   "playerName": zod.string(),
   "playerUid": zod.string(),
+  "evidenceReference": zod.string().url().max(saveDaily007KillEarnKillsResponseDataEvidenceReferenceMax).nullable().describe('Persistent HTTPS match-end evidence link used to verify the player\'s registered UID and kill count'),
   "verifiedKills": zod.number().int().min(saveDaily007KillEarnKillsResponseDataVerifiedKillsMin),
   "rewardPerKill": zod.number().int().min(saveDaily007KillEarnKillsResponseDataRewardPerKillMin),
   "rewardCoins": zod.number().int().min(saveDaily007KillEarnKillsResponseDataRewardCoinsMin),
@@ -2500,6 +2509,8 @@ export const ApproveDaily007KillEarnRewardParams = zod.object({
   "rewardId": zod.coerce.string().uuid()
 })
 
+export const approveDaily007KillEarnRewardResponseDataEvidenceReferenceMax = 2048;
+
 export const approveDaily007KillEarnRewardResponseDataVerifiedKillsMin = 0;
 
 export const approveDaily007KillEarnRewardResponseDataRewardPerKillMin = 0;
@@ -2519,6 +2530,7 @@ export const ApproveDaily007KillEarnRewardResponse = zod.object({
   "submode": zod.enum(['solo', 'duo', 'squad']),
   "playerName": zod.string(),
   "playerUid": zod.string(),
+  "evidenceReference": zod.string().url().max(approveDaily007KillEarnRewardResponseDataEvidenceReferenceMax).nullable().describe('Persistent HTTPS match-end evidence link used to verify the player\'s registered UID and kill count'),
   "verifiedKills": zod.number().int().min(approveDaily007KillEarnRewardResponseDataVerifiedKillsMin),
   "rewardPerKill": zod.number().int().min(approveDaily007KillEarnRewardResponseDataRewardPerKillMin),
   "rewardCoins": zod.number().int().min(approveDaily007KillEarnRewardResponseDataRewardCoinsMin),
@@ -2550,6 +2562,8 @@ export const RejectDaily007KillEarnRewardBody = zod.object({
   "reason": zod.string().min(rejectDaily007KillEarnRewardBodyReasonMin).max(rejectDaily007KillEarnRewardBodyReasonMax)
 })
 
+export const rejectDaily007KillEarnRewardResponseDataEvidenceReferenceMax = 2048;
+
 export const rejectDaily007KillEarnRewardResponseDataVerifiedKillsMin = 0;
 
 export const rejectDaily007KillEarnRewardResponseDataRewardPerKillMin = 0;
@@ -2569,6 +2583,7 @@ export const RejectDaily007KillEarnRewardResponse = zod.object({
   "submode": zod.enum(['solo', 'duo', 'squad']),
   "playerName": zod.string(),
   "playerUid": zod.string(),
+  "evidenceReference": zod.string().url().max(rejectDaily007KillEarnRewardResponseDataEvidenceReferenceMax).nullable().describe('Persistent HTTPS match-end evidence link used to verify the player\'s registered UID and kill count'),
   "verifiedKills": zod.number().int().min(rejectDaily007KillEarnRewardResponseDataVerifiedKillsMin),
   "rewardPerKill": zod.number().int().min(rejectDaily007KillEarnRewardResponseDataRewardPerKillMin),
   "rewardCoins": zod.number().int().min(rejectDaily007KillEarnRewardResponseDataRewardCoinsMin),
@@ -2602,6 +2617,8 @@ export const ListDaily007KillEarnRewardHistoryQueryParams = zod.object({
   "status": zod.enum(['pending', 'approved', 'rejected', 'credited']).optional()
 })
 
+export const listDaily007KillEarnRewardHistoryResponseDataItemEvidenceReferenceMax = 2048;
+
 export const listDaily007KillEarnRewardHistoryResponseDataItemVerifiedKillsMin = 0;
 
 export const listDaily007KillEarnRewardHistoryResponseDataItemRewardPerKillMin = 0;
@@ -2621,6 +2638,7 @@ export const ListDaily007KillEarnRewardHistoryResponse = zod.object({
   "submode": zod.enum(['solo', 'duo', 'squad']),
   "playerName": zod.string(),
   "playerUid": zod.string(),
+  "evidenceReference": zod.string().url().max(listDaily007KillEarnRewardHistoryResponseDataItemEvidenceReferenceMax).nullable().describe('Persistent HTTPS match-end evidence link used to verify the player\'s registered UID and kill count'),
   "verifiedKills": zod.number().int().min(listDaily007KillEarnRewardHistoryResponseDataItemVerifiedKillsMin),
   "rewardPerKill": zod.number().int().min(listDaily007KillEarnRewardHistoryResponseDataItemRewardPerKillMin),
   "rewardCoins": zod.number().int().min(listDaily007KillEarnRewardHistoryResponseDataItemRewardCoinsMin),

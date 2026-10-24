@@ -695,9 +695,10 @@ export const Api = {
     matchId: string,
     registrationId: string,
     verifiedKills: number,
+    evidenceReference?: string | null,
   ): Promise<KillEarnRewardRecord> => unwrap(http.put(
     `/admin/kill-earn/matches/${encodeURIComponent(matchId)}/participants/${encodeURIComponent(registrationId)}/kills`,
-    { verifiedKills },
+    { verifiedKills, evidenceReference },
   )),
   adminApproveKillEarnReward: (rewardId: string): Promise<KillEarnRewardRecord> =>
     unwrap(http.post(`/admin/kill-earn/rewards/${encodeURIComponent(rewardId)}/approve`, {})),

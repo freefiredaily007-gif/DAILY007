@@ -2996,10 +2996,16 @@ router.put(
     }
     try {
       const data = await roleTransaction(req, "tournament_admin", (client) =>
-        saveKillEarnKills(client, matchId, registrationId, req.body.verifiedKills),
+        saveKillEarnKills(
+          client,
+          matchId,
+          registrationId,
+          req.body.verifiedKills,
+          req.body.evidenceReference,
+        ),
       );
       res.setHeader("Cache-Control", "no-store");
-      res.json({ success: true, data, message: "Verified kills saved. No coins were credited." });
+      res.json({ success: true, data, message: "Verified kills and evidence saved. No coins were credited." });
     } catch (e) {
       respondFailure(res, e);
     }

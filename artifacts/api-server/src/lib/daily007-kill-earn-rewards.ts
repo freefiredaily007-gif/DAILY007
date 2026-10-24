@@ -23,6 +23,7 @@ type RewardRow = {
   submode: "solo" | "duo" | "squad";
   player_name: string;
   player_uid: string;
+  evidence_reference: string | null;
   verified_kills: number;
   reward_per_kill: number;
   reward_coins: number;
@@ -37,6 +38,29 @@ type RewardRow = {
 
 function httpError(status: number, message: string): Error & { status: number } {
   return Object.assign(new Error(message), { status });
+}
+
+function normalizeEvidenceReference(value: unknown, fallback: string | null = null): string | null {
+  if (value === undefined) return fallback;
+  if (value === null) return null;
+  if (typeof value !== "string") {
+    throw httpError(400, "Match-end evidence must be a valid HTTPS URL.");
+  }
+  const reference = value.trim();
+  if (!reference) return null;
+  if (reference.length > 2048) {
+    throw httpError(400, "Match-end evidence URL must be at most 2048 characters.");
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(reference);
+  } catch {
+    throw httpError(400, "Match-end evidence must be a valid HTTPS URL.");
+  }
+  if (parsed.protocol !== "https:" || !parsed.hostname || parsed.username || parsed.password) {
+    throw httpError(400, "Match-end evidence must be a valid HTTPS URL without embedded credentials.");
+  }
+  return reference;
 }
 
 function integer(value: unknown): number | null {
@@ -64,6 +88,7 @@ export function serializeKillEarnReward(row: RewardRow) {
     submode: row.submode,
     playerName: row.player_name,
     playerUid: row.player_uid,
+    evidenceReference: row.evidence_reference,
     verifiedKills: Number(row.verified_kills),
     rewardPerKill: Number(row.reward_per_kill),
     rewardCoins: Number(row.reward_coins),
@@ -107,7 +132,7 @@ async function loadCompletedMatch(
 
 const REWARD_SELECT = `
   SELECT id, match_id, registration_id, user_id, tournament_name, submode,
-         player_name, player_uid, verified_kills, reward_per_kill, reward_coins,
+         player_name, player_uid, evidence_reference, verified_kills, reward_per_kill, reward_coins,
          status, reviewed_by, reviewed_at, credited_at, wallet_ledger_id,
          rejection_reason, created_at
     FROM daily007_v2_kill_earn_rewards`;
@@ -225,6 +250,7 @@ export async function listKillEarnParticipants(
     player_name: string;
     player_uid: string;
     team_number: number | null;
+    evidence_reference: string | null;
     match_reward_per_kill: number;
     reward_id: string | null;
     verified_kills: number | null;
@@ -245,6 +271,7 @@ export async function listKillEarnParticipants(
             COALESCE(team.team_number, registration.assigned_group_number) AS team_number,
             match.kill_reward_coins AS match_reward_per_kill,
             reward.id AS reward_id,
+            reward.evidence_reference,
             reward.verified_kills,
             reward.reward_per_kill,
             reward.reward_coins,
@@ -271,6 +298,7 @@ export async function listKillEarnParticipants(
     playerName: row.player_name,
     playerUid: row.player_uid,
     teamNumber: row.team_number === null ? null : Number(row.team_number),
+    evidenceReference: row.evidence_reference,
     verifiedKills: row.verified_kills === null ? null : Number(row.verified_kills),
     rewardPerKill: Number(row.reward_per_kill ?? row.match_reward_per_kill),
     rewardCoins: row.reward_coins === null ? null : Number(row.reward_coins),
@@ -296,6 +324,7 @@ export async function saveKillEarnKills(
   matchId: string,
   registrationId: string,
   verifiedKillsInput: unknown,
+  evidenceReferenceInput?: unknown,
 ) {
   const verifiedKills = integer(verifiedKillsInput);
   if (verifiedKills === null) throw httpError(400, "Verified kills must be a non-negative whole number.");
@@ -331,9 +360,10 @@ export async function saveKillEarnKills(
     id: string;
     registration_id: string;
     reward_per_kill: number;
+    evidence_reference: string | null;
     status: RewardRow["status"];
   }>(
-    `SELECT id, registration_id, reward_per_kill, status
+    `SELECT id, registration_id, reward_per_kill, evidence_reference, status
        FROM daily007_v2_kill_earn_rewards
       WHERE match_id = $1 AND user_id = $2
       FOR UPDATE`,
@@ -346,6 +376,10 @@ export async function saveKillEarnKills(
   if (existing && existing.status !== "pending") {
     throw httpError(409, "Reviewed Kill & Earn rewards cannot be edited.");
   }
+  const evidenceReference = normalizeEvidenceReference(
+    evidenceReferenceInput,
+    existing?.evidence_reference ?? null,
+  );
   const rewardPerKill = existing ? Number(existing.reward_per_kill) : Number(match.kill_reward_coins);
   const rewardCoins = verifiedKills * rewardPerKill;
   if (!Number.isSafeInteger(rewardCoins) || rewardCoins > 2_147_483_647) {
@@ -356,16 +390,16 @@ export async function saveKillEarnKills(
   if (existing) {
     await client.query(
       `UPDATE daily007_v2_kill_earn_rewards
-          SET verified_kills = $2, reward_coins = $3, updated_at = now()
+          SET verified_kills = $2, reward_coins = $3, evidence_reference = $4, updated_at = now()
         WHERE id = $1 AND status = 'pending'`,
-      [existing.id, verifiedKills, rewardCoins],
+      [existing.id, verifiedKills, rewardCoins, evidenceReference],
     );
   } else {
     const inserted = await client.query<{ id: string }>(
       `INSERT INTO daily007_v2_kill_earn_rewards
          (match_id, registration_id, user_id, tournament_name, submode, player_name,
-          player_uid, verified_kills, reward_per_kill, reward_coins)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          player_uid, evidence_reference, verified_kills, reward_per_kill, reward_coins)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING id`,
       [
         matchId,
@@ -375,6 +409,7 @@ export async function saveKillEarnKills(
         registration.submode,
         registration.player_name,
         registration.player_uid,
+        evidenceReference,
         verifiedKills,
         rewardPerKill,
         rewardCoins,
@@ -407,6 +442,9 @@ export async function approveKillEarnReward(
     return { kind: "already_approved" as const, reward: serializeKillEarnReward(reward) };
   }
   if (reward.status === "rejected") throw httpError(409, "A rejected Kill & Earn reward cannot be approved.");
+  if (!reward.evidence_reference) {
+    throw httpError(409, "Save a match-end HTTPS evidence link before approving this reward.");
+  }
 
   const verifiedKills = integer(reward.verified_kills);
   const rewardPerKill = integer(reward.reward_per_kill);
@@ -445,7 +483,7 @@ export async function approveKillEarnReward(
         WHERE id = $1
         RETURNING id, match_id, registration_id, user_id, tournament_name, submode,
                   player_name, player_uid, verified_kills, reward_per_kill, reward_coins,
-                  status, reviewed_by, reviewed_at, credited_at, wallet_ledger_id,
+                  evidence_reference, status, reviewed_by, reviewed_at, credited_at, wallet_ledger_id,
                   rejection_reason, created_at`,
       [rewardId, adminId, prior.created_at, prior.id],
     );
@@ -465,7 +503,7 @@ export async function approveKillEarnReward(
         WHERE id = $1 AND status = 'pending'
         RETURNING id, match_id, registration_id, user_id, tournament_name, submode,
                   player_name, player_uid, verified_kills, reward_per_kill, reward_coins,
-                  status, reviewed_by, reviewed_at, credited_at, wallet_ledger_id,
+                  evidence_reference, status, reviewed_by, reviewed_at, credited_at, wallet_ledger_id,
                   rejection_reason, created_at`,
       [rewardId, adminId, reviewedAt],
     );
@@ -511,6 +549,7 @@ export async function approveKillEarnReward(
         creditedAmount: rewardCoins,
         approvalTime: iso(reviewedAt),
         adminId,
+        evidenceReference: reward.evidence_reference,
       },
     ],
   );
@@ -523,7 +562,7 @@ export async function approveKillEarnReward(
       WHERE id = $1 AND status = 'pending'
       RETURNING id, match_id, registration_id, user_id, tournament_name, submode,
                 player_name, player_uid, verified_kills, reward_per_kill, reward_coins,
-                status, reviewed_by, reviewed_at, credited_at, wallet_ledger_id,
+                evidence_reference, status, reviewed_by, reviewed_at, credited_at, wallet_ledger_id,
                 rejection_reason, created_at`,
     [rewardId, adminId, reviewedAt, ledgerId],
   );
@@ -566,7 +605,7 @@ export async function rejectKillEarnReward(
       WHERE id = $1 AND status = 'pending'
       RETURNING id, match_id, registration_id, user_id, tournament_name, submode,
                 player_name, player_uid, verified_kills, reward_per_kill, reward_coins,
-                status, reviewed_by, reviewed_at, credited_at, wallet_ledger_id,
+                evidence_reference, status, reviewed_by, reviewed_at, credited_at, wallet_ledger_id,
                 rejection_reason, created_at`,
     [rewardId, adminId, reviewedAt, reason],
   );

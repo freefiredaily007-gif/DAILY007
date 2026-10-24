@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -65,6 +66,16 @@ function statusLabel(status: string | null | undefined): string {
   return status.replaceAll('_', ' ').toUpperCase();
 }
 
+function isValidEvidenceReference(value: string | null | undefined): value is string {
+  if (!value || value.length > 2048) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'https:' && Boolean(parsed.hostname) && !parsed.username && !parsed.password;
+  } catch {
+    return false;
+  }
+}
+
 function ErrorNotice({ children }: { children: string }) {
   return (
     <View style={styles.errorNotice} accessibilityRole="alert">
@@ -115,6 +126,7 @@ export default function AdminKillEarnRewards() {
   const queryClient = useQueryClient();
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
   const [draftKills, setDraftKills] = useState<Record<string, string>>({});
+  const [draftEvidence, setDraftEvidence] = useState<Record<string, string>>({});
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const busyActionRef = useRef(new Set<string>());
   const [rejectingRewardId, setRejectingRewardId] = useState<string | null>(null);
@@ -164,6 +176,7 @@ export default function AdminKillEarnRewards() {
   const setSelectedMatch = (match: KillEarnMatch) => {
     setSelectedMatchId(match.id);
     setDraftKills({});
+    setDraftEvidence({});
     setErrorMessage('');
     setNotice('');
     setRejectingRewardId(null);
@@ -185,6 +198,15 @@ export default function AdminKillEarnRewards() {
       setNotice('');
       return;
     }
+    const rawEvidence = draftEvidence[participant.registrationId] ??
+      participant.evidenceReference ??
+      '';
+    const evidenceReference = rawEvidence.trim();
+    if (evidenceReference && !isValidEvidenceReference(evidenceReference)) {
+      setErrorMessage('Enter a valid HTTPS match-end evidence URL (maximum 2048 characters).');
+      setNotice('');
+      return;
+    }
     busyActionRef.current.add(actionKey);
     setBusyAction(actionKey);
     setErrorMessage('');
@@ -194,12 +216,17 @@ export default function AdminKillEarnRewards() {
         selectedMatchId!,
         participant.registrationId,
         kills,
+        evidenceReference || null,
       );
       setDraftKills((current) => ({
         ...current,
         [participant.registrationId]: String(saved.verifiedKills),
       }));
-      setNotice(`Saved ${saved.verifiedKills} verified kills for ${saved.playerName}. No coins were credited.`);
+      setDraftEvidence((current) => ({
+        ...current,
+        [participant.registrationId]: saved.evidenceReference ?? '',
+      }));
+      setNotice(`Saved ${saved.verifiedKills} verified kills and evidence for ${saved.playerName}. No coins were credited.`);
       await queryClient.invalidateQueries({ queryKey: ['admin-kill-earn-participants', selectedMatchId] });
       await queryClient.invalidateQueries({ queryKey: ['admin-kill-earn-reward-history'] });
     } catch (error) {
@@ -213,6 +240,16 @@ export default function AdminKillEarnRewards() {
   const approveReward = async (participant: KillEarnParticipant) => {
     if (!participant.rewardId) {
       setErrorMessage('Save this player’s verified kills before approving a reward.');
+      return;
+    }
+    const pendingEvidenceDraft = draftEvidence[participant.registrationId];
+    if (pendingEvidenceDraft !== undefined &&
+        pendingEvidenceDraft.trim() !== (participant.evidenceReference ?? '')) {
+      setErrorMessage('Save the match-end evidence link before approving this reward.');
+      return;
+    }
+    if (!isValidEvidenceReference(participant.evidenceReference)) {
+      setErrorMessage('Save a valid HTTPS match-end evidence link before approving this reward.');
       return;
     }
     const actionKey = `approve:${participant.rewardId}`;
@@ -304,6 +341,15 @@ export default function AdminKillEarnRewards() {
   };
 
   const selectedParticipantCount = useMemo(() => participants.length, [participants.length]);
+  const openEvidence = (reference: string) => {
+    if (!isValidEvidenceReference(reference)) {
+      setErrorMessage('This match-end evidence link is not a valid HTTPS URL.');
+      return;
+    }
+    void Linking.openURL(reference).catch(() => {
+      setErrorMessage('Could not open the match-end evidence link.');
+    });
+  };
 
   return (
     <ScrollView
@@ -415,13 +461,20 @@ export default function AdminKillEarnRewards() {
                 const savedKills = participant.verifiedKills;
                 const raw = draftKills[participant.registrationId] ??
                   (savedKills === null ? '' : String(savedKills));
+                const evidenceRaw = draftEvidence[participant.registrationId] ??
+                  participant.evidenceReference ??
+                  '';
+                const savedEvidence = participant.evidenceReference ?? '';
+                const evidenceChanged = evidenceRaw.trim() !== savedEvidence;
                 const validDraft = /^\d{1,10}$/.test(raw) &&
                   Number.isSafeInteger(Number(raw)) &&
                   Number(raw) <= 2_147_483_647;
                 const previewCoins = validDraft ? Number(raw) * participant.rewardPerKill : null;
                 const isPending = participant.status === null || participant.status === 'pending';
                 const canSave = isPending && validDraft &&
-                  (!participant.rewardId || Number(raw) !== savedKills);
+                  (!participant.rewardId || Number(raw) !== savedKills || evidenceChanged);
+                const evidenceReady = isValidEvidenceReference(participant.evidenceReference) &&
+                  !evidenceChanged;
                 const saveKey = `save:${participant.registrationId}`;
                 const approveKey = `approve:${participant.rewardId ?? ''}`;
                 const rejectKey = `reject:${participant.rewardId ?? ''}`;
@@ -471,6 +524,45 @@ export default function AdminKillEarnRewards() {
                       </View>
                     </View>
 
+                    <View style={styles.evidenceSection}>
+                      <Text style={styles.fieldLabel}>MATCH-END EVIDENCE · HTTPS LINK</Text>
+                      <TextInput
+                        accessibilityLabel={`Match-end evidence URL for ${participant.playerName}, registered UID ${participant.playerUid}`}
+                        value={evidenceRaw}
+                        onChangeText={(value) => setDraftEvidence((current) => ({
+                          ...current,
+                          [participant.registrationId]: value,
+                        }))}
+                        editable={isPending && busyAction !== saveKey && busyAction !== approveKey}
+                        keyboardType="url"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        maxLength={2048}
+                        placeholder="https://…"
+                        placeholderTextColor="rgba(211,220,255,0.42)"
+                        style={[styles.input, !isPending && styles.readOnlyInput]}
+                      />
+                      <Text style={styles.evidenceHint}>
+                        Use a persistent match-end screenshot or video link. Confirm the registered UID matches the proof before saving.
+                      </Text>
+                      {evidenceRaw.trim() && !isValidEvidenceReference(evidenceRaw.trim()) ? (
+                        <Text style={styles.evidenceError}>Enter a valid HTTPS URL without embedded credentials.</Text>
+                      ) : null}
+                      {participant.evidenceReference ? (
+                        <Pressable
+                          accessibilityRole="link"
+                          accessibilityLabel={`Open match-end evidence for ${participant.playerName}, registered UID ${participant.playerUid}`}
+                          onPress={() => openEvidence(participant.evidenceReference!)}
+                          style={styles.evidenceLink}
+                        >
+                          <Feather name="external-link" size={14} color={A.cyan} />
+                          <Text style={styles.evidenceLinkText}>OPEN SAVED MATCH EVIDENCE</Text>
+                        </Pressable>
+                      ) : (
+                        <Text style={styles.evidenceMissing}>No evidence saved. Evidence is required before approval.</Text>
+                      )}
+                    </View>
+
                     {participant.status === 'rejected' && participant.rejectionReason ? (
                       <Text style={styles.rejectionText}>Reason: {participant.rejectionReason}</Text>
                     ) : null}
@@ -489,7 +581,7 @@ export default function AdminKillEarnRewards() {
                     {isPending ? (
                       <View style={styles.actionRow}>
                         <ActionButton
-                          title={busyAction === saveKey ? 'SAVING…' : 'SAVE KILLS'}
+                          title={busyAction === saveKey ? 'SAVING…' : 'SAVE KILLS & EVIDENCE'}
                           onPress={() => { void saveKills(participant); }}
                           disabled={!canSave || busyAction === saveKey}
                           tone="ghost"
@@ -500,7 +592,7 @@ export default function AdminKillEarnRewards() {
                             <ActionButton
                               title={busyAction === approveKey ? 'PROCESSING…' : 'APPROVE & CREDIT'}
                               onPress={() => { void approveReward(participant); }}
-                              disabled={busyAction === approveKey || busyAction === rejectKey}
+                              disabled={!evidenceReady || busyAction === approveKey || busyAction === rejectKey}
                               tone="green"
                               accessibilityLabel={`Approve and credit ${participant.rewardCoins ?? 0} coins to ${participant.playerName}`}
                             />
@@ -636,7 +728,7 @@ export default function AdminKillEarnRewards() {
         ) : (
           <View style={styles.historyList}>
             {history.map((record) => (
-              <HistoryCard key={record.id} record={record} />
+              <HistoryCard key={record.id} record={record} onOpenEvidence={openEvidence} />
             ))}
           </View>
         )}
@@ -645,7 +737,13 @@ export default function AdminKillEarnRewards() {
   );
 }
 
-function HistoryCard({ record }: { record: KillEarnRewardRecord }) {
+function HistoryCard({
+  record,
+  onOpenEvidence,
+}: {
+  record: KillEarnRewardRecord;
+  onOpenEvidence: (reference: string) => void;
+}) {
   const color = statusColor(record.status);
   return (
     <View style={styles.historyCard}>
@@ -661,6 +759,19 @@ function HistoryCard({ record }: { record: KillEarnRewardRecord }) {
       </View>
       <Text style={styles.playerName}>{record.playerName}</Text>
       <Text style={styles.playerMeta}>UID {record.playerUid} · Player ID {record.userId}</Text>
+      {record.evidenceReference ? (
+        <Pressable
+          accessibilityRole="link"
+          accessibilityLabel={`Open match-end evidence for ${record.playerName}, registered UID ${record.playerUid}`}
+          onPress={() => onOpenEvidence(record.evidenceReference!)}
+          style={styles.evidenceLink}
+        >
+          <Feather name="external-link" size={14} color={A.cyan} />
+          <Text style={styles.evidenceLinkText}>{record.evidenceReference}</Text>
+        </Pressable>
+      ) : (
+        <Text style={styles.evidenceMissing}>No match-end evidence reference recorded.</Text>
+      )}
       <Text style={styles.historyCalculation}>
         {record.verifiedKills} kills × {record.rewardPerKill} coins = {record.rewardCoins} coins
       </Text>
@@ -747,6 +858,19 @@ const styles = StyleSheet.create({
   readOnlyInput: { color: A.sub, opacity: 0.8 },
   rewardValue: { color: A.cyan, fontFamily: 'Inter_700Bold', fontSize: 11 },
   previewValue: { color: A.green, fontFamily: 'Inter_700Bold', fontSize: 10.5 },
+  evidenceSection: {
+    gap: 6, padding: 9, borderRadius: 10, borderWidth: 1,
+    borderColor: 'rgba(91,177,255,0.2)', backgroundColor: 'rgba(8,18,43,0.58)',
+  },
+  evidenceHint: { color: A.sub, fontSize: 9.5, lineHeight: 14 },
+  evidenceError: { color: '#FF98A8', fontSize: 9.5, lineHeight: 14 },
+  evidenceMissing: { color: A.gold, fontSize: 9.5, lineHeight: 14 },
+  evidenceLink: {
+    minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 7,
+    borderRadius: 9, borderWidth: 1, borderColor: 'rgba(91,177,255,0.28)',
+    backgroundColor: 'rgba(91,177,255,0.07)', paddingHorizontal: 10, paddingVertical: 8,
+  },
+  evidenceLinkText: { flex: 1, minWidth: 0, color: A.cyan, fontSize: 9.5, lineHeight: 14, fontFamily: 'Inter_600SemiBold' },
   actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, alignItems: 'center' },
   actionButton: {
     minHeight: 44, minWidth: 92, flexGrow: 1, flexBasis: '30%',
