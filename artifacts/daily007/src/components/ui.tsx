@@ -553,6 +553,8 @@ export function MatchCard({
     : formatPresentation.image;
   const filledPlayers = t?.filledPlayerSlots ?? filled * (t?.teamSize ?? 1);
   const totalPlayers = t?.totalPlayerSlots ?? total * (t?.teamSize ?? 1);
+  const isKillEarn = String(t?.gameMode ?? '').toLowerCase() === 'battle_royale_kill_earn';
+  const perKillCoins = Number(t?.perKillCoins ?? t?.killRewardCoins ?? 0);
   const schedule = getRoomCredentialSchedule(t?.startsAt);
   const scheduledDate = schedule?.date ?? fmtDate(t?.date);
   const scheduledTime = schedule?.startTime24 ?? t?.time;
@@ -635,29 +637,23 @@ export function MatchCard({
           </Text>
           <Text style={[mc.meta, largeText && mc.metaLarge]}>{filledPlayers}/{totalPlayers} players</Text>
         </View>
-        {t?.gameMode === 'battle_royale_kill_earn' && (
-          <Text style={{
-            color: C.gold,
-            fontSize: largeText ? 15 : 11,
-            fontWeight: '900',
-            letterSpacing: 0.7,
-            marginTop: 7,
-            textAlign: 'center',
-          }}>
-            🎯 {Number(t?.killRewardCoins ?? 0)} COINS PER KILL
-          </Text>
-        )}
         <View style={[mc.statRow, largeText && mc.statRowLarge]}>
           <View style={[mc.stat, largeText && mc.statLarge]}>
             <Text style={mc.statK}>ENTRY</Text>
             <Text style={[mc.statV, { color: C.gold }]}>🪙 {t?.entryCoins ?? 0}</Text>
           </View>
-          <View style={[mc.stat, { borderLeftWidth: 1, borderLeftColor: C.border, borderRightWidth: 1, borderRightColor: C.border }, largeText && mc.statLarge]}>
+          {isKillEarn && (
+            <View style={[mc.stat, mc.statDivider, largeText && mc.statLarge]}>
+              <Text style={mc.statK}>PER KILL</Text>
+              <Text style={[mc.statV, mc.statValueCompact, { color: C.gold }]}>🪙 {perKillCoins}</Text>
+            </View>
+          )}
+          <View style={[mc.stat, mc.statDivider, largeText && mc.statLarge]}>
             <Text style={mc.statK}>PRIZE POOL</Text>
             <Text style={[mc.statV, { color: C.green }]}>🪙 {t?.prizePool ?? 0}</Text>
           </View>
-          <View style={[mc.stat, largeText && mc.statLarge]}>
-            <Text style={mc.statK}>PLAYERS</Text>
+          <View style={[mc.stat, isKillEarn && mc.statDivider, largeText && mc.statLarge]}>
+            <Text style={mc.statK}>PLAYER SLOTS</Text>
             <Text style={[mc.statV, { color: C.blue }]}>{filledPlayers}/{totalPlayers}</Text>
           </View>
         </View>
@@ -708,10 +704,12 @@ const mc = StyleSheet.create({
   metaTime: { color: C.gold, fontSize: 15, fontWeight: '900' },
   statRow: { flexDirection: 'row', borderRadius: 10, backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border, overflow: 'hidden' },
   statRowLarge: { flexDirection: 'column' },
-  stat: { flex: 1, alignItems: 'center', paddingVertical: 8 },
+  stat: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 2, paddingVertical: 8 },
+  statDivider: { borderLeftWidth: 1, borderLeftColor: C.border },
   statLarge: { flex: 0, width: '100%', minWidth: 0, borderLeftWidth: 0, borderRightWidth: 0, borderBottomWidth: 1, borderBottomColor: C.border },
   statK: { color: C.dim, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
   statV: { fontSize: 14, fontWeight: '900', marginTop: 2 },
+  statValueCompact: { fontSize: 12, letterSpacing: -0.3 },
   joinBtn: { marginTop: 10, borderRadius: 10, borderWidth: 1, alignItems: 'center', paddingVertical: 10 },
   joinBtnLarge: { alignSelf: 'stretch', paddingHorizontal: 12 },
   joinText: { fontWeight: '900', fontSize: 12, letterSpacing: 1.5 },
