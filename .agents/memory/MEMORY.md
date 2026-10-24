@@ -114,3 +114,4 @@
 - [Daily007 language preference storage](daily007-language-preference.md) — signed-in sync uses server-wins compare-and-set when another device changes language during offline use.
 - [React Native Web radio state](rnw-radio-state.md) — retain native radio state and set explicit `aria-checked` for the web DOM.
 - [Daily007 player format choices](daily007-player-format-choices.md) — Clash Squad and Lone Wolf player selectors omit 3 VS 3; preserve backend/data support separately.
+- [Daily007 Kill & Earn Android check](daily007-kill-earn-android.md) — user confirmed mode navigation, exact format lists, card details, and Admin sync passed on Android.
