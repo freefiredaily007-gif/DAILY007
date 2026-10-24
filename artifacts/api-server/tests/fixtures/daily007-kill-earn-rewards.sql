@@ -10,6 +10,14 @@ CREATE TABLE daily007_v2_users (
   game_uid text
 );
 
+CREATE TABLE daily007_v2_user_stats (
+  user_id uuid PRIMARY KEY REFERENCES daily007_v2_users(id),
+  matches integer NOT NULL DEFAULT 0,
+  wins integer NOT NULL DEFAULT 0,
+  kills integer NOT NULL DEFAULT 0,
+  prize_coins integer NOT NULL DEFAULT 0
+);
+
 CREATE TABLE daily007_v2_matches (
   id uuid PRIMARY KEY,
   title text NOT NULL,
@@ -112,3 +120,28 @@ CREATE INDEX daily007_v2_kill_earn_rewards_match_status_created_idx
   ON daily007_v2_kill_earn_rewards (match_id, status, created_at DESC);
 CREATE INDEX daily007_v2_kill_earn_rewards_user_created_idx
   ON daily007_v2_kill_earn_rewards (user_id, created_at DESC);
+
+CREATE TABLE daily007_v2_kill_earn_corrections (
+  id uuid PRIMARY KEY,
+  request_id text NOT NULL UNIQUE,
+  match_id uuid NOT NULL,
+  registration_id uuid NOT NULL,
+  user_id uuid NOT NULL REFERENCES daily007_v2_users(id) ON DELETE CASCADE,
+  previous_kills integer NOT NULL CHECK (previous_kills BETWEEN 0 AND 47),
+  corrected_kills integer NOT NULL CHECK (corrected_kills BETWEEN 0 AND 47),
+  reward_per_kill integer NOT NULL CHECK (reward_per_kill BETWEEN 0 AND 100),
+  coin_delta integer NOT NULL,
+  reason text NOT NULL CHECK (length(btrim(reason)) > 0),
+  admin_id uuid NOT NULL,
+  ledger_id uuid NOT NULL UNIQUE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (
+    coin_delta::numeric =
+      (corrected_kills::numeric - previous_kills::numeric) * reward_per_kill::numeric
+  )
+);
+
+CREATE INDEX daily007_v2_kill_earn_correction_match_idx
+  ON daily007_v2_kill_earn_corrections (match_id, created_at);
+CREATE INDEX daily007_v2_kill_earn_correction_user_idx
+  ON daily007_v2_kill_earn_corrections (user_id, created_at);

@@ -12,6 +12,14 @@ const flow = readFileSync(
   new URL("maestro/kill-earn-admin-flow/create-edit-formats.yaml", root),
   "utf8",
 );
+const adminTournaments = readFileSync(
+  new URL("src/screens/AdminTournaments.tsx", root),
+  "utf8",
+);
+const apiClient = readFileSync(
+  new URL("src/lib/api.ts", root),
+  "utf8",
+);
 
 test("the Android fixture is unreachable in production builds", () => {
   assert.match(route, /if \(!__DEV__\) return <Redirect href="\/" \/>;/);
@@ -39,4 +47,14 @@ test("the Maestro flow creates, edits, and verifies every Kill & Earn format", (
     assert.match(flow, new RegExp(`Battle Royale Kill & Earn ${title}`));
     assert.match(flow, new RegExp(`edit-tournament-kill-earn-${format}`));
   }
+});
+
+test("only Full Admins can correct published Kill & Earn counts and review the audit", () => {
+  assert.match(adminTournaments, /const isFullAdmin = currentUser\(\)\?\.role === 'admin'/);
+  assert.match(adminTournaments, /killEarn && isFullAdmin/);
+  assert.match(adminTournaments, /testID=\{`kill-earn-correction-count-\$\{player\.registrationId\}`\}/);
+  assert.match(adminTournaments, /testID=\{`kill-earn-correction-reason-\$\{player\.registrationId\}`\}/);
+  assert.match(adminTournaments, /correction\.ledgerId/);
+  assert.match(apiClient, /adminKillEarnCorrections:[\s\S]*?\/admin\/kill-earn\/matches/);
+  assert.match(apiClient, /adminCorrectKillEarnResult:[\s\S]*?\/admin\/kill-earn\/matches/);
 });

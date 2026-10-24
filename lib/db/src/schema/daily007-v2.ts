@@ -269,6 +269,33 @@ export const daily007WalletLedgerTable = pgTable("daily007_v2_wallet_ledger", {
   index("daily007_v2_wallet_ledger_user_idx").on(table.userId, table.createdAt),
 ]);
 
+export const daily007KillEarnCorrectionsTable = pgTable("daily007_v2_kill_earn_corrections", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  requestId: text("request_id").notNull().unique(),
+  matchId: uuid("match_id").notNull(),
+  registrationId: uuid("registration_id").notNull(),
+  userId: uuid("user_id").notNull().references(() => daily007UsersTable.id, { onDelete: "cascade" }),
+  previousKills: integer("previous_kills").notNull(),
+  correctedKills: integer("corrected_kills").notNull(),
+  rewardPerKill: integer("reward_per_kill").notNull(),
+  coinDelta: integer("coin_delta").notNull(),
+  reason: text("reason").notNull(),
+  adminId: uuid("admin_id").notNull(),
+  ledgerId: uuid("ledger_id").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  check("daily007_v2_kill_earn_correction_previous_kills_valid", sql`${table.previousKills} BETWEEN 0 AND 47`),
+  check("daily007_v2_kill_earn_correction_corrected_kills_valid", sql`${table.correctedKills} BETWEEN 0 AND 47`),
+  check("daily007_v2_kill_earn_correction_rate_valid", sql`${table.rewardPerKill} BETWEEN 0 AND 100`),
+  check("daily007_v2_kill_earn_correction_delta_consistent", sql`
+    ${table.coinDelta}::numeric =
+      (${table.correctedKills}::numeric - ${table.previousKills}::numeric) * ${table.rewardPerKill}::numeric
+  `),
+  check("daily007_v2_kill_earn_correction_reason_nonempty", sql`length(btrim(${table.reason})) > 0`),
+  index("daily007_v2_kill_earn_correction_match_idx").on(table.matchId, table.createdAt),
+  index("daily007_v2_kill_earn_correction_user_idx").on(table.userId, table.createdAt),
+]);
+
 export const insertDaily007UserSchema = createInsertSchema(daily007UsersTable).omit({
   id: true,
   createdAt: true,

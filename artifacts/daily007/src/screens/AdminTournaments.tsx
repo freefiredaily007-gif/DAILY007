@@ -22,7 +22,15 @@ import {
   useDaily007AdminDeleteTournamentWithoutRefund,
   useUpdateTournamentLifecycle,
 } from '@workspace/api-client-react';
-import { Api, apiError, AdminRegistration, Tournament } from '../lib/api';
+import {
+  Api,
+  apiError,
+  currentUser,
+  newAdminAdjustmentRequestId,
+  AdminKillEarnCorrectionMatch,
+  AdminRegistration,
+  Tournament,
+} from '../lib/api';
 import { Btn, Card, C, Chip, Empty, Input, Loading, Msg, TimePicker } from '../components/ui';
 import { CopyUidButton } from '../components/CopyUidButton';
 import { AdminWinningTeamPicker } from '../components/AdminWinningTeamPicker';
@@ -109,6 +117,7 @@ function confirmDestructiveAction(
 export default function AdminTournaments() {
   const { fontScale } = useWindowDimensions();
   const stackLargeTournamentCards = shouldStackAdminTournamentCards(fontScale);
+  const isFullAdmin = currentUser()?.role === 'admin';
   const [list, setList] = useState<Tournament[] | null>(null);
   const [tab, setTab] = useState<TournamentAdminTab>('upcoming');
   const [form, setForm] = useState<any>(newTournamentForm);
@@ -148,6 +157,15 @@ export default function AdminTournaments() {
   const [resultSuccess, setResultSuccess] = useState('');
   const announcedErrors = useRef<Record<string, string>>({});
   const [publishedRegistrationIds, setPublishedRegistrationIds] = useState<Record<string, string[]>>({});
+  const [killEarnCorrections, setKillEarnCorrections] = useState<Record<string, AdminKillEarnCorrectionMatch>>({});
+  const [killEarnCorrectionsLoading, setKillEarnCorrectionsLoading] = useState<Record<string, boolean>>({});
+  const [killEarnCorrectionsError, setKillEarnCorrectionsError] = useState<Record<string, string>>({});
+  const [killEarnCorrectionsFeedback, setKillEarnCorrectionsFeedback] = useState<Record<string, string>>({});
+  const [killEarnCorrectionInputs, setKillEarnCorrectionInputs] = useState<
+    Record<string, { kills: string; reason: string }>
+  >({});
+  const [killEarnCorrectionBusy, setKillEarnCorrectionBusy] = useState<string | null>(null);
+  const killEarnCorrectionRequestIds = useRef<Record<string, { signature: string; requestId: string }>>({});
   const cancelLifecycle = useUpdateTournamentLifecycle();
   const deleteNoRefundMutation = useDaily007AdminDeleteTournamentWithoutRefund();
   const approvedRegistrationsRequestId = useRef<number | null>(null);
@@ -769,6 +787,77 @@ export default function AdminTournaments() {
       'Cancel and refund',
       () => { void cancelNow(t); },
     );
+  };
+  const loadKillEarnCorrections = async (matchId: string) => {
+    setKillEarnCorrectionsLoading((current) => ({ ...current, [matchId]: true }));
+    setKillEarnCorrectionsError((current) => ({ ...current, [matchId]: '' }));
+    try {
+      const data = await Api.adminKillEarnCorrections(matchId);
+      setKillEarnCorrections((current) => ({ ...current, [matchId]: data }));
+    } catch (e: any) {
+      setKillEarnCorrectionsError((current) => ({ ...current, [matchId]: apiError(e) }));
+    } finally {
+      setKillEarnCorrectionsLoading((current) => ({ ...current, [matchId]: false }));
+    }
+  };
+  const submitKillEarnCorrection = async (
+    matchId: string,
+    player: AdminKillEarnCorrectionMatch['players'][number],
+  ) => {
+    const key = `${matchId}:${player.registrationId}`;
+    const input = killEarnCorrectionInputs[key] ?? {
+      kills: String(player.currentKills),
+      reason: '',
+    };
+    if (!/^\d+$/.test(input.kills) || Number(input.kills) < 0 || Number(input.kills) > MAX_VERIFIED_KILLS_PER_PLAYER) {
+      setKillEarnCorrectionsError((current) => ({
+        ...current,
+        [matchId]: `Enter a whole number of verified kills from 0 to ${MAX_VERIFIED_KILLS_PER_PLAYER}.`,
+      }));
+      return;
+    }
+    const reason = input.reason.trim();
+    if (reason.length < 3 || reason.length > 500) {
+      setKillEarnCorrectionsError((current) => ({
+        ...current,
+        [matchId]: 'Add 3–500 characters explaining the evidence reviewed and reason for the correction.',
+      }));
+      return;
+    }
+    const signature = `${Number(input.kills)}\n${reason}`;
+    const pendingRequest = killEarnCorrectionRequestIds.current[key];
+    const requestId = pendingRequest?.signature === signature
+      ? pendingRequest.requestId
+      : newAdminAdjustmentRequestId();
+    killEarnCorrectionRequestIds.current[key] = { signature, requestId };
+    setKillEarnCorrectionBusy(key);
+    setKillEarnCorrectionsError((current) => ({ ...current, [matchId]: '' }));
+    setKillEarnCorrectionsFeedback((current) => ({ ...current, [matchId]: '' }));
+    try {
+      const result = await Api.adminCorrectKillEarnResult(matchId, {
+        registrationId: player.registrationId,
+        correctedKills: Number(input.kills),
+        reason,
+        requestId,
+      });
+      delete killEarnCorrectionRequestIds.current[key];
+      setKillEarnCorrectionsFeedback((current) => ({
+        ...current,
+        [matchId]: result.alreadyApplied
+          ? 'This correction was already applied; the wallet was not adjusted again.'
+          : `Count corrected to ${result.correctedKills}. Wallet adjustment: ${result.coinDelta > 0 ? '+' : ''}${result.coinDelta} coins.`,
+      }));
+      setKillEarnCorrectionInputs((current) => ({
+        ...current,
+        [key]: { kills: String(result.correctedKills), reason: '' },
+      }));
+      await loadKillEarnCorrections(matchId);
+      void resultLogsQuery.refetch();
+    } catch (e: any) {
+      setKillEarnCorrectionsError((current) => ({ ...current, [matchId]: apiError(e) }));
+    } finally {
+      setKillEarnCorrectionBusy(null);
+    }
   };
 
   return (
@@ -1570,7 +1659,7 @@ export default function AdminTournaments() {
                 <Text style={st.actionTitle}>RESULT ENTRY</Text>
                 {killEarn && (
                   <Text style={st.prizeHint} testID={`kill-earn-verification-policy-${t.id}`}>
-                    Verify every count against the match end screen or recording and the player’s registered Free Fire UID. Publishing locks the result and pays the saved rate (maximum 100 coins per kill; 47 kills per player). Corrections are not self-service: retain the evidence and ask a Full Admin to review a compensating adjustment; never republish to retry a payout.
+                    Verify every count against the match-end screen or recording and the player’s registered Free Fire UID. Publishing locks the result and pays the saved rate (maximum 100 coins per kill; 47 kills per player). Full Admins can correct a verified count with evidence notes; the app records a separate compensating wallet adjustment and preserves the original ledger entry. Never republish to retry a payout.
                   </Text>
                 )}
                 <Msg kind="err" text={resultError} accessibilityLiveRegion="polite" />
@@ -1808,15 +1897,20 @@ export default function AdminTournaments() {
                     <Text style={st.winnerName}>WINNER · {winnerName}</Text>
                     <Text style={st.resultSettlement}>PRIZE SETTLED · {Number(winner.prizeCoins).toLocaleString()} COINS</Text>
                     {tournamentResults.map((entry) => {
-                      const playerName = String(entry.gameName || entry.playerName || entry.teamName || 'Player');
-                      const team = entry.teamName && entry.teamName !== playerName ? ` · ${entry.teamName}` : '';
-                      const killRewardStatus = entry.killRewardStatus === 'paid'
+                      const result = entry as typeof entry & {
+                        isKillEarn?: boolean;
+                        killRewardPaidCoins?: number;
+                        killRewardStatus?: 'paid' | 'not_paid' | 'no_bonus';
+                      };
+                      const playerName = String(result.gameName || result.playerName || result.teamName || 'Player');
+                      const team = result.teamName && result.teamName !== playerName ? ` · ${result.teamName}` : '';
+                      const killRewardStatus = result.killRewardStatus === 'paid'
                         ? 'PAID'
-                        : entry.killRewardStatus === 'not_paid'
+                        : result.killRewardStatus === 'not_paid'
                           ? 'NOT PAID'
                           : 'NO BONUS';
-                      const killReward = entry.isKillEarn
-                        ? ` · KILL REWARD ${Number(entry.killRewardPaidCoins).toLocaleString()} COINS · ${killRewardStatus}`
+                      const killReward = result.isKillEarn
+                        ? ` · KILL REWARD ${Number(result.killRewardPaidCoins).toLocaleString()} COINS · ${killRewardStatus}`
                         : '';
                       return (
                         <Text
@@ -1834,6 +1928,123 @@ export default function AdminTournaments() {
                   </>
                 ) : (
                   <Text style={st.resultLine}>No published result entries were returned for this completed tournament.</Text>
+                )}
+                {killEarn && isFullAdmin && (
+                  <View
+                    testID={`kill-earn-corrections-${t.id}`}
+                    style={{ marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: C.border }}
+                  >
+                    <Text style={st.resultTitle}>FULL ADMIN · KILL COUNT CORRECTIONS</Text>
+                    <Text style={[st.resultLine, { marginBottom: 8 }]}>
+                      Compare the match-end screen or recording with each registered Free Fire UID. Include the evidence reviewed and correction reason in the notes. Each saved change creates a separate wallet adjustment; published prize and original reward ledger entries are not rewritten.
+                    </Text>
+                    <Btn
+                      title={killEarnCorrections[t.id] ? 'REFRESH CORRECTION HISTORY' : 'REVIEW / CORRECT VERIFIED KILLS'}
+                      small
+                      kind="ghost"
+                      loading={Boolean(killEarnCorrectionsLoading[t.id])}
+                      disabled={Boolean(killEarnCorrectionsLoading[t.id])}
+                      accessibilityLabel={`Load kill correction history for ${t.name}`}
+                      accessibilityHint="Loads the current published kill counts and the complete correction audit history."
+                      testID={`load-kill-earn-corrections-${t.id}`}
+                      onPress={() => { void loadKillEarnCorrections(t.id); }}
+                    />
+                    {killEarnCorrectionsLoading[t.id] && <Text style={st.resultLine}>Loading correction history…</Text>}
+                    <Msg
+                      kind="err"
+                      text={killEarnCorrectionsError[t.id] ?? ''}
+                      testID={`kill-earn-corrections-error-${t.id}`}
+                      accessibilityLiveRegion="polite"
+                    />
+                    <Msg
+                      kind="ok"
+                      text={killEarnCorrectionsFeedback[t.id] ?? ''}
+                      testID={`kill-earn-corrections-success-${t.id}`}
+                      accessibilityLiveRegion="polite"
+                    />
+                    {killEarnCorrections[t.id]?.players.map((player) => {
+                      const inputKey = `${t.id}:${player.registrationId}`;
+                      const input = killEarnCorrectionInputs[inputKey] ?? {
+                        kills: String(player.currentKills),
+                        reason: '',
+                      };
+                      const busy = killEarnCorrectionBusy === inputKey;
+                      return (
+                        <View
+                          key={player.registrationId}
+                          testID={`kill-earn-correction-player-${player.registrationId}`}
+                          style={{ marginTop: 12, padding: 10, borderWidth: 1, borderColor: C.border, borderRadius: 10 }}
+                        >
+                          <Text style={st.resultTitle}>{player.playerName}</Text>
+                          <Text style={st.resultLine}>
+                            {`UID ${player.playerUid || '—'} · CURRENT ${player.currentKills} KILLS · ORIGINAL REWARD ${player.originalRewardCoins ?? '—'} COINS`}
+                          </Text>
+                          {!player.canCorrect ? (
+                            <Text style={st.resultLine}>
+                              {`This result cannot be corrected because its Kill & Earn reward is ${player.rewardStatus ?? 'not recorded'}.`}
+                            </Text>
+                          ) : (
+                            <>
+                              <Text style={st.lbl}>CORRECTED VERIFIED KILLS · RATE {player.rewardPerKill} COINS / KILL</Text>
+                              <Input
+                                testID={`kill-earn-correction-count-${player.registrationId}`}
+                                accessibilityLabel={`Corrected verified kills for ${player.playerName}`}
+                                accessibilityHint={`Enter the count verified against the match-end evidence, from 0 to ${MAX_VERIFIED_KILLS_PER_PLAYER}.`}
+                                value={input.kills}
+                                onChangeText={(value) => setKillEarnCorrectionInputs((current) => ({
+                                  ...current,
+                                  [inputKey]: { ...input, kills: value.replace(/\D/g, '') },
+                                }))}
+                                keyboardType="number-pad"
+                                maxLength={2}
+                              />
+                              <Text style={st.lbl}>EVIDENCE REVIEW AND CORRECTION REASON</Text>
+                              <Input
+                                testID={`kill-earn-correction-reason-${player.registrationId}`}
+                                accessibilityLabel={`Evidence reviewed and reason for correcting ${player.playerName}'s kill count`}
+                                accessibilityHint="Describe the match-end proof and why the published count is being corrected."
+                                placeholder="Evidence reviewed and reason for correction *"
+                                value={input.reason}
+                                onChangeText={(value) => setKillEarnCorrectionInputs((current) => ({
+                                  ...current,
+                                  [inputKey]: { ...input, reason: value },
+                                }))}
+                                multiline
+                                maxLength={500}
+                                style={{ minHeight: 76, textAlignVertical: 'top' }}
+                              />
+                              <Btn
+                                title="SAVE CORRECTION & WALLET ADJUSTMENT"
+                                small
+                                kind="gold"
+                                loading={busy}
+                                disabled={busy || Boolean(killEarnCorrectionBusy)}
+                                accessibilityLabel={`Save corrected kill count and wallet adjustment for ${player.playerName}`}
+                                accessibilityHint="Records the revised verified count and a compensating wallet ledger entry. It does not republish the result."
+                                accessibilityState={{ disabled: busy || Boolean(killEarnCorrectionBusy), busy }}
+                                testID={`submit-kill-earn-correction-${player.registrationId}`}
+                                onPress={() => { void submitKillEarnCorrection(t.id, player); }}
+                              />
+                            </>
+                          )}
+                          {player.corrections.length > 0 && (
+                            <View testID={`kill-earn-correction-history-${player.registrationId}`} style={{ marginTop: 8 }}>
+                              <Text style={st.lbl}>CORRECTION AUDIT HISTORY</Text>
+                              {player.corrections.map((correction) => (
+                                <Text
+                                  key={correction.id}
+                                  testID={`kill-earn-correction-audit-${correction.id}`}
+                                  style={st.resultLine}
+                                >
+                                  {`${correction.previousKills} → ${correction.correctedKills} kills · ${correction.coinDelta > 0 ? '+' : ''}${correction.coinDelta} coins · ${correction.reason} · ${correction.adminName ?? 'Full Admin'} · ${new Date(correction.createdAt).toLocaleString()} · Ledger ${correction.ledgerId}`}
+                                </Text>
+                              ))}
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
                 )}
               </View>
             )}

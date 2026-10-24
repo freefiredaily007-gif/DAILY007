@@ -80,6 +80,10 @@ import {
   rejectKillEarnReward,
   saveKillEarnKills,
 } from "../lib/daily007-kill-earn-rewards";
+import {
+  correctKillEarnResult,
+  listKillEarnCorrections,
+} from "../lib/daily007-kill-earn-corrections";
 
 const router: IRouter = Router();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -410,6 +414,8 @@ router.get("/wallet/transactions", authenticate, async (req, res): Promise<void>
             ? `Tournament prize — ${context}`
             : "Tournament prize";
         })()
+        : row.reason === "kill_earn_correction"
+          ? existingDescription ?? "Kill & Earn result correction"
         : leaderboardDescription ?? existingDescription ?? (row.reason === "video_watch_reward"
           ? "Video watch reward"
           : String(row.reason).replaceAll("_", " "));
@@ -2535,11 +2541,14 @@ router.get("/admin/results", authenticate, async (req, res): Promise<void> => {
                 award.rank, award.kills, award.prize_coins AS "prizeCoins",
                 m.kill_reward_coins AS "killRewardCoinsPerKill",
                 COALESCE(m.game_mode = 'battle_royale_kill_earn', false) AS "isKillEarn",
-                COALESCE(kill_credit.amount, 0)::int AS "killRewardPaidCoins",
+                (
+                  COALESCE(kill_credit.amount, 0) +
+                  COALESCE(kill_adjustment.amount, 0)
+                )::int AS "killRewardPaidCoins",
                 CASE
-                  WHEN COALESCE(m.game_mode, '') <> 'battle_royale_kill_earn'
-                    OR award.kills = 0 OR m.kill_reward_coins = 0 THEN 'no_bonus'
-                  WHEN kill_credit.id IS NOT NULL THEN 'paid'
+                  WHEN COALESCE(m.game_mode, '') <> 'battle_royale_kill_earn' THEN 'no_bonus'
+                  WHEN COALESCE(kill_credit.amount, 0) + COALESCE(kill_adjustment.amount, 0) > 0 THEN 'paid'
+                  WHEN award.kills = 0 OR m.kill_reward_coins = 0 THEN 'no_bonus'
                   ELSE 'not_paid'
                 END AS "killRewardStatus",
                 award.created_at AS "createdAt"
@@ -2552,6 +2561,13 @@ router.get("/admin/results", authenticate, async (req, res): Promise<void> => {
             AND kill_credit.user_id = award.user_id
             AND kill_credit.reason = 'kill_reward'
             AND kill_credit.idempotency_key = 'kill_reward:' || award.match_id::text || ':' || award.registration_id::text
+           LEFT JOIN LATERAL (
+             SELECT COALESCE(sum(correction.coin_delta), 0)::int AS amount
+               FROM daily007_v2_kill_earn_corrections correction
+              WHERE correction.match_id = award.match_id
+                AND correction.registration_id = award.registration_id
+                AND correction.user_id = award.user_id
+           ) kill_adjustment ON true
            WHERE m.status <> 'cancelled'
              AND (
                $1::boolean
@@ -2976,6 +2992,63 @@ router.get("/admin/kill-earn/matches/:matchId/participants", authenticate, async
     );
     res.setHeader("Cache-Control", "no-store");
     res.json({ success: true, data });
+  } catch (e) {
+    respondFailure(res, e);
+  }
+});
+
+router.get("/admin/kill-earn/matches/:matchId/corrections", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const matchId = req.params.matchId;
+  if (!validId(matchId)) return error(res, 400, "Tournament id must be a UUID.");
+  try {
+    const data = await roleTransaction(req, "admin", (client) =>
+      listKillEarnCorrections(client, matchId),
+    );
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ success: true, data });
+  } catch (e) {
+    respondFailure(res, e);
+  }
+});
+
+router.post("/admin/kill-earn/matches/:matchId/corrections", authenticate, async (req, res): Promise<void> => {
+  if (!requireAdmin(req, res)) return;
+  const matchId = req.params.matchId;
+  if (!validId(matchId)) return error(res, 400, "Tournament id must be a UUID.");
+  if (
+    !isObject(req.body) ||
+    !validId(req.body.registrationId) ||
+    !integer(req.body.correctedKills, 0, MAX_VERIFIED_KILLS_PER_PLAYER) ||
+    !validId(req.body.requestId)
+  ) {
+    return error(res, 400, "A registration id, corrected kill count, and valid request id are required.");
+  }
+  const reason = text(req.body.reason, 3, 500);
+  if (!reason) {
+    return error(res, 400, "Correction reason and evidence review notes must contain 3–500 characters.");
+  }
+  try {
+    const adminId = userId(req);
+    if (!adminId) return error(res, 401, "A valid Daily007 account is required.");
+    const data = await roleTransaction(req, "admin", (client) =>
+      correctKillEarnResult(client, {
+        matchId,
+        registrationId: req.body.registrationId,
+        correctedKills: req.body.correctedKills,
+        reason,
+        requestId: req.body.requestId,
+        adminId,
+      }),
+    );
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      success: true,
+      data,
+      message: data.alreadyApplied
+        ? "This correction was already applied. No additional wallet adjustment was made."
+        : "Kill & Earn result corrected with an auditable wallet adjustment.",
+    });
   } catch (e) {
     respondFailure(res, e);
   }

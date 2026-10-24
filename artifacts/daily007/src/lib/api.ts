@@ -87,6 +87,45 @@ export type AdminResultPublishResponse = {
   teamNumber?: number;
 };
 
+export type AdminKillEarnCorrection = {
+  id: string;
+  requestId: string;
+  matchId: string;
+  registrationId: string;
+  userId: string;
+  previousKills: number;
+  correctedKills: number;
+  rewardPerKill: number;
+  coinDelta: number;
+  reason: string;
+  adminId: string;
+  adminName: string | null;
+  ledgerId: string;
+  balanceAfter?: number;
+  createdAt: string;
+  alreadyApplied: boolean;
+};
+
+export type AdminKillEarnCorrectionPlayer = {
+  registrationId: string;
+  userId: string;
+  playerName: string;
+  playerUid: string;
+  currentKills: number;
+  originalKills: number | null;
+  rewardPerKill: number | null;
+  originalRewardCoins: number | null;
+  rewardStatus: string | null;
+  canCorrect: boolean;
+  corrections: AdminKillEarnCorrection[];
+};
+
+export type AdminKillEarnCorrectionMatch = {
+  matchId: string;
+  tournamentName: string;
+  players: AdminKillEarnCorrectionPlayer[];
+};
+
 export type AccountRecoveryRequest = {
   id: string;
   userId: string;
@@ -700,6 +739,21 @@ export const Api = {
     `/admin/kill-earn/matches/${encodeURIComponent(matchId)}/participants/${encodeURIComponent(registrationId)}/kills`,
     { verifiedKills, evidenceReference },
   )),
+  adminKillEarnCorrections: (matchId: string): Promise<AdminKillEarnCorrectionMatch> =>
+    unwrap(http.get(`/admin/kill-earn/matches/${encodeURIComponent(matchId)}/corrections`, {
+      headers: LIVE_DATA_HEADERS,
+    })),
+  adminCorrectKillEarnResult: (
+    matchId: string,
+    correction: {
+      registrationId: string;
+      correctedKills: number;
+      reason: string;
+      requestId: string;
+    },
+  ): Promise<AdminKillEarnCorrection> => unwrap(
+    http.post(`/admin/kill-earn/matches/${encodeURIComponent(matchId)}/corrections`, correction),
+  ),
   adminApproveKillEarnReward: (rewardId: string): Promise<KillEarnRewardRecord> =>
     unwrap(http.post(`/admin/kill-earn/rewards/${encodeURIComponent(rewardId)}/approve`, {})),
   adminRejectKillEarnReward: (rewardId: string, reason: string): Promise<KillEarnRewardRecord> =>
