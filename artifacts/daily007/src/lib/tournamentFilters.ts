@@ -12,11 +12,27 @@ export type TournamentModeItem = {
   team_type?: unknown;
 };
 
+export type HomeRegistrationTournament = TournamentModeItem & {
+  enabled?: unknown;
+  status?: unknown;
+  startsAt?: unknown;
+  teamSize?: unknown;
+  totalSlots?: unknown;
+  totalPlayerSlots?: unknown;
+  filledSlots?: unknown;
+  filledPlayerSlots?: unknown;
+  registrationOpen?: unknown;
+  registration_open?: unknown;
+};
+
 export const HOME_GAME_MODE_CARDS = [
   { mode: 'Battle Royale', gameMode: 'battle_royale' },
   { mode: 'Clash Squad', gameMode: 'clash_squad' },
   { mode: 'Lone Wolf', gameMode: 'lone_wolf' },
 ] as const;
+
+export type HomeGameMode = typeof HOME_GAME_MODE_CARDS[number]['gameMode'];
+export type HomeOpenTournamentCounts = Record<HomeGameMode, number>;
 
 export function homeModeRouteParams(card: { mode: string; gameMode: string }) {
   return { gameMode: card.gameMode, gameModeLabel: card.mode };
@@ -67,6 +83,56 @@ export function tournamentTabsForRoute<T extends TournamentModeItem>(
   }
 
   return tabs;
+}
+
+export function isHomeTournamentOpenForRegistration(
+  tournament: HomeRegistrationTournament,
+  now = Date.now(),
+): boolean {
+  if (tournament.enabled === false ||
+      tournament.registrationOpen === false ||
+      tournament.registration_open === false) return false;
+
+  const startsAt = Date.parse(String(tournament.startsAt ?? ''));
+  const status = String(tournament.status ?? '').toLowerCase();
+  if (!Number.isFinite(startsAt) || startsAt <= now ||
+      ['cancelled', 'live', 'closed', 'completed', 'ongoing'].includes(status)) return false;
+
+  const rawTeamSize = Number(tournament.teamSize ?? 1);
+  const teamSize = Number.isSafeInteger(rawTeamSize) && rawTeamSize > 0 ? rawTeamSize : 1;
+  const rawTeamSlots = Number(tournament.totalSlots);
+  const totalPlayerSlots = Number(
+    tournament.totalPlayerSlots ??
+      (Number.isSafeInteger(rawTeamSlots) && rawTeamSlots > 0 ? rawTeamSlots * teamSize : NaN),
+  );
+  const rawFilledSlots = Number(tournament.filledSlots ?? 0);
+  const filledPlayerSlots = Number(
+    tournament.filledPlayerSlots ??
+      (Number.isSafeInteger(rawFilledSlots) && rawFilledSlots >= 0 ? rawFilledSlots * teamSize : NaN),
+  );
+
+  return Number.isSafeInteger(totalPlayerSlots) &&
+    totalPlayerSlots > 0 &&
+    Number.isSafeInteger(filledPlayerSlots) &&
+    filledPlayerSlots >= 0 &&
+    filledPlayerSlots < totalPlayerSlots;
+}
+
+export function countOpenHomeTournamentsByMode(
+  tournaments: readonly HomeRegistrationTournament[],
+  now = Date.now(),
+): HomeOpenTournamentCounts {
+  const counts = Object.fromEntries(
+    HOME_GAME_MODE_CARDS.map(({ gameMode }) => [gameMode, 0]),
+  ) as HomeOpenTournamentCounts;
+
+  for (const { gameMode } of HOME_GAME_MODE_CARDS) {
+    counts[gameMode] = filterTournamentsForRoute(tournaments, { gameMode })
+      .filter((tournament) => isHomeTournamentOpenForRegistration(tournament, now))
+      .length;
+  }
+
+  return counts;
 }
 
 function displayFilterLabel(value: unknown): string {

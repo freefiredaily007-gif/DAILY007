@@ -9,13 +9,21 @@ import {
   nativeTextScaleTextProps,
   type NativeTextScaleLayoutObserver,
 } from '../lib/nativeTextScaleLayout';
-import { HOME_GAME_MODE_CARDS, homeModeRouteParams } from '../lib/tournamentFilters';
+import {
+  HOME_GAME_MODE_CARDS,
+  homeModeRouteParams,
+  type HomeOpenTournamentCounts,
+} from '../lib/tournamentFilters';
 
 export default function HomeGameModeCards({
+  modeCounts,
+  modeCountsReady,
   onOpenMode,
   onChooseFormat,
   onTextScaleLayout,
 }: {
+  modeCounts?: HomeOpenTournamentCounts;
+  modeCountsReady?: boolean;
   onOpenMode: (params: ReturnType<typeof homeModeRouteParams>) => void;
   onChooseFormat: (params: ReturnType<typeof homeModeRouteParams>) => void;
   onTextScaleLayout?: NativeTextScaleLayoutObserver;
@@ -36,12 +44,16 @@ export default function HomeGameModeCards({
           .map((size) => size.trim().toLowerCase())
           .filter(Boolean)
           .join(', ');
+        const liveCount = modeCounts?.[mode.gameMode];
+        const showLiveCount = modeCountsReady === true &&
+          typeof liveCount === 'number' &&
+          Number.isSafeInteger(liveCount);
         const routeParams = homeModeRouteParams(mode);
         return (
           <View key={mode.gameMode}>
             <GCard
               onPress={() => onOpenMode(routeParams)}
-              accessibilityLabel={`Open ${mode.mode} tournaments. Available team sizes: ${spokenCapacity}.`}
+              accessibilityLabel={`Open ${mode.mode} tournaments.${showLiveCount ? ` ${liveCount} currently open for registration.` : ''} Available team sizes: ${spokenCapacity}.`}
               accessibilityHint="Shows upcoming, ongoing, and completed tournaments for this game mode"
               testID={`home-mode-${mode.mode.toLowerCase().replace(/[^a-z]+/g, '-')}`}
               glowColor={mode.accent}
@@ -61,12 +73,25 @@ export default function HomeGameModeCards({
                 >
                   {mode.category}
                 </Text>
-                <Text
-                  {...nativeTextScaleTextProps(`${mode.gameMode}:title`, onTextScaleLayout)}
-                  style={s.modeTitle}
-                >
-                  {mode.title}
-                </Text>
+                <View style={s.modeTitleRow}>
+                  <Text
+                    {...nativeTextScaleTextProps(`${mode.gameMode}:title`, onTextScaleLayout)}
+                    style={s.modeTitle}
+                  >
+                    {mode.title}
+                  </Text>
+                  {showLiveCount && (
+                    <View
+                      testID={`home-mode-live-count-${mode.gameMode}`}
+                      style={s.modeLiveBadge}
+                      accessibilityElementsHidden
+                      importantForAccessibility="no-hide-descendants"
+                    >
+                      <View style={s.modeLiveDot} />
+                      <Text style={s.modeLiveText}>LIVE {liveCount}</Text>
+                    </View>
+                  )}
+                </View>
                 <View style={[
                   s.modeCapacityBadge,
                   largeModeCard && s.modeCapacityBadgeLarge,
@@ -145,7 +170,16 @@ const s = StyleSheet.create({
     paddingLeft: 0, paddingRight: 0, paddingVertical: 2,
   },
   modeKicker: { fontWeight: '900', fontSize: 9, letterSpacing: 1.4, lineHeight: 12 },
-  modeTitle: { color: C.text, fontWeight: '900', fontSize: 17, letterSpacing: 0.45, lineHeight: 20, marginTop: 4 },
+  modeTitleRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', columnGap: 7, rowGap: 4, marginTop: 4 },
+  modeTitle: { color: C.text, fontWeight: '900', fontSize: 17, letterSpacing: 0.45, lineHeight: 20, flexShrink: 1 },
+  modeLiveBadge: {
+    minHeight: 18, paddingHorizontal: 6, borderRadius: 999, borderWidth: 1,
+    borderColor: C.green + '88', backgroundColor: C.green + '16',
+    flexDirection: 'row', alignItems: 'center', columnGap: 4,
+    ...glow(C.green, 5),
+  },
+  modeLiveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.green },
+  modeLiveText: { color: C.green, fontSize: 8, fontWeight: '900', letterSpacing: 0.5 },
   modeCapacityBadge: {
     alignSelf: 'flex-start', borderWidth: 1, borderRadius: 7,
     paddingHorizontal: 8, paddingVertical: 5, marginTop: 7, maxWidth: '100%',

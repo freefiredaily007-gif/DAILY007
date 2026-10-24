@@ -7,4 +7,4 @@ Node's test runner does not resolve the Expo app's extensionless relative TypeSc
 
 **Why:** Importing the real API module through Node otherwise fails before tests run, while importing the real native dependencies would make tests depend on mobile runtime behavior.
 
-**How to apply:** Run with `--experimental-test-module-mocks`; use `defaultExport` for default module mocks and `namedExports` for named imports. Mock the HTTP client and storage so tests never contact an API or read real account data.
+**How to apply:** Run with `--experimental-test-module-mocks`; use `defaultExport` for default module mocks and `namedExports` for named imports. When evaluating an extracted API method with `new Function`, inject its module-level constants as well as HTTP/storage mocks. Mock the HTTP client and storage so tests never contact an API or read real account data.

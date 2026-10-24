@@ -23,6 +23,7 @@ import {
 } from '../lib/tournamentLifecycle';
 import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
 import { getTournamentTeamSlotSummary } from '../lib/tournamentTeamSlots';
+import { countOpenHomeTournamentsByMode } from '../lib/tournamentFilters';
 import HomeGameModeCards from './HomeGameModeCards';
 import { WhatsAppIcon, InstagramIcon, YouTubeIcon } from '../components/SocialIcons';
 import logoImg from '../assets/logo.jpg';
@@ -261,6 +262,7 @@ export default function Home() {
   }, [items, clockNow]);
 
   const upcomingItems = getUpcomingHomeTournaments(items, clockNow);
+  const openTournamentCounts = countOpenHomeTournamentsByMode(items, clockNow);
   const carouselTournamentOrder = JSON.stringify(
     upcomingItems.slice(0, 8).map((tournament) => String(tournament.id)),
   );
@@ -656,6 +658,8 @@ export default function Home() {
       {/* ===== GAME MODES ===== */}
       <SectionTitle accent={C.orange}>GAME MODES</SectionTitle>
       <HomeGameModeCards
+        modeCounts={openTournamentCounts}
+        modeCountsReady={lastSuccessfulRefreshAt !== null}
         onOpenMode={(params) => nav.navigate('Tournaments', params)}
         onChooseFormat={(params) => nav.navigate('ModeSubmodes', params)}
       />

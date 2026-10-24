@@ -160,7 +160,7 @@ function createSharedMyRegistrations(http) {
   return evaluateTypeScriptExpression(
     myRegistrationsProperty.initializer,
     apiSourceFile,
-    { http, unwrap: (response) => response },
+    { http, unwrap: (response) => response, LIVE_DATA_HEADERS: {} },
   );
 }
 

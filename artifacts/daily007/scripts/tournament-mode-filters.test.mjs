@@ -1239,6 +1239,7 @@ test('a match crossing its start time updates selected-mode tabs and counts auto
     setClockNow: (value) => { clockNow = value; },
     setStartAnnouncement: (value) => { startAnnouncement = value; },
     load: () => { loadCalls += 1; },
+    translateExactText: (message) => message,
   });
 
   const cleanup = lifecycleEffect();
