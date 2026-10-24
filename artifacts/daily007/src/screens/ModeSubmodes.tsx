@@ -39,7 +39,7 @@ export default function ModeSubmodes() {
   const mode = MODES[gameMode];
 
   useFocusEffect(React.useCallback(() => {
-    if (gameMode !== 'clash_squad' && gameMode !== 'lone_wolf') return undefined;
+    if (!mode) return undefined;
 
     let focused = true;
     let requestInFlight = false;
@@ -67,7 +67,7 @@ export default function ModeSubmodes() {
       focused = false;
       clearInterval(interval);
     };
-  }, [gameMode]));
+  }, [gameMode, mode]));
 
   if (!mode) {
     return (
@@ -92,7 +92,7 @@ export default function ModeSubmodes() {
       </View>
 
       <SectionTitle accent={mode.accent}>SELECT YOUR FORMAT</SectionTitle>
-      {liveCountError && gameMode !== 'battle_royale' && (
+      {liveCountError && (
         <Text style={styles.liveCountError}>LIVE COUNTS UNAVAILABLE · RETRYING</Text>
       )}
       <View style={styles.formats}>
@@ -104,21 +104,18 @@ export default function ModeSubmodes() {
             : `${format.size} VS ${format.size}`;
           const count = liveCounts?.[format.type];
           const liveLabel = count === undefined ? 'LIVE —' : `LIVE ${count}`;
+          const mutedLiveCount = count === 0 || count === undefined;
           return (
             <GCard
               key={format.type}
               testID={`format-${gameMode}-${format.type}`}
               accessibilityGroup
-              accessibilityLabel={`${mode.title}, ${formatTitle}, ${capacity.playersPerTeam} ${capacity.playersPerTeam === 1 ? 'player' : 'players'} per team, ${capacity.label}${gameMode === 'battle_royale' ? '' : `, ${liveLabel}`}`}
+              accessibilityLabel={`${mode.title}, ${formatTitle}, ${capacity.playersPerTeam} ${capacity.playersPerTeam === 1 ? 'player' : 'players'} per team, ${capacity.label}, ${liveLabel}`}
               accessibilityHint="Opens available tournaments for this format"
-              onPress={() => {
-                const params = submodeRouteParams(gameMode, format.type, mode.title);
-                if (gameMode === 'battle_royale') {
-                  navigation.navigate('Tournaments', params);
-                } else {
-                  navigation.push('Tournaments', { ...params, registrationOnly: true });
-                }
-              }}
+              onPress={() => navigation.push('Tournaments', {
+                ...submodeRouteParams(gameMode, format.type, mode.title),
+                registrationOnly: true,
+              })}
               glowColor={displayAccent}
               style={[styles.formatCard, largeText && styles.formatCardLarge]}
             >
@@ -134,12 +131,19 @@ export default function ModeSubmodes() {
                 <View style={[styles.formatInfo, largeText && styles.formatInfoLarge]}>
                   <View style={styles.formatTitleRow}>
                     <Text style={styles.formatName}>{formatTitle}</Text>
-                    {gameMode !== 'battle_royale' && (
-                      <View style={styles.liveBadge}>
-                        <View style={styles.liveDot} />
-                        <Text style={styles.liveBadgeText}>{liveLabel}</Text>
-                      </View>
-                    )}
+                    <View style={[
+                      styles.liveBadge,
+                      mutedLiveCount && styles.liveBadgeMuted,
+                    ]}>
+                      <View style={[
+                        styles.liveDot,
+                        mutedLiveCount && styles.liveDotMuted,
+                      ]} />
+                      <Text style={[
+                        styles.liveBadgeText,
+                        mutedLiveCount && styles.liveBadgeTextMuted,
+                      ]}>{liveLabel}</Text>
+                    </View>
                   </View>
                   <Text style={styles.formatPlayers}>{capacity.playersPerTeam} {capacity.playersPerTeam === 1 ? 'player' : 'players'} per team</Text>
                   <Text style={styles.capacity}>{capacity.label}</Text>
@@ -192,6 +196,9 @@ const styles = StyleSheet.create({
     color: C.green, fontSize: 9, fontWeight: '900', letterSpacing: 0.5,
     textShadowColor: `${C.green}88`, textShadowRadius: 5,
   },
+  liveBadgeMuted: { borderColor: `${C.dim}55`, backgroundColor: `${C.dim}10` },
+  liveDotMuted: { backgroundColor: C.dim, shadowOpacity: 0, shadowRadius: 0, elevation: 0 },
+  liveBadgeTextMuted: { color: C.dim, textShadowColor: 'transparent', textShadowRadius: 0 },
   liveCountError: { color: C.orange, fontSize: 10, fontWeight: '800', marginBottom: 8 },
   formatPlayers: { color: C.sub, fontSize: 12, marginTop: 3 },
   capacity: { color: C.neon, fontSize: 11, fontWeight: '800', marginTop: 5 },

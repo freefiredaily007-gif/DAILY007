@@ -364,7 +364,7 @@ test('Solo, Duo, Trio, and Squad selections keep the selected game mode in their
   assert.match(modeSubmodesSource, /\{ type: 'duo', title: 'DUO'/);
   assert.match(
     modeSubmodesSource,
-    /if \(gameMode === 'battle_royale'\) \{\s*navigation\.navigate\('Tournaments', params\);\s*\} else \{\s*navigation\.push\('Tournaments', \{ \.\.\.params, registrationOnly: true \}\);/,
+    /navigation\.push\('Tournaments', \{\s*\.\.\.submodeRouteParams\(gameMode, format\.type, mode\.title\),\s*registrationOnly: true,\s*\}\)/,
   );
   assert.match(modeSubmodesSource, /const formatTitle = gameMode === 'battle_royale'/);
   assert.match(modeSubmodesSource, /`\$\{format\.size\} VS \$\{format\.size\}`/);
@@ -489,6 +489,50 @@ test('format live counts stay separate by mode and exclude closed, expired, full
   assert.match(apiTournamentSource, /registrationOpen: row\.registration_open/);
 });
 
+test('Battle Royale format counts stay separate and show only open Solo, Duo, and Squad tournaments', () => {
+  const now = Date.now();
+  const start = new Date(now + 60 * 60 * 1000).toISOString();
+  const expected = { solo: 2, duo: 3, squad: 5 };
+  const teamSizes = { solo: 1, duo: 2, squad: 4 };
+  const records = Object.entries(expected).flatMap(([teamType, count]) => {
+    const teamSize = teamSizes[teamType];
+    const totalSlots = 48 / teamSize;
+    return Array.from({ length: count }, (_, index) => ({
+      id: `battle-royale-${teamType}-${index}`,
+      gameMode: 'battle_royale',
+      teamType,
+      teamSize,
+      enabled: true,
+      status: 'upcoming',
+      registrationOpen: true,
+      startsAt: start,
+      totalSlots,
+      filledSlots: 0,
+      totalPlayerSlots: 48,
+      filledPlayerSlots: 48 - teamSize,
+    }));
+  });
+  records.push(
+    { ...records[0], id: 'closed-solo', registrationOpen: false },
+    { ...records[2], id: 'unpublished-duo', enabled: false },
+    { ...records[5], id: 'cancelled-squad', status: 'cancelled' },
+    { ...records[0], id: 'clash-solo', gameMode: 'clash_squad' },
+    { ...records[0], id: 'lone-wolf-solo', gameMode: 'lone_wolf' },
+  );
+
+  assert.deepEqual(
+    countOpenHomeTournamentsByFormat(records, 'battle_royale', now),
+    { solo: 2, duo: 3, trio: 0, squad: 5 },
+  );
+  assert.match(homeSource, /onOpenMode=\{\(params\) => nav\.navigate\('ModeSubmodes', params\)\}/);
+  assert.match(modeSubmodesSource, /FORMATS\.filter\(\(format\) => gameMode !== 'battle_royale' \|\| format\.type !== 'trio'\)/);
+  assert.match(modeSubmodesSource, /const mutedLiveCount = count === 0 \|\| count === undefined/);
+  assert.match(modeSubmodesSource, /liveBadgeMuted/);
+  assert.match(modeSubmodesSource, /LIVE \$\{count\}/);
+  assert.match(modeSubmodesSource, /setInterval\(\(\) => void refreshCounts\(\), 30_000\)/);
+  assert.match(tournamentsSource, /'NO LIVE TOURNAMENTS AVAILABLE'/);
+});
+
 test('format cards announce one mode, format, and capacity action without decorative focus stops', () => {
   assert.match(
     modeSubmodesSource,
@@ -597,8 +641,10 @@ test('format cards stack their details and remain scrollable at 1.5x Android tex
   }
   assert.match(formatSection, /testID=\{`format-\$\{gameMode\}-\$\{format\.type\}`\}/);
   assert.match(formatSection, /accessibilityLabel=\{`\$\{mode\.title\}, \$\{formatTitle\}[\s\S]*?\$\{liveLabel\}/);
-  assert.match(formatSection, /const params = submodeRouteParams\(gameMode,\s*format\.type,\s*mode\.title\)/);
-  assert.match(formatSection, /navigation\.push\('Tournaments', \{ \.\.\.params, registrationOnly: true \}\)/);
+  assert.match(
+    formatSection,
+    /navigation\.push\('Tournaments', \{\s*\.\.\.submodeRouteParams\(gameMode,\s*format\.type,\s*mode\.title\),\s*registrationOnly: true,/,
+  );
   assert.match(formatSection, /style=\{styles\.formatName\}>\{formatTitle\}<\/Text>/);
   assert.match(formatSection, /per team<\/Text>/);
   assert.match(formatSection, />\{capacity\.label\}<\/Text>/);
@@ -625,7 +671,7 @@ test('Home mode cards keep every lifecycle tab mode-scoped and the format picker
 
   assert.match(
     homeSource,
-    /onOpenMode=\{\(params\) => \{\s*if \(params\.gameMode === 'battle_royale'\) nav\.navigate\('Tournaments', params\);\s*else nav\.navigate\('ModeSubmodes', params\);\s*\}\}/,
+    /onOpenMode=\{\(params\) => nav\.navigate\('ModeSubmodes', params\)\}/,
   );
   assert.match(
     homeGameModeCardsSource,
@@ -641,7 +687,7 @@ test('Home mode cards keep every lifecycle tab mode-scoped and the format picker
   );
   assert.match(
     modeSubmodesSource,
-    /navigation\.push\('Tournaments', \{ \.\.\.params, registrationOnly: true \}\)/,
+    /navigation\.push\('Tournaments', \{\s*\.\.\.submodeRouteParams\(gameMode,\s*format\.type,\s*mode\.title\),\s*registrationOnly: true,/,
   );
 
   assert.match(homeGameModeCardsSource, /capacity: '1 VS 1 · 2 VS 2 · 3 VS 3 · 4 VS 4'/);

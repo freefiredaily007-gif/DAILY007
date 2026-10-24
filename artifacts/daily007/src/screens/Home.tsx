@@ -660,10 +660,7 @@ export default function Home() {
       <HomeGameModeCards
         modeCounts={openTournamentCounts}
         modeCountsReady={lastSuccessfulRefreshAt !== null}
-        onOpenMode={(params) => {
-          if (params.gameMode === 'battle_royale') nav.navigate('Tournaments', params);
-          else nav.navigate('ModeSubmodes', params);
-        }}
+        onOpenMode={(params) => nav.navigate('ModeSubmodes', params)}
         onChooseFormat={(params) => nav.navigate('ModeSubmodes', params)}
       />
 
