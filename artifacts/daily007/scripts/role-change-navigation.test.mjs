@@ -21,6 +21,7 @@ const ADMIN_NAV_KEYS = [
   "dashboard",
   "leaderboards",
   "tournaments",
+  "killEarn",
   "registrations",
   "payments",
   "wallet",
@@ -506,7 +507,7 @@ for (const [failureName, error] of [
       adminNavigationForRole(state.currentUser.role, "tournaments", ADMIN_NAV_ITEMS),
       {
         activeScreen: "tournaments",
-        visibleNavKeys: ["tournaments", "registrations"],
+        visibleNavKeys: TOURNAMENT_ADMIN_NAV_KEYS,
       },
     );
   });
@@ -710,7 +711,7 @@ test("a role change made in the background applies immediately when the app resu
     adminNavigationForRole(state.currentUser.role, "dashboard", ADMIN_NAV_ITEMS),
     {
       activeScreen: "tournaments",
-      visibleNavKeys: ["tournaments", "registrations"],
+      visibleNavKeys: TOURNAMENT_ADMIN_NAV_KEYS,
     },
   );
   assert.equal(state.sessionRejectionCalls, 0);
@@ -749,7 +750,7 @@ test("restored connectivity refreshes account access and updates role while the 
     adminNavigationForRole(state.currentUser.role, "dashboard", ADMIN_NAV_ITEMS),
     {
       activeScreen: "tournaments",
-      visibleNavKeys: ["tournaments", "registrations"],
+      visibleNavKeys: TOURNAMENT_ADMIN_NAV_KEYS,
     },
   );
   assert.equal(state.sessionRejectionCalls, 0);
@@ -836,7 +837,7 @@ test("reconnect and app resume share one role refresh behind an in-flight accoun
     adminNavigationForRole(state.currentUser.role, "dashboard", ADMIN_NAV_ITEMS),
     {
       activeScreen: "tournaments",
-      visibleNavKeys: ["tournaments", "registrations"],
+      visibleNavKeys: TOURNAMENT_ADMIN_NAV_KEYS,
     },
   );
   assert.equal(state.sessionRejectionCalls, 0);
@@ -859,7 +860,7 @@ test("a Full Admin demoted in the background loses restricted screens on resume"
     adminNavigationForRole(state.currentUser.role, "wallet", ADMIN_NAV_ITEMS),
     {
       activeScreen: "tournaments",
-      visibleNavKeys: ["tournaments", "registrations"],
+      visibleNavKeys: TOURNAMENT_ADMIN_NAV_KEYS,
     },
   );
   assert.equal(canNavigateAdminScreen(state.currentUser.role, "wallet"), false);
@@ -879,7 +880,7 @@ test("Player becomes a restricted Tournament Admin after the account refresh", a
     adminNavigationForRole(state.currentUser.role, "dashboard", ADMIN_NAV_ITEMS),
     {
       activeScreen: "tournaments",
-      visibleNavKeys: ["tournaments", "registrations"],
+      visibleNavKeys: TOURNAMENT_ADMIN_NAV_KEYS,
     },
   );
   assert.equal(canNavigateAdminScreen(state.currentUser.role, "tournaments"), true);
