@@ -83,6 +83,7 @@ import type {
   Daily007ReferralDashboard,
   Daily007ReviewRequestBody,
   Daily007V2AdminUserWalletHistoryParams,
+  Daily007V2CaptainAddTeammateBody,
   Daily007V2CreateMatchBody,
   Daily007V2RegisterMatch400,
   Daily007V2RegisterMatch409,
@@ -2739,6 +2740,100 @@ export const useDaily007V2JoinSquadSlot = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDaily007V2JoinSquadSlotMutationOptions(options));
+    }
+
+export const getDaily007V2AddSquadTeammateUrl = (id: string,
+    teamNumber: number,
+    slotNumber: number,) => {
+
+
+
+
+  return `/api/daily007/v2/matches/${id}/squad-slots/${teamNumber}/${slotNumber}/teammate`
+}
+
+/**
+ * Only the captain of the selected team can use this route. The teammate registration, wallet debit, ledger entry, and slot assignment are committed atomically; prize payouts for this registration go to the captain account.
+ * @summary Book an open teammate slot using the team's captain wallet
+ */
+export const daily007V2AddSquadTeammate = async (id: string,
+    teamNumber: number,
+    slotNumber: number,
+    daily007V2CaptainAddTeammateBody: Daily007V2CaptainAddTeammateBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007V2SquadJoinResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Daily007V2SquadJoinResponse>(getDaily007V2AddSquadTeammateUrl(id,teamNumber,slotNumber),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(daily007V2CaptainAddTeammateBody)
+  }
+);}
+
+
+
+
+
+export const getDaily007V2AddSquadTeammateMutationKey = () => ['daily007V2AddSquadTeammate'] as const;
+
+export const getDaily007V2AddSquadTeammateMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007V2AddSquadTeammate>>, TError,Daily007V2AddSquadTeammateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007V2AddSquadTeammate>>, TError,Daily007V2AddSquadTeammateMutationVariables, TContext> => {
+
+const mutationKey = getDaily007V2AddSquadTeammateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007V2AddSquadTeammate>>, Daily007V2AddSquadTeammateMutationVariables> = (props) => {
+          const {id,teamNumber,slotNumber,data} = props ?? {};
+
+          return  daily007V2AddSquadTeammate(id,teamNumber,slotNumber,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007V2AddSquadTeammateMutationResult = NonNullable<Awaited<ReturnType<typeof daily007V2AddSquadTeammate>>>
+    export type Daily007V2AddSquadTeammateMutationBody = BodyType<Daily007V2CaptainAddTeammateBody>
+    export type Daily007V2AddSquadTeammateMutationError = ErrorType<void>
+    export type Daily007V2AddSquadTeammateMutationVariables = {id: string;teamNumber: number;slotNumber: number;data: BodyType<Daily007V2CaptainAddTeammateBody>}
+
+    /**
+ * @summary Book an open teammate slot using the team's captain wallet
+ */
+export const useDaily007V2AddSquadTeammate = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007V2AddSquadTeammate>>, TError,Daily007V2AddSquadTeammateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007V2AddSquadTeammate>>,
+        TError,
+        Daily007V2AddSquadTeammateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007V2AddSquadTeammateMutationOptions(options));
     }
 
 export const getDaily007V2RemoveSquadMemberUrl = (id: string,

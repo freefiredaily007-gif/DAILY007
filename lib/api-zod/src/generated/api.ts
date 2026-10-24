@@ -977,6 +977,7 @@ export const Daily007V2GetSquadSlotsResponse = zod.object({
   "gameName": zod.string().nullable(),
   "isCaptain": zod.boolean(),
   "canJoin": zod.boolean(),
+  "canAddTeammate": zod.boolean(),
   "canRemove": zod.boolean(),
   "registrationId": zod.string().uuid().nullable()
 })).min(1).max(daily007V2GetSquadSlotsResponseTeamsItemSlotsMax)
@@ -1034,6 +1035,63 @@ export const Daily007V2JoinSquadSlotResponse = zod.object({
   "walletCoins": zod.number().int().min(daily007V2JoinSquadSlotResponseWalletCoinsMin),
   "filledTeams": zod.number().int().min(daily007V2JoinSquadSlotResponseFilledTeamsMin).max(daily007V2JoinSquadSlotResponseFilledTeamsMax),
   "filledPlayers": zod.number().int().min(daily007V2JoinSquadSlotResponseFilledPlayersMin).max(daily007V2JoinSquadSlotResponseFilledPlayersMax),
+  "alreadyRegistered": zod.boolean()
+})
+
+
+/**
+ * Only the captain of the selected team can use this route. The teammate registration, wallet debit, ledger entry, and slot assignment are committed atomically; prize payouts for this registration go to the captain account.
+ * @summary Book an open teammate slot using the team's captain wallet
+ */
+export const daily007V2AddSquadTeammatePathTeamNumberMax = 24;
+
+export const daily007V2AddSquadTeammatePathSlotNumberMin = 2;
+export const daily007V2AddSquadTeammatePathSlotNumberMax = 4;
+
+
+
+export const Daily007V2AddSquadTeammateParams = zod.object({
+  "id": zod.coerce.string().uuid(),
+  "teamNumber": zod.coerce.number().int().min(1).max(daily007V2AddSquadTeammatePathTeamNumberMax),
+  "slotNumber": zod.coerce.number().int().min(daily007V2AddSquadTeammatePathSlotNumberMin).max(daily007V2AddSquadTeammatePathSlotNumberMax)
+})
+
+export const daily007V2AddSquadTeammateBodyGameNameMax = 100;
+
+export const daily007V2AddSquadTeammateBodyGameUidMax = 128;
+
+
+
+export const Daily007V2AddSquadTeammateBody = zod.object({
+  "gameName": zod.string().min(1).max(daily007V2AddSquadTeammateBodyGameNameMax),
+  "gameUid": zod.string().min(1).max(daily007V2AddSquadTeammateBodyGameUidMax)
+})
+
+export const daily007V2AddSquadTeammateResponseTeamNumberMax = 24;
+
+export const daily007V2AddSquadTeammateResponseSlotNumberMax = 4;
+
+export const daily007V2AddSquadTeammateResponseEntryCoinsPaidMin = 0;
+
+export const daily007V2AddSquadTeammateResponseWalletCoinsMin = 0;
+
+export const daily007V2AddSquadTeammateResponseFilledTeamsMin = 0;
+export const daily007V2AddSquadTeammateResponseFilledTeamsMax = 24;
+
+export const daily007V2AddSquadTeammateResponseFilledPlayersMin = 0;
+export const daily007V2AddSquadTeammateResponseFilledPlayersMax = 96;
+
+
+
+export const Daily007V2AddSquadTeammateResponse = zod.object({
+  "registrationId": zod.string().uuid(),
+  "teamNumber": zod.number().int().min(1).max(daily007V2AddSquadTeammateResponseTeamNumberMax),
+  "slotNumber": zod.number().int().min(1).max(daily007V2AddSquadTeammateResponseSlotNumberMax),
+  "isCaptain": zod.boolean(),
+  "entryCoinsPaid": zod.number().int().min(daily007V2AddSquadTeammateResponseEntryCoinsPaidMin),
+  "walletCoins": zod.number().int().min(daily007V2AddSquadTeammateResponseWalletCoinsMin),
+  "filledTeams": zod.number().int().min(daily007V2AddSquadTeammateResponseFilledTeamsMin).max(daily007V2AddSquadTeammateResponseFilledTeamsMax),
+  "filledPlayers": zod.number().int().min(daily007V2AddSquadTeammateResponseFilledPlayersMin).max(daily007V2AddSquadTeammateResponseFilledPlayersMax),
   "alreadyRegistered": zod.boolean()
 })
 

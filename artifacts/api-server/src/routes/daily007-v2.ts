@@ -737,7 +737,7 @@ router.get("/daily007/v2/matches/:id/squad-slots", authenticate, async (req, res
            LEFT JOIN daily007_v2_squad_team_members member
              ON member.registration_id = r.id AND member.is_active = true
            LEFT JOIN daily007_v2_squad_teams team ON team.id = member.team_id
-          WHERE r.match_id = $1 AND r.captain_user_id = $2
+          WHERE r.match_id = $1 AND r.captain_user_id = $2 AND r.added_by_captain = false
           ORDER BY r.created_at DESC, r.id LIMIT 1`,
         [matchId, account.id],
       );
@@ -747,6 +747,7 @@ router.get("/daily007/v2/matches/:id/squad-slots", authenticate, async (req, res
         !match.registration_open || occupancy.filledPlayers >= capacity * teamSize;
       const canEdit = match.enabled && !lifecycleClosed && match.status !== "setup_needed" &&
         !match.has_result && match.edit_open;
+      const canRemoveMembers = isBattleRoyaleSquad(match);
       const rows = await client.query<{
         team_number: number; captain_registration_id: string | null; legacy_registration_id: string | null;
         captain_game_name: string | null; slot_number: number | null;
@@ -769,12 +770,14 @@ router.get("/daily007/v2/matches/:id/squad-slots", authenticate, async (req, res
         teamNumber: teamIndex + 1,
         legacy: false,
         captainGameName: null as string | null,
+        callerIsCaptain: false,
         slots: Array.from({ length: teamSize }, (_, slotIndex) => ({
           slotNumber: slotIndex + 1,
           occupied: false,
           gameName: null as string | null,
           isCaptain: false,
           canJoin: false,
+          canAddTeammate: false,
           canRemove: false,
           registrationId: null as string | null,
         })),
@@ -784,26 +787,30 @@ router.get("/daily007/v2/matches/:id/squad-slots", authenticate, async (req, res
         if (!team) continue;
         team.legacy = Boolean(row.legacy_registration_id);
         team.captainGameName = row.captain_game_name?.trim() || null;
+        team.callerIsCaptain = Boolean(prior?.id && prior.id === row.captain_registration_id);
         if (row.slot_number === null) continue;
         const slot = team.slots[Number(row.slot_number) - 1];
         if (!slot) continue;
         const isCaptain = Boolean(row.registration_id && row.registration_id === row.captain_registration_id);
-        const callerIsCaptain = Boolean(prior?.id && prior.id === row.captain_registration_id);
         slot.occupied = true;
         slot.gameName = row.game_name?.trim() || null;
         slot.isCaptain = isCaptain;
-        slot.canRemove = callerIsCaptain && !isCaptain && !team.legacy && canEdit && Boolean(row.registration_id);
+        slot.canRemove = canRemoveMembers && team.callerIsCaptain && !isCaptain &&
+          !team.legacy && canEdit && Boolean(row.registration_id);
         slot.registrationId = slot.canRemove ? row.registration_id : null;
       }
       const canJoin = !closed && !prior;
       for (const team of teams) for (const slot of team.slots) {
         slot.canJoin = canJoin && !team.legacy && !slot.occupied;
+        slot.canAddTeammate = !closed && !team.legacy && team.callerIsCaptain &&
+          slot.slotNumber > 1 && !slot.occupied;
       }
       return {
         tournamentId: matchId, teamSize, capacity,
         filledTeams: occupancy.filledTeams, filledPlayers: occupancy.filledPlayers,
         registrationClosed: closed, alreadyRegistered: Boolean(prior),
-        myTeamNumber: prior?.team_number ?? null, mySlotNumber: prior?.slot_number ?? null, teams,
+        myTeamNumber: prior?.team_number ?? null, mySlotNumber: prior?.slot_number ?? null,
+        teams: teams.map(({ callerIsCaptain: _callerIsCaptain, ...team }) => team),
       };
     });
     res.json(data);
@@ -813,6 +820,193 @@ router.get("/daily007/v2/matches/:id/squad-slots", authenticate, async (req, res
     throw error;
   }
 });
+
+router.post(
+  "/daily007/v2/matches/:id/squad-slots/:teamNumber/:slotNumber/teammate",
+  authenticate,
+  async (req, res): Promise<void> => {
+    const matchId = requestId(req);
+    const account = req.daily007Account;
+    const teamNumber = Number(req.params.teamNumber);
+    const slotNumber = Number(req.params.slotNumber);
+    const body = req.body as unknown;
+    if (!matchId || !Number.isInteger(teamNumber) || teamNumber < 1 || teamNumber > 24 ||
+        !Number.isInteger(slotNumber) || slotNumber < 2 || slotNumber > 4) {
+      return fail(res, 400, "Match, team, and teammate slot identifiers are invalid.");
+    }
+    if (!account) return fail(res, 401, "A valid Daily007 v2 bearer token is required.");
+    if (!isRecord(body)) return fail(res, 400, "Enter the teammate's Free Fire name and UID.");
+    const gameName = cleanName(body.gameName, "gameName");
+    const gameUid = typeof body.gameUid === "string" ? body.gameUid.trim() : "";
+    if (!gameName || !gameUid || gameUid.length > 128) {
+      return fail(res, 400, "Enter a valid teammate name and UID.");
+    }
+
+    try {
+      const result = await withTransaction(async (client) => {
+        const matchResult = await client.query<{
+          title: string; mode: string; game_mode: string | null; team_type: string | null;
+          capacity: number; status: string; enabled: boolean; entry_coins: number;
+          registration_open: boolean; has_result: boolean;
+        }>(
+          `SELECT m.title, m.mode, m.game_mode, m.team_type, m.capacity, m.status, m.enabled, m.entry_coins,
+                  m.starts_at > clock_timestamp() + interval '5 hours 30 minutes' AS registration_open,
+                  EXISTS (SELECT 1 FROM daily007_v2_result_awards a WHERE a.match_id = m.id) AS has_result
+             FROM daily007_v2_matches m WHERE m.id = $1 FOR UPDATE`,
+          [matchId],
+        );
+        const match = matchResult.rows[0];
+        if (!match) throw Object.assign(new Error("Match not found."), { status: 404 });
+        const modeConfig = legacyTournamentMode(match.mode, match.game_mode, match.team_type);
+        const teamCount = Number(match.capacity);
+        const teamSize = modeConfig.teamSize;
+        if (teamSize <= 1 || teamNumber > teamCount || slotNumber > teamSize) {
+          throw Object.assign(new Error("Choose a valid teammate slot for this tournament format."), { status: 400 });
+        }
+        if (!match.enabled || ["cancelled", "live", "closed", "completed", "setup_needed"].includes(match.status) ||
+            !match.registration_open || match.has_result) {
+          throw Object.assign(new Error("This tournament is no longer accepting teammate bookings."), { status: 409 });
+        }
+
+        await ensureLegacySquadTeams(client, matchId, teamCount, teamSize);
+        const teamResult = await client.query<{
+          id: string; captain_registration_id: string | null; legacy_registration_id: string | null;
+          captain_user_id: string | null; captain_name: string | null;
+        }>(
+          `SELECT team.id, team.captain_registration_id, team.legacy_registration_id,
+                  captain.captain_user_id, captain.captain_name
+             FROM daily007_v2_squad_teams team
+             LEFT JOIN daily007_v2_registrations captain ON captain.id = team.captain_registration_id
+            WHERE team.match_id = $1 AND team.team_number = $2
+            FOR UPDATE OF team`,
+          [matchId, teamNumber],
+        );
+        const team = teamResult.rows[0];
+        if (!team?.captain_registration_id) {
+          throw Object.assign(new Error("This team does not have a registered captain yet."), { status: 409 });
+        }
+        if (team.captain_user_id !== account.id) {
+          throw Object.assign(new Error("Only this team's captain can pay for a teammate."), { status: 403 });
+        }
+        if (team.legacy_registration_id) {
+          throw Object.assign(new Error("Existing whole-team registrations cannot be edited through player slots."), { status: 409 });
+        }
+
+        const slotResult = await client.query<{ id: string }>(
+          `SELECT id FROM daily007_v2_squad_team_members
+            WHERE team_id = $1 AND slot_number = $2 AND is_active = true
+            FOR UPDATE`,
+          [team.id, slotNumber],
+        );
+        if (slotResult.rows[0]) {
+          throw Object.assign(new Error("That player slot is already occupied."), { status: 409 });
+        }
+
+        const duplicateUid = await client.query<{ id: string }>(
+          `SELECT id
+             FROM daily007_v2_registrations
+            WHERE match_id = $1 AND status IN ('approved', 'pending')
+              AND lower(btrim(captain_game_uid)) = lower(btrim($2))
+           UNION ALL
+           SELECT member.id
+             FROM daily007_v2_squad_team_members member
+             JOIN daily007_v2_squad_teams team ON team.id = member.team_id
+            WHERE team.match_id = $1 AND member.is_active = true AND member.legacy_game_uid IS NOT NULL
+              AND lower(btrim(member.legacy_game_uid)) = lower(btrim($2))
+            LIMIT 1`,
+          [matchId, gameUid],
+        );
+        if (duplicateUid.rows[0]) {
+          throw Object.assign(new Error("This Free Fire UID is already registered in this tournament."), { status: 409 });
+        }
+
+        const userResult = await client.query<{ wallet_coins: number; status: string }>(
+          "SELECT wallet_coins, status FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+          [account.id],
+        );
+        const user = userResult.rows[0];
+        if (!user || user.status !== "active") {
+          throw Object.assign(new Error("Your account is not available for tournament registration."), { status: 403 });
+        }
+        const entryCoins = Number(match.entry_coins);
+        const balance = Number(user.wallet_coins);
+        if (balance < entryCoins) {
+          throw Object.assign(new Error("You do not have enough coins to pay for this teammate's slot."), { status: 409 });
+        }
+
+        const registrationResult = await client.query<{ id: string }>(
+          `INSERT INTO daily007_v2_registrations
+             (match_id, captain_user_id, captain_name, captain_game_name, captain_game_uid,
+              team_name, assigned_group_number, entry_coins_paid, status, added_by_captain, paid_by_user_id)
+           VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, 'approved', true, $2)
+           RETURNING id`,
+          [
+            matchId, account.id, team.captain_name ?? "", gameName, gameUid,
+            `Team ${String(teamNumber).padStart(2, "0")}`, entryCoins,
+          ],
+        );
+        const registrationId = registrationResult.rows[0].id;
+        await client.query(
+          `INSERT INTO daily007_v2_squad_team_members (team_id, slot_number, registration_id)
+           VALUES ($1, $2, $3)`,
+          [team.id, slotNumber, registrationId],
+        );
+
+        const newBalance = balance - entryCoins;
+        if (entryCoins > 0) {
+          await client.query("UPDATE daily007_v2_users SET wallet_coins = $2 WHERE id = $1", [account.id, newBalance]);
+          const ledgerDetails = JSON.stringify({
+            description: `Slot booked for player ${gameName} by Captain`,
+            addedByCaptain: true,
+            paidByUserId: account.id,
+            playerName: gameName,
+            playerUid: gameUid,
+            tournamentName: match.title,
+            teamNumber,
+            slotNumber,
+          });
+          await client.query(
+            `INSERT INTO daily007_v2_wallet_ledger
+               (user_id, amount, balance_after, reason, match_id, registration_id, idempotency_key, details)
+             VALUES ($1, $2, $3, 'match_entry', $4, $5, $6, $7::jsonb)`,
+            [
+              account.id, -entryCoins, newBalance, matchId, registrationId,
+              `captain_slot_entry:${registrationId}`, ledgerDetails,
+            ],
+          );
+        }
+
+        const occupancy = await getSquadOccupancy(client, matchId);
+        const full = occupancy.filledPlayers >= teamCount * teamSize;
+        const fullStatus = full && modeConfig.gameMode === "clash_squad" ? "setup_needed" : full ? "full" : "open";
+        await client.query(
+          "UPDATE daily007_v2_matches SET is_full = $2, status = $3 WHERE id = $1",
+          [matchId, full, fullStatus],
+        );
+        return {
+          registrationId,
+          teamNumber,
+          slotNumber,
+          isCaptain: false,
+          entryCoinsPaid: entryCoins,
+          walletCoins: newBalance,
+          filledTeams: occupancy.filledTeams,
+          filledPlayers: occupancy.filledPlayers,
+          alreadyRegistered: false,
+        };
+      });
+      res.status(201).json(result);
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      if (status) return fail(res, status, (error as Error).message);
+      if ((error as { code?: string }).code === "23505") {
+        fail(res, 409, "This player slot or Free Fire UID is already registered in the tournament.");
+        return;
+      }
+      throw error;
+    }
+  },
+);
 
 router.post("/daily007/v2/matches/:id/squad-join", authenticate, async (req, res): Promise<void> => {
   const matchId = requestId(req);
@@ -866,7 +1060,7 @@ router.post("/daily007/v2/matches/:id/squad-join", authenticate, async (req, res
            FROM daily007_v2_registrations r
            LEFT JOIN daily007_v2_squad_team_members member ON member.registration_id = r.id
            LEFT JOIN daily007_v2_squad_teams team ON team.id = member.team_id
-          WHERE r.match_id = $1 AND r.captain_user_id = $2
+          WHERE r.match_id = $1 AND r.captain_user_id = $2 AND r.added_by_captain = false
           ORDER BY r.created_at DESC, r.id LIMIT 1`,
         [matchId, account.id],
       );
@@ -1228,7 +1422,7 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
            FROM daily007_v2_registrations r
            LEFT JOIN daily007_v2_wallet_ledger l ON l.registration_id = r.id
            JOIN daily007_v2_matches m ON m.id = r.match_id
-          WHERE r.match_id = $1 AND r.captain_user_id = $2`,
+          WHERE r.match_id = $1 AND r.captain_user_id = $2 AND r.added_by_captain = false`,
         [matchId, account.id],
       );
       if (existing.rows[0]) {

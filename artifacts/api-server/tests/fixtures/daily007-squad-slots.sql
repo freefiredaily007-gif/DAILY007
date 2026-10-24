@@ -14,6 +14,14 @@ CREATE TABLE daily007_v2_users (
   wallet_coins integer NOT NULL DEFAULT 0 CHECK (wallet_coins >= 0)
 );
 
+CREATE TABLE daily007_v2_user_stats (
+  user_id uuid PRIMARY KEY REFERENCES daily007_v2_users(id),
+  matches integer NOT NULL DEFAULT 0,
+  wins integer NOT NULL DEFAULT 0,
+  kills integer NOT NULL DEFAULT 0,
+  prize_coins integer NOT NULL DEFAULT 0
+);
+
 CREATE TABLE daily007_v2_matches (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   title text NOT NULL,
@@ -42,6 +50,8 @@ CREATE TABLE daily007_v2_registrations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   match_id uuid NOT NULL REFERENCES daily007_v2_matches(id) ON DELETE CASCADE,
   captain_user_id uuid NOT NULL REFERENCES daily007_v2_users(id),
+  added_by_captain boolean NOT NULL DEFAULT false,
+  paid_by_user_id uuid REFERENCES daily007_v2_users(id),
   captain_name text NOT NULL,
   captain_game_name text NOT NULL DEFAULT '',
   captain_game_uid text NOT NULL,
@@ -51,10 +61,12 @@ CREATE TABLE daily007_v2_registrations (
   status text NOT NULL DEFAULT 'pending'
     CHECK (status IN ('pending', 'approved', 'rejected', 'removed')),
   created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (match_id, captain_user_id),
   CHECK (assigned_group_number IS NULL OR assigned_group_number > 0),
   CHECK (length(btrim(captain_game_uid)) > 0)
 );
+CREATE UNIQUE INDEX daily007_v2_registration_once_per_account_non_captain_added
+  ON daily007_v2_registrations (match_id, captain_user_id)
+  WHERE added_by_captain = false;
 CREATE UNIQUE INDEX daily007_v2_registration_active_group_once
   ON daily007_v2_registrations (match_id, assigned_group_number)
   WHERE assigned_group_number IS NOT NULL AND status IN ('approved', 'pending');

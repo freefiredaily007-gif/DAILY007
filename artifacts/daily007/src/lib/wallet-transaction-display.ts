@@ -70,6 +70,12 @@ export function walletTransactionDescription(item: WalletTransactionDisplayItem)
   if (typeof item.description === "string" && item.description.trim()) {
     return item.description.trim();
   }
+  if (item.details && typeof item.details === "object" && !Array.isArray(item.details)) {
+    const detailDescription = (item.details as Record<string, unknown>).description;
+    if (typeof detailDescription === "string" && detailDescription.trim()) {
+      return detailDescription.trim();
+    }
+  }
   if (item.reason === "tournament_cancel_refund") {
     return "Entry fee refunded (tournament cancelled)";
   }

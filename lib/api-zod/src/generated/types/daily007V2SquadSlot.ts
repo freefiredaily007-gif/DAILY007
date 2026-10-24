@@ -34,6 +34,7 @@ export interface Daily007V2SquadSlot {
   gameName: string | null;
   isCaptain: boolean;
   canJoin: boolean;
+  canAddTeammate: boolean;
   canRemove: boolean;
   /** @nullable */
   registrationId: string | null;

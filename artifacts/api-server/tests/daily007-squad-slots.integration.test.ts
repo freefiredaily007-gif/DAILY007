@@ -120,6 +120,26 @@ async function joinSlot(
   return { status: response.status, body: await response.json() as Record<string, any> };
 }
 
+async function addTeammate(
+  origin: string,
+  matchId: string,
+  userId: string,
+  teamNumber: number,
+  slotNumber: number,
+  gameName: string,
+  gameUid: string,
+): Promise<ApiResponse> {
+  const response = await fetch(
+    `${origin}/daily007/v2/matches/${matchId}/squad-slots/${teamNumber}/${slotNumber}/teammate`,
+    {
+      method: "POST",
+      headers: headers(userId),
+      body: JSON.stringify({ gameName, gameUid }),
+    },
+  );
+  return { status: response.status, body: await response.json() as Record<string, any> };
+}
+
 async function joinSoloSeat(
   origin: string,
   matchId: string,
@@ -169,6 +189,117 @@ test("Squad slots charge each player atomically, preserve captain control, and t
         [matchId, [firstUser, secondUser]],
       );
       assert.deepEqual(rows.rows[0], { registrations: 1, active_members: 1, entry_ledgers: 1, paid_balance: 1 });
+    });
+
+    await t.test("captain can pay for an open teammate slot without weakening other-player booking", async () => {
+      const matchId = await createMatch();
+      const captain = await createUser();
+      const otherPlayer = await createUser();
+      const captainJoin = await joinSlot(origin, matchId, captain, 1, 1);
+      assert.equal(captainJoin.status, 201);
+
+      const captainSlots = await slotsFor(origin, matchId, captain);
+      assert.equal(captainSlots.status, 200);
+      const captainTeam = captainSlots.body.teams.find((team: any) => team.teamNumber === 1);
+      assert.equal(captainSlots.body.alreadyRegistered, true);
+      assert.equal(captainTeam.slots[1].canJoin, false);
+      assert.equal(captainTeam.slots[1].canAddTeammate, true);
+
+      const otherSlots = await slotsFor(origin, matchId, otherPlayer);
+      const otherTeam = otherSlots.body.teams.find((team: any) => team.teamNumber === 1);
+      assert.equal(otherTeam.slots[1].canAddTeammate, false);
+      assert.equal(otherTeam.slots[1].canJoin, true);
+
+      const added = await addTeammate(origin, matchId, captain, 1, 2, "Captain's Teammate", "ff-uid-2");
+      assert.equal(added.status, 201);
+      assert.equal(added.body.entryCoinsPaid, 10);
+      assert.equal(added.body.walletCoins, 80);
+      assert.equal(added.body.slotNumber, 2);
+
+      const refreshed = await slotsFor(origin, matchId, captain);
+      const refreshedTeam = refreshed.body.teams.find((team: any) => team.teamNumber === 1);
+      assert.equal(refreshedTeam.slots[1].occupied, true);
+      assert.equal(refreshedTeam.slots[1].gameName, "Captain's Teammate");
+      assert.equal(refreshedTeam.slots[1].canAddTeammate, false);
+
+      const duplicateSlot = await addTeammate(origin, matchId, captain, 1, 2, "Another Name", "ff-uid-3");
+      assert.equal(duplicateSlot.status, 409);
+      const duplicateUid = await addTeammate(origin, matchId, captain, 1, 3, "Another Name", "ff-uid-2");
+      assert.equal(duplicateUid.status, 409);
+      const notCaptain = await addTeammate(origin, matchId, otherPlayer, 1, 3, "Other Teammate", "ff-uid-4");
+      assert.equal(notCaptain.status, 403);
+
+      const saved = await pool.query<{
+        player_user_id: string;
+        payer_user_id: string;
+        player_name: string;
+        added_by_captain: boolean;
+        wallet_coins: number;
+        ledger_amount: number;
+        ledger_description: string;
+      }>(
+        `SELECT r.captain_user_id AS player_user_id, r.paid_by_user_id AS payer_user_id,
+                r.captain_game_name AS player_name, r.added_by_captain, u.wallet_coins,
+                l.amount AS ledger_amount, l.details->>'description' AS ledger_description
+           FROM daily007_v2_registrations r
+           JOIN daily007_v2_users u ON u.id = r.captain_user_id
+           JOIN daily007_v2_wallet_ledger l ON l.registration_id = r.id
+          WHERE r.match_id = $1 AND r.captain_game_uid = 'ff-uid-2'`,
+        [matchId],
+      );
+      assert.deepEqual(saved.rows[0], {
+        player_user_id: captain,
+        payer_user_id: captain,
+        player_name: "Captain's Teammate",
+        added_by_captain: true,
+        wallet_coins: 80,
+        ledger_amount: -10,
+        ledger_description: "Slot booked for player Captain's Teammate by Captain",
+      });
+      const otherBalance = await pool.query<{ wallet_coins: number }>(
+        "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1",
+        [otherPlayer],
+      );
+      assert.equal(otherBalance.rows[0]?.wallet_coins, 100);
+    });
+
+    await t.test("simultaneous captain payments cannot charge one slot twice", async () => {
+      const matchId = await createMatch();
+      const captain = await createUser();
+      assert.equal((await joinSlot(origin, matchId, captain, 1, 1)).status, 201);
+      const attempts = await Promise.all([
+        addTeammate(origin, matchId, captain, 1, 2, "First Request", "race-uid-1"),
+        addTeammate(origin, matchId, captain, 1, 2, "Second Request", "race-uid-2"),
+      ]);
+      assert.equal(attempts.filter((attempt) => attempt.status === 201).length, 1);
+      assert.equal(attempts.filter((attempt) => attempt.status === 409).length, 1);
+      const saved = await pool.query<{ registrations: number; ledgers: number; wallet_coins: number }>(
+        `SELECT
+           (SELECT count(*)::integer FROM daily007_v2_registrations WHERE match_id = $1) AS registrations,
+           (SELECT count(*)::integer FROM daily007_v2_wallet_ledger
+             WHERE match_id = $1 AND reason = 'match_entry') AS ledgers,
+           (SELECT wallet_coins FROM daily007_v2_users WHERE id = $2) AS wallet_coins`,
+        [matchId, captain],
+      );
+      assert.deepEqual(saved.rows[0], { registrations: 2, ledgers: 2, wallet_coins: 80 });
+    });
+
+    await t.test("insufficient captain balance leaves the slot and wallet unchanged", async () => {
+      const matchId = await createMatch(10);
+      const captain = await createUser("user", 15);
+      assert.equal((await joinSlot(origin, matchId, captain, 1, 1)).status, 201);
+      const result = await addTeammate(origin, matchId, captain, 1, 2, "Unpaid Teammate", "unpaid-uid");
+      assert.equal(result.status, 409);
+      const state = await slotsFor(origin, matchId, captain);
+      const team = state.body.teams.find((candidate: any) => candidate.teamNumber === 1);
+      assert.equal(team.slots[1].occupied, false);
+      const balance = await pool.query<{ wallet_coins: number; ledger_count: number }>(
+        `SELECT u.wallet_coins,
+                (SELECT count(*)::integer FROM daily007_v2_wallet_ledger WHERE match_id = $1) AS ledger_count
+           FROM daily007_v2_users u WHERE u.id = $2`,
+        [matchId, captain],
+      );
+      assert.deepEqual(balance.rows[0], { wallet_coins: 5, ledger_count: 1 });
     });
 
     await t.test("captain removal keeps the paid fee, reopens the slot, and admin rejection transfers captaincy", async () => {
@@ -236,7 +367,7 @@ test("Squad slots charge each player atomically, preserve captain control, and t
       assert.equal(balanceById[teammate], 90);
     });
 
-    await t.test("only the captain's registration can publish a Squad result", async () => {
+    await t.test("publishing a Squad result from a player selects that player's team", async () => {
       const matchId = await createMatch();
       const captain = await createUser();
       const teammate = await createUser();
@@ -257,14 +388,63 @@ test("Squad slots charge each player atomically, preserve captain control, and t
           kills: 0,
         }),
       });
-      assert.equal(response.status, 409);
-      assert.match(String((await response.json() as Record<string, unknown>).error), /team captain/i);
-      const noAwards = await pool.query<{ count: number }>(
+      const responseBody = await response.json() as Record<string, unknown>;
+      assert.equal(response.status, 201, JSON.stringify(responseBody));
+      assert.equal(responseBody.teamNumber, 2);
+      const teamAwards = await pool.query<{ count: number }>(
         "SELECT count(*)::integer AS count FROM daily007_v2_result_awards WHERE match_id = $1",
         [matchId],
       );
-      assert.equal(noAwards.rows[0].count, 0);
+      assert.equal(teamAwards.rows[0].count, 2);
       assert.equal(captainJoin.status, 201);
+    });
+
+    await t.test("team prize shares for a captain-booked teammate are credited to the captain wallet", async () => {
+      const matchId = await createMatch(10, { title: "Captain Wallet Prize Match" });
+      const captain = await createUser();
+      const admin = await createUser("tournament_admin");
+      const captainJoin = await joinSlot(origin, matchId, captain, 1, 1);
+      assert.equal(captainJoin.status, 201);
+      const teammateJoin = await addTeammate(origin, matchId, captain, 1, 2, "Paid Teammate", "paid-uid-2");
+      assert.equal(teammateJoin.status, 201);
+      await pool.query(
+        "UPDATE daily007_v2_matches SET prize_pool = 40, starts_at = clock_timestamp() - interval '1 hour' WHERE id = $1",
+        [matchId],
+      );
+      const published = await fetch(`${origin}/admin/results`, {
+        method: "POST",
+        headers: headers(admin),
+        body: JSON.stringify({
+          tournamentId: matchId,
+          registrationId: captainJoin.body.registrationId,
+          rank: 1,
+          kills: 0,
+        }),
+      });
+      const publishedBody = await published.json() as Record<string, unknown>;
+      assert.equal(published.status, 201, JSON.stringify(publishedBody));
+      const payout = await pool.query<{
+        wallet_coins: number;
+        prize_coins: number;
+        prize_ledger_coins: number;
+        non_captain_awards: number;
+      }>(
+        `SELECT u.wallet_coins,
+                (SELECT COALESCE(sum(prize_coins), 0)::integer
+                   FROM daily007_v2_result_awards WHERE match_id = $1 AND user_id = $2) AS prize_coins,
+                (SELECT COALESCE(sum(amount), 0)::integer
+                   FROM daily007_v2_wallet_ledger WHERE match_id = $1 AND user_id = $2 AND reason = 'match_prize') AS prize_ledger_coins,
+                (SELECT count(*)::integer FROM daily007_v2_result_awards
+                  WHERE match_id = $1 AND user_id <> $2) AS non_captain_awards
+           FROM daily007_v2_users u WHERE u.id = $2`,
+        [matchId, captain],
+      );
+      assert.deepEqual(payout.rows[0], {
+        wallet_coins: 120,
+        prize_coins: 40,
+        prize_ledger_coins: 40,
+        non_captain_awards: 0,
+      });
     });
 
     await t.test("legacy whole-team records stay intact and public rosters expose names only", async () => {
@@ -519,7 +699,7 @@ test("Squad slots charge each player atomically, preserve captain control, and t
       }
     });
 
-    await t.test("team-mode results remain limited to the captain slot", async () => {
+    await t.test("team-mode results include members of the selected team", async () => {
       const matchId = await createMatch(10, {
         title: "Clash Squad Duo Results",
         mode: "clash",
@@ -548,8 +728,10 @@ test("Squad slots charge each player atomically, preserve captain control, and t
           kills: 0,
         }),
       });
-      assert.equal(response.status, 409);
-      assert.match(String((await response.json() as Record<string, unknown>).error), /team captain/i);
+      const responseBody = await response.json() as Record<string, unknown>;
+      assert.equal(response.status, 201, JSON.stringify(responseBody));
+      assert.equal(responseBody.teamNumber, 1);
+      assert.equal((responseBody.playersAwarded as unknown[]).length, 2);
     });
   });
 });

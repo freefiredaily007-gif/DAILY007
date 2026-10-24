@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, ScrollView, StyleSheet, RefreshControl, ActivityIndicator, AccessibilityInfo, Platform, AppState, PixelRatio, Pressable, useWindowDimensions } from 'react-native';
+import { View, ScrollView, StyleSheet, RefreshControl, ActivityIndicator, AccessibilityInfo, Platform, AppState, PixelRatio, Pressable, useWindowDimensions, Modal, KeyboardAvoidingView } from 'react-native';
 import {
   getGetTournamentParticipantsQueryKey,
   getGetTournamentResultsQueryKey,
   getDaily007V2GetSquadSlotsQueryKey,
+  useDaily007V2AddSquadTeammate,
   useDaily007V2GetSquadSlots,
   useDaily007V2JoinSquadSlot,
   useDaily007V2RemoveSquadMember,
@@ -60,8 +61,11 @@ function SquadSlotsPanel({
 }) {
   const [selected, setSelected] = useState<{ teamNumber: number; slotNumber: number } | null>(null);
   const [joinDetailsOpen, setJoinDetailsOpen] = useState(false);
+  const [captainAddOpen, setCaptainAddOpen] = useState(false);
   const [gameName, setGameName] = useState('');
   const [gameUid, setGameUid] = useState('');
+  const [teammateName, setTeammateName] = useState('');
+  const [teammateUid, setTeammateUid] = useState('');
   const [pendingRemoval, setPendingRemoval] = useState<{ teamNumber: number; slotNumber: number } | null>(null);
   const [busyKey, setBusyKey] = useState('');
   const [hoveredSlotKey, setHoveredSlotKey] = useState<string | null>(null);
@@ -79,6 +83,7 @@ function SquadSlotsPanel({
     },
   });
   const joinMutation = useDaily007V2JoinSquadSlot();
+  const addTeammateMutation = useDaily007V2AddSquadTeammate();
   const removeMutation = useDaily007V2RemoveSquadMember();
   const slots = slotsQuery.data;
 
@@ -119,6 +124,48 @@ function SquadSlotsPanel({
     } finally {
       setBusyKey('');
     }
+  };
+
+  const addTeammate = async () => {
+    if (!selected || !captainAddOpen || busyKey) return;
+    setError('');
+    setMessage('');
+    setBusyKey(`add-teammate-${selected.teamNumber}-${selected.slotNumber}`);
+    try {
+      const result = await addTeammateMutation.mutateAsync({
+        id: tournamentId,
+        teamNumber: selected.teamNumber,
+        slotNumber: selected.slotNumber,
+        data: {
+          gameName: teammateName.trim(),
+          gameUid: teammateUid.trim(),
+        },
+      });
+      setCaptainAddOpen(false);
+      setSelected(null);
+      setTeammateName('');
+      setTeammateUid('');
+      setMessage(
+        result.entryCoinsPaid > 0
+          ? `${teammateName.trim()} was added. ${result.entryCoinsPaid} coins were deducted from your wallet.`
+          : `${teammateName.trim()} was added. No coins were deducted.`,
+      );
+      await Promise.all([slotsQuery.refetch(), onJoined()]);
+    } catch (e: any) {
+      setError(e?.response?.data?.error || e?.message || 'Could not add this teammate. Refresh and try again.');
+      void slotsQuery.refetch();
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  const closeCaptainAdd = () => {
+    if (busyKey) return;
+    setCaptainAddOpen(false);
+    setSelected(null);
+    setTeammateName('');
+    setTeammateUid('');
+    setError('');
   };
 
   const remove = async () => {
@@ -165,10 +212,10 @@ function SquadSlotsPanel({
     <View>
       <Card style={{ marginBottom: 10 }}>
         <Text style={s.squadCapacity}>
-          {slots.filledPlayers}/48 PLAYERS · {slots.filledTeams}/12 TEAMS
+          {slots.filledPlayers}/{slots.capacity * slots.teamSize} PLAYERS · {slots.filledTeams}/{slots.capacity} TEAMS
         </Text>
         <Text style={s.squadNotice}>
-          Join with your own account and wallet; each player pays the entry fee separately. A captain’s removal does not refund the removed player’s fee.
+          Players can join open slots and pay individually. Captains can pay for teammates from their wallet. Removing a player does not refund the entry fee.
         </Text>
       </Card>
       {!!error && <Msg kind="err" text={error} accessibilityLiveRegion="assertive" />}
@@ -192,14 +239,14 @@ function SquadSlotsPanel({
                 ) : null}
               </View>
               <View style={s.squadJoinedBadge} accessibilityLabel={`${joinedCount} of 4 players joined`}>
-                <Text style={s.squadJoinedText}>{joinedCount}/4 JOINED</Text>
+                <Text style={s.squadJoinedText}>{joinedCount}/{slots.teamSize} JOINED</Text>
               </View>
             </View>
 
             <View style={[s.squadSlotsRow, compactLargeText && s.squadSlotsRowCompact]} testID="squad-slots-row">
               {team.slots.map((slot) => {
                 const slotIsOccupied = Boolean(slot.occupied);
-                const canSelectSlot = !slotIsOccupied && slot.canJoin;
+                const canSelectSlot = !slotIsOccupied && (slot.canJoin || slot.canAddTeammate);
                 const isSelected = selected?.teamNumber === team.teamNumber &&
                   selected.slotNumber === slot.slotNumber;
                 const slotKey = `${team.teamNumber}-${slot.slotNumber}`;
@@ -224,13 +271,16 @@ function SquadSlotsPanel({
                           setJoinDetailsOpen(false);
                           setGameName('');
                           setGameUid('');
+                          setCaptainAddOpen(Boolean(slot.canAddTeammate));
+                          setTeammateName('');
+                          setTeammateUid('');
                           setError('');
                           setMessage('');
                         }
                       }}
                       disabled={!canSelectSlot || Boolean(busyKey)}
                       accessibilityRole="button"
-                      accessibilityLabel={`Team ${team.teamNumber}, ${slotTitle}, ${slotIsOccupied ? slot.gameName || 'occupied' : 'open'}${canSelectSlot ? ', available to join' : ''}`}
+                      accessibilityLabel={`Team ${team.teamNumber}, ${slotTitle}, ${slotIsOccupied ? slot.gameName || 'occupied' : 'open'}${slot.canAddTeammate ? ', add teammate using captain wallet' : slot.canJoin ? ', available to join' : ''}`}
                       accessibilityState={{ disabled: !canSelectSlot || Boolean(busyKey), selected: isSelected && canSelectSlot }}
                       testID={`squad-slot-${team.teamNumber}-${slot.slotNumber}`}
                       style={[
@@ -239,7 +289,7 @@ function SquadSlotsPanel({
                         compactLargeText && s.squadSlotCompact,
                         isSelected && canSelectSlot && s.squadSlotSelected,
                         isHovered && s.squadSlotHovered,
-                        !slot.canJoin && !slotIsOccupied && s.squadSlotUnavailable,
+                        !canSelectSlot && !slotIsOccupied && s.squadSlotUnavailable,
                         Platform.OS === 'web'
                           ? { cursor: canSelectSlot && !busyKey ? 'pointer' : 'not-allowed' } as any
                           : undefined,
@@ -418,6 +468,80 @@ function SquadSlotsPanel({
       {slots.registrationClosed ? (
         <Text style={s.squadClosed}>Registration is closed. Open slots can no longer be joined.</Text>
       ) : null}
+      <Modal
+        visible={captainAddOpen && Boolean(selectedSlot?.canAddTeammate)}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={closeCaptainAdd}
+      >
+        <View
+          style={{
+            flex: 1,
+            justifyContent: 'center',
+            backgroundColor: 'rgba(3, 7, 20, 0.88)',
+            padding: 16,
+          }}
+        >
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}>
+              <Card style={{ borderColor: C.squadAccent, borderWidth: 1, padding: 18 }}>
+                <Text style={[s.squadJoinHeading, { marginBottom: 12 }]}>
+                  Add Teammate (Slot {selected?.slotNumber ?? ''})
+                </Text>
+                <Text style={[s.squadNotice, { marginBottom: 12 }]}>
+                  Entry fee: {entryCoins} coins. This amount will be deducted from your wallet ({walletCoins} coins available).
+                </Text>
+                <Input
+                  value={teammateName}
+                  onChangeText={setTeammateName}
+                  placeholder="Player In-Game Name (IGN)"
+                  accessibilityLabel="Player In-Game Name (IGN)"
+                  autoCapitalize="none"
+                  maxLength={100}
+                  testID="squad-teammate-name"
+                />
+                <Input
+                  value={teammateUid}
+                  onChangeText={setTeammateUid}
+                  placeholder="Player Game UID"
+                  accessibilityLabel="Player Game UID"
+                  keyboardType="number-pad"
+                  maxLength={128}
+                  style={{ marginTop: 8 }}
+                  testID="squad-teammate-uid"
+                />
+                {!canAfford ? (
+                  <View style={{ marginTop: 10 }}>
+                    <Text style={s.squadInsufficient}>Not enough coins to pay for this teammate’s slot.</Text>
+                    <Btn title="GO TO WALLET" kind="gold" onPress={onGoWallet} style={{ marginTop: 8 }} />
+                  </View>
+                ) : null}
+                {!!error && <Msg kind="err" text={error} accessibilityLiveRegion="assertive" />}
+                <View style={[s.squadJoinActions, { marginTop: 14 }]}>
+                  <Btn
+                    title="CANCEL"
+                    kind="ghost"
+                    small
+                    disabled={Boolean(busyKey)}
+                    onPress={closeCaptainAdd}
+                    testID="squad-teammate-cancel"
+                  />
+                  <Btn
+                    title="PAY & ADD PLAYER"
+                    onPress={() => { void addTeammate(); }}
+                    loading={busyKey.startsWith('add-teammate-')}
+                    disabled={!teammateName.trim() || !teammateUid.trim() || !canAfford || Boolean(busyKey) || slots.registrationClosed}
+                    accessibilityHint="Deducts this entry fee from the captain's wallet and books the selected teammate slot."
+                    style={s.squadJoinConfirm}
+                    testID="squad-teammate-confirm"
+                  />
+                </View>
+              </Card>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -658,6 +782,7 @@ export default function TDetail() {
   const seatLayout = getTournamentSeatLayout(t);
   const individualSquad = seatLayout?.individualSquad ??
     (teamType === 'squad' && (mode.includes('battle royale') || mode === 'battle_royale'));
+  const teamSlotBooking = individualSquad || Boolean(seatLayout && seatLayout.slotsPerGroup > 1);
   const individualPlayerSlots = seatLayout?.groupKind === 'player';
   const teamTournament = Number(t.teamSize ?? 1) > 1;
   const participants = participantsQuery.data?.participants ?? [];
@@ -794,9 +919,9 @@ export default function TDetail() {
         accessStatus={roomAccessStatus}
       />
 
-      {individualSquad ? (
+      {teamSlotBooking ? (
         <>
-          <SectionTitle accent={C.orange}>SQUAD TEAM SLOTS</SectionTitle>
+          <SectionTitle accent={C.orange}>{individualSquad ? 'SQUAD TEAM SLOTS' : 'TEAM PLAYER SLOTS'}</SectionTitle>
           <SquadSlotsPanel
             tournamentId={tournamentId}
             entryCoins={Number(t.entryCoins ?? 0)}
@@ -809,7 +934,7 @@ export default function TDetail() {
         </>
       ) : null}
 
-      {seatLayout && !individualSquad ? (
+      {seatLayout && !teamSlotBooking ? (
         <>
           <SectionTitle accent={C.orange}>TOURNAMENT SLOTS</SectionTitle>
           <ModeSeatSlotsPanel
@@ -989,7 +1114,7 @@ export default function TDetail() {
       <Msg kind="ok" text={msg} />
 
       <View style={{ marginTop: 16 }}>
-        {individualSquad ? null : !registrationStatusKnown ? (
+        {teamSlotBooking ? null : !registrationStatusKnown ? (
           <Card testID="tournament-entry-status-unknown">
             <Text
               accessible

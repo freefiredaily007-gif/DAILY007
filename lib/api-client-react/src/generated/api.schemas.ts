@@ -589,6 +589,19 @@ export interface Daily007V2SquadJoinBody {
   gameUid: string;
 }
 
+export interface Daily007V2CaptainAddTeammateBody {
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  gameName: string;
+  /**
+     * @minLength 1
+     * @maxLength 128
+     */
+  gameUid: string;
+}
+
 export interface Daily007V2SquadSlot {
   /**
      * @minimum 1
@@ -600,6 +613,7 @@ export interface Daily007V2SquadSlot {
   gameName: string | null;
   isCaptain: boolean;
   canJoin: boolean;
+  canAddTeammate: boolean;
   canRemove: boolean;
   /** @nullable */
   registrationId: string | null;

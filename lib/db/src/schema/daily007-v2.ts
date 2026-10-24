@@ -164,6 +164,8 @@ export const daily007RegistrationsTable = pgTable("daily007_v2_registrations", {
   id: uuid("id").defaultRandom().primaryKey(),
   matchId: uuid("match_id").notNull().references(() => daily007MatchesTable.id, { onDelete: "cascade" }),
   captainUserId: uuid("captain_user_id").notNull().references(() => daily007UsersTable.id),
+  addedByCaptain: boolean("added_by_captain").notNull().default(false),
+  paidByUserId: uuid("paid_by_user_id").references(() => daily007UsersTable.id),
   captainName: text("captain_name").notNull(),
   captainGameName: text("captain_game_name").notNull().default(""),
   captainGameUid: text("captain_game_uid").notNull(),
@@ -173,7 +175,9 @@ export const daily007RegistrationsTable = pgTable("daily007_v2_registrations", {
   status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
-  unique("daily007_v2_registration_once_per_account").on(table.matchId, table.captainUserId),
+  uniqueIndex("daily007_v2_registration_once_per_account_non_captain_added")
+    .on(table.matchId, table.captainUserId)
+    .where(sql`${table.addedByCaptain} = false`),
   check("daily007_v2_registration_paid_nonnegative", sql`${table.entryCoinsPaid} >= 0`),
   check("daily007_v2_registration_status_valid_v2", sql`${table.status} IN ('pending', 'approved', 'rejected', 'removed')`),
   check("daily007_v2_registration_game_uid_nonempty", sql`length(btrim(${table.captainGameUid})) > 0`),
