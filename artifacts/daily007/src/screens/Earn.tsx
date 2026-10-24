@@ -1035,7 +1035,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  devTestButton: { alignSelf: 'flex-start', minHeight: 40, justifyContent: 'center', borderWidth: 1, borderColor: C.gold, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 7, marginTop: 6 },
+  devTestButton: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: C.gold, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 7, marginTop: 6 },
   devTestButtonText: { color: C.gold, fontSize: 11, fontWeight: '800' },
   shareButton: { minHeight: 50, borderRadius: 13, overflow: 'hidden', marginTop: 11 },
   shareButtonGradient: {
