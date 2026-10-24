@@ -939,6 +939,11 @@ test("concurrent first-place submissions serialize on the real tournament row lo
         rank: 1,
         kills: winningIndex === 0 ? 4 : 9,
         prizeCoins: 500,
+        killsVerified: true,
+        killRewardCoinsPerKill: 0,
+        killRewardPaidCoins: 0,
+        killRewardStatus: "no_bonus",
+        isKillEarn: false,
         gameName: `TestGame${winningIndex + 1}`,
         teamName: null,
       }], "public standings must expose only the accepted winner");
@@ -1245,6 +1250,11 @@ test("an independent tournament result completes while another match row is lock
           rank: 1,
           kills: 8,
           prizeCoins: 500,
+          killsVerified: true,
+          killRewardCoinsPerKill: 0,
+          killRewardPaidCoins: 0,
+          killRewardStatus: "no_bonus",
+          isKillEarn: false,
           gameName: "TestGame1",
           teamName: null,
         }]);
@@ -1254,6 +1264,11 @@ test("an independent tournament result completes while another match row is lock
           rank: 1,
           kills: 4,
           prizeCoins: 600,
+          killsVerified: true,
+          killRewardCoinsPerKill: 0,
+          killRewardPaidCoins: 0,
+          killRewardStatus: "no_bonus",
+          isKillEarn: false,
           gameName: "TestGame1",
           teamName: null,
         }]);
@@ -1933,6 +1948,92 @@ test("saved runner-up results are discoverable before a winner and retries do no
         stateAfterPublish,
         "retrying must not change the player's wallet, ledger, award, stats, or tournament state",
       );
+    });
+  } finally {
+    await cleanupFixture(fixture);
+  }
+});
+
+test("a verified Kill & Earn result credits the saved rate once and reports its actual ledger state", async () => {
+  const fixture = await createFixture();
+  const winner = fixture.players[0];
+  assert.ok(winner);
+
+  try {
+    await pool.query(
+      `UPDATE daily007_v2_matches
+          SET game_mode = 'battle_royale_kill_earn', kill_reward_coins = 100
+        WHERE id = $1`,
+      [fixture.matchId],
+    );
+    await withServer(async (origin) => {
+      const published = await submitResult(origin, fixture.adminId, fixture.matchId, winner, 1, 47);
+      assert.equal(published.status, 201, `verified result should save: ${JSON.stringify(published.body)}`);
+      assert.equal(published.body.totalKillRewardCoins, 4_700);
+      assert.equal(published.body.walletCoins, 5_300);
+
+      const payoutRows = await pool.query<{
+        amount: number;
+        balance_after: number;
+        reason: string;
+        idempotency_key: string | null;
+      }>(
+        `SELECT amount, balance_after, reason, idempotency_key
+           FROM daily007_v2_wallet_ledger
+          WHERE registration_id = $1
+          ORDER BY CASE reason WHEN 'match_prize' THEN 1 ELSE 2 END, id`,
+        [winner.registrationId],
+      );
+      assert.deepEqual(payoutRows.rows, [
+        {
+          amount: 500,
+          balance_after: 600,
+          reason: "match_prize",
+          idempotency_key: null,
+        },
+        {
+          amount: 4_700,
+          balance_after: 5_300,
+          reason: "kill_reward",
+          idempotency_key: `kill_reward:${fixture.matchId}:${winner.registrationId}`,
+        },
+      ]);
+
+      const publicResponse = await publicStandings(origin, fixture.matchId);
+      assert.equal(publicResponse.status, 200);
+      assert.equal(publicResponse.body.entries[0].killsVerified, true);
+      assert.equal(publicResponse.body.entries[0].killRewardPaidCoins, 4_700);
+      assert.equal(publicResponse.body.entries[0].killRewardStatus, "paid");
+
+      const myMatchesResponse = await fetch(`${origin}/my/registrations`, {
+        headers: authHeaders(winner.userId),
+      });
+      assert.equal(myMatchesResponse.status, 200);
+      const myMatches = await myMatchesResponse.json() as Array<Record<string, any>>;
+      const ownMatch = myMatches.find((entry) => entry.tournamentId === fixture.matchId);
+      assert.equal(ownMatch?.resultDetails.kills, 47);
+      assert.equal(ownMatch?.resultDetails.killsVerified, true);
+      assert.equal(ownMatch?.resultDetails.killRewardPaidCoins, 4_700);
+      assert.equal(ownMatch?.resultDetails.killRewardStatus, "paid");
+
+      const adminLogResponse = await fetch(`${origin}/admin/results`, {
+        headers: authHeaders(fixture.adminId),
+      });
+      assert.equal(adminLogResponse.status, 200);
+      const adminLogs = await adminLogResponse.json() as { data: Array<Record<string, unknown>> };
+      const adminEntry = adminLogs.data.find((entry) => entry.registrationId === winner.registrationId);
+      assert.equal(adminEntry?.killRewardPaidCoins, 4_700);
+      assert.equal(adminEntry?.killRewardStatus, "paid");
+
+      const retry = await submitResult(origin, fixture.adminId, fixture.matchId, winner, 1, 47);
+      assert.equal(retry.status, 409);
+      const afterRetry = await pool.query<{ count: number }>(
+        `SELECT count(*)::int AS count
+           FROM daily007_v2_wallet_ledger
+          WHERE registration_id = $1 AND reason = 'kill_reward'`,
+        [winner.registrationId],
+      );
+      assert.equal(afterRetry.rows[0]?.count, 1);
     });
   } finally {
     await cleanupFixture(fixture);
@@ -2893,7 +2994,7 @@ test("a result that locks first prevents a queued cancellation from overriding t
         12,
       );
       const blockedResult = await waitForBlockedTournamentRequest(
-        "%SELECT mode, game_mode, team_type, capacity FROM daily007_v2_matches%",
+        "%SELECT mode, game_mode, team_type, capacity, kill_reward_coins FROM daily007_v2_matches%",
       );
       assert.ok(blockedResult.blockers.includes(blockerPid));
 
@@ -2926,6 +3027,11 @@ test("a result that locks first prevents a queued cancellation from overriding t
         rank: 1,
         kills: 12,
         prizeCoins: 500,
+        killsVerified: true,
+        killRewardCoinsPerKill: 0,
+        killRewardPaidCoins: 0,
+        killRewardStatus: "no_bonus",
+        isKillEarn: false,
         gameName: "TestGame1",
         teamName: null,
       }]);
@@ -3008,7 +3114,7 @@ test("a cancellation that locks first rejects queued results and public standing
         12,
       );
       const blockedResult = await waitForBlockedTournamentRequest(
-        "%SELECT mode, game_mode, team_type, capacity FROM daily007_v2_matches%",
+        "%SELECT mode, game_mode, team_type, capacity, kill_reward_coins FROM daily007_v2_matches%",
       );
       assert.ok(
         blockedResult.blockers.includes(blockedCancellation.pid),
@@ -3354,6 +3460,11 @@ test("concurrent first- and second-place results cannot pay one registration twi
           rank: 1,
           kills: successfulKills,
           prizeCoins: successfulPrize,
+          killsVerified: true,
+          killRewardCoinsPerKill: 0,
+          killRewardPaidCoins: 0,
+          killRewardStatus: "no_bonus",
+          isKillEarn: false,
           gameName: "TestGame1",
           teamName: null,
         }]);
@@ -3471,6 +3582,11 @@ test("a rank-2-first result remains the only public result for its registration 
           rank: 1,
           kills: 6,
           prizeCoins: 500,
+          killsVerified: true,
+          killRewardCoinsPerKill: 0,
+          killRewardPaidCoins: 0,
+          killRewardStatus: "no_bonus",
+          isKillEarn: false,
           gameName: "TestGame2",
           teamName: null,
         },
@@ -3478,6 +3594,11 @@ test("a rank-2-first result remains the only public result for its registration 
           rank: 2,
           kills: 3,
           prizeCoins: 250,
+          killsVerified: true,
+          killRewardCoinsPerKill: 0,
+          killRewardPaidCoins: 0,
+          killRewardStatus: "no_bonus",
+          isKillEarn: false,
           gameName: "TestGame1",
           teamName: null,
         },
@@ -3489,6 +3610,11 @@ test("a rank-2-first result remains the only public result for its registration 
           rank: 2,
           kills: 3,
           prizeCoins: 250,
+          killsVerified: true,
+          killRewardCoinsPerKill: 0,
+          killRewardPaidCoins: 0,
+          killRewardStatus: "no_bonus",
+          isKillEarn: false,
           gameName: "TestGame1",
           teamName: null,
         }],
@@ -3636,6 +3762,11 @@ test("concurrent first-, second-, and third-place results preserve configured pr
           rank: 1,
           kills: 7,
           prizeCoins: 500,
+          killsVerified: true,
+          killRewardCoinsPerKill: 0,
+          killRewardPaidCoins: 0,
+          killRewardStatus: "no_bonus",
+          isKillEarn: false,
           gameName: "TestGame1",
           teamName: null,
         },
@@ -3643,6 +3774,11 @@ test("concurrent first-, second-, and third-place results preserve configured pr
           rank: 2,
           kills: 3,
           prizeCoins: 250,
+          killsVerified: true,
+          killRewardCoinsPerKill: 0,
+          killRewardPaidCoins: 0,
+          killRewardStatus: "no_bonus",
+          isKillEarn: false,
           gameName: "TestGame2",
           teamName: null,
         },
@@ -3650,6 +3786,11 @@ test("concurrent first-, second-, and third-place results preserve configured pr
           rank: 3,
           kills: 5,
           prizeCoins: 125,
+          killsVerified: true,
+          killRewardCoinsPerKill: 0,
+          killRewardPaidCoins: 0,
+          killRewardStatus: "no_bonus",
+          isKillEarn: false,
           gameName: "TestGame3",
           teamName: null,
         },
@@ -4293,6 +4434,11 @@ test("failed runner-up payout preserves the earlier winner and permits one retry
         rank: 1,
         kills: 7,
         prizeCoins: 500,
+        killsVerified: true,
+        killRewardCoinsPerKill: 0,
+        killRewardPaidCoins: 0,
+        killRewardStatus: "no_bonus",
+        isKillEarn: false,
         gameName: "TestGame1",
         teamName: null,
       }]);
@@ -4411,6 +4557,11 @@ test("failed runner-up payout preserves the earlier winner and permits one retry
           rank: 1,
           kills: 7,
           prizeCoins: 500,
+          killsVerified: true,
+          killRewardCoinsPerKill: 0,
+          killRewardPaidCoins: 0,
+          killRewardStatus: "no_bonus",
+          isKillEarn: false,
           gameName: "TestGame1",
           teamName: null,
         },
@@ -4418,6 +4569,11 @@ test("failed runner-up payout preserves the earlier winner and permits one retry
           rank: 2,
           kills: 3,
           prizeCoins: 250,
+          killsVerified: true,
+          killRewardCoinsPerKill: 0,
+          killRewardPaidCoins: 0,
+          killRewardStatus: "no_bonus",
+          isKillEarn: false,
           gameName: "TestGame2",
           teamName: null,
         },
@@ -4539,6 +4695,11 @@ test("a failed first-place payout rolls back completely and the winner can retry
         rank: 1,
         kills: 7,
         prizeCoins: 500,
+        killsVerified: true,
+        killRewardCoinsPerKill: 0,
+        killRewardPaidCoins: 0,
+        killRewardStatus: "no_bonus",
+        isKillEarn: false,
         gameName: "TestGame1",
         teamName: null,
       }], "finalized standings must contain only the successfully paid winner");

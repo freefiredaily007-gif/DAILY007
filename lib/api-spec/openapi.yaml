@@ -1538,7 +1538,7 @@ components:
         completedAt: { type: ["string", "null"], format: date-time }
         entryCoins: { type: integer }
         prizePool: { type: integer }
-        killRewardCoins: { type: integer, minimum: 0 }
+        killRewardCoins: { type: integer, minimum: 0, maximum: 100 }
         totalSlots: { type: integer }
         totalPlayerSlots: { type: integer }
         rules: { type: string }
@@ -1600,7 +1600,17 @@ components:
           type: integer
           minimum: 0
           maximum: 2147483647
-          description: Individual kills for a single-player result; team rank-1 awards record zero so personal kill totals remain unchanged.
+          description: Admin-recorded kills. Kill & Earn counts are capped at 47 per player by the server; a Kill & Earn team winner must also send each member's verified count.
+        killsByRegistration:
+          type: array
+          description: Required for Kill & Earn team winners; one verified count for every active approved player on that team.
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              registrationId: { type: string, format: uuid }
+              kills: { type: integer, minimum: 0, maximum: 47 }
+            required: [registrationId, kills]
       required: [tournamentId, registrationId, rank, kills]
     TournamentPrizeRecipient:
       type: object
@@ -1609,8 +1619,9 @@ components:
         registrationId: { type: string, format: uuid }
         userId: { type: string, format: uuid }
         prizeCoins: { type: integer, minimum: 0 }
+        killRewardCoins: { type: integer, minimum: 0 }
         walletCoins: { type: integer, minimum: 0 }
-      required: [registrationId, userId, prizeCoins, walletCoins]
+      required: [registrationId, userId, prizeCoins, killRewardCoins, walletCoins]
     TournamentResultPublishResponse:
       type: object
       additionalProperties: false
@@ -1621,13 +1632,14 @@ components:
         rank: { type: integer, minimum: 1 }
         kills: { type: integer, minimum: 0 }
         prizeCoins: { type: integer, minimum: 0, description: Equal per-player prize for team wins; otherwise the saved rank prize. }
+        totalKillRewardCoins: { type: integer, minimum: 0 }
         walletCoins: { type: integer, minimum: 0 }
         totalPrizeCoins: { type: integer, minimum: 0 }
         playersAwarded:
           type: array
           items: { $ref: "#/components/schemas/TournamentPrizeRecipient" }
         teamNumber: { type: integer, minimum: 1, maximum: 24 }
-      required: [id, registrationId, userId, rank, kills, prizeCoins, walletCoins, totalPrizeCoins, playersAwarded]
+      required: [id, registrationId, userId, rank, kills, prizeCoins, totalKillRewardCoins, walletCoins, totalPrizeCoins, playersAwarded]
     TournamentResultEntry:
       type: object
       properties:
@@ -1635,9 +1647,14 @@ components:
         rank: { type: integer }
         kills: { type: integer }
         prizeCoins: { type: integer }
+        killsVerified: { type: boolean }
+        killRewardCoinsPerKill: { type: integer, minimum: 0, maximum: 100 }
+        killRewardPaidCoins: { type: integer, minimum: 0 }
+        killRewardStatus: { type: string, enum: [paid, not_paid, no_bonus] }
+        isKillEarn: { type: boolean }
         gameName: { type: string }
         teamName: { type: string, nullable: true }
-      required: [registrationId, rank, kills, prizeCoins, gameName, teamName]
+      required: [registrationId, rank, kills, prizeCoins, killsVerified, killRewardCoinsPerKill, killRewardPaidCoins, killRewardStatus, isKillEarn, gameName, teamName]
     TournamentResultsView:
       type: object
       properties:
@@ -1660,8 +1677,12 @@ components:
         rank: { type: integer, minimum: 1 }
         kills: { type: integer, minimum: 0 }
         prizeCoins: { type: integer, minimum: 0 }
+        killRewardCoinsPerKill: { type: integer, minimum: 0, maximum: 100 }
+        killRewardPaidCoins: { type: integer, minimum: 0 }
+        killRewardStatus: { type: string, enum: [paid, not_paid, no_bonus] }
+        isKillEarn: { type: boolean }
         createdAt: { type: string, format: date-time }
-      required: [tournamentId, tournamentName, registrationId, playerName, rank, kills, prizeCoins, createdAt]
+      required: [tournamentId, tournamentName, registrationId, playerName, rank, kills, prizeCoins, killRewardCoinsPerKill, killRewardPaidCoins, killRewardStatus, isKillEarn, createdAt]
     AdminResultLogsResponse:
       type: object
       properties:

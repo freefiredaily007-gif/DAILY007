@@ -4,6 +4,10 @@ type TournamentResultAccessibilityDetails = {
   teamName: string;
   kills: unknown;
   prizeCoins: unknown;
+  killsVerified?: unknown;
+  isKillEarn?: unknown;
+  killRewardPaidCoins?: unknown;
+  killRewardStatus?: unknown;
 };
 
 function describeValue(value: unknown, unavailable: string): string {
@@ -16,12 +20,25 @@ export function tournamentResultAccessibilityLabel({
   teamName,
   kills,
   prizeCoins,
+  killsVerified,
+  isKillEarn,
+  killRewardPaidCoins,
+  killRewardStatus,
 }: TournamentResultAccessibilityDetails): string {
   const spokenTeam = `team ${describeValue(teamName, 'unavailable')}`;
   const spokenKills = kills == null || String(kills).trim() === ''
     ? 'kills unavailable'
-    : `${String(kills).trim()} kills`;
+    : `${killsVerified === true ? 'verified ' : ''}${String(kills).trim()} kills`;
   const spokenPrize = `${describeValue(prizeCoins, '0')} coins`;
+  const killReward = isKillEarn === true
+    ? `Kill reward ${describeValue(killRewardPaidCoins, '0')} coins, ${
+      killRewardStatus === 'paid'
+        ? 'paid'
+        : killRewardStatus === 'not_paid'
+          ? 'not paid'
+          : 'no bonus'
+    }`
+    : '';
 
   return [
     `Rank ${rank}`,
@@ -29,5 +46,6 @@ export function tournamentResultAccessibilityLabel({
     spokenTeam,
     spokenKills,
     `prize ${spokenPrize}`,
+    killReward,
   ].join(', ');
 }

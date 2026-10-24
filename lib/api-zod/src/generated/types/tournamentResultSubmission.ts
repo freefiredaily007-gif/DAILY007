@@ -22,6 +22,7 @@
  *
  * OpenAPI spec version: 0.1.0
  */
+import type { TournamentResultSubmissionKillsByRegistrationItem } from './tournamentResultSubmissionKillsByRegistrationItem';
 
 export interface TournamentResultSubmission {
   tournamentId: string;
@@ -33,9 +34,11 @@ export interface TournamentResultSubmission {
      */
   rank: number;
   /**
-     * Individual kills for a single-player result; team rank-1 awards record zero so personal kill totals remain unchanged.
+     * Admin-recorded kills. Kill & Earn counts are capped at 47 per player by the server; a Kill & Earn team winner must also send each member's verified count.
      * @minimum 0
      * @maximum 2147483647
      */
   kills: number;
+  /** Required for Kill & Earn team winners; one verified count for every active approved player on that team. */
+  killsByRegistration?: TournamentResultSubmissionKillsByRegistrationItem[];
 }

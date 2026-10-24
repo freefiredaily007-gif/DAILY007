@@ -3,6 +3,7 @@ import test, { after } from "node:test";
 import express from "express";
 import type { Server } from "node:http";
 import { configuredPrizeForRank } from "../../daily007/src/lib/tournamentPrizes";
+import { killRewardAmount } from "../src/lib/daily007-kill-rewards";
 import { makeToken } from "../src/lib/daily007-session-token";
 import compatCoreRouter from "../src/routes/daily007-compat-core";
 import compatExtraRouter from "../src/routes/daily007-compat-extra";
@@ -115,7 +116,7 @@ async function createResultsTournament(origin: string): Promise<void> {
     time: startsAt.toISOString().slice(11, 16),
     prizeDist: "1st: 1,500 coins\n2nd: 600 coins",
   });
-  assert.equal(createdTournament.status, 201);
+  assert.equal(createdTournament.status, 201, JSON.stringify(createdTournament.body));
   assert.equal(createdTournament.body.id, TEST_MATCH_ID);
   assert.equal(createdTournament.body.prizeDist, "1st: 1,500 coins\n2nd: 600 coins");
   tournamentResultsTestDb.approveTestRegistrations();
@@ -257,6 +258,253 @@ test("admin result prize display follows each saved rank amount", () => {
   assert.equal(configuredPrizeForRank(tournament, 2), 600);
   assert.equal(configuredPrizeForRank(tournament, 3), 0);
   assert.equal(configuredPrizeForRank({ prizePool: 2_100, prizeDist: "" }, 1), 2_100);
+});
+
+test("Kill & Earn payouts enforce the hard per-player rate and kill caps", () => {
+  assert.equal(killRewardAmount(0, 100), 0);
+  assert.equal(killRewardAmount(47, 100), 4_700);
+  assert.throws(() => killRewardAmount(48, 100), RangeError);
+  assert.throws(() => killRewardAmount(1, 101), RangeError);
+});
+
+test("tournament rates above the cap are rejected and saved rates lock after the first result", async () => {
+  tournamentResultsTestDb.reset();
+
+  await withServer(async (origin) => {
+    const startsAt = new Date(Date.now() + 86_400_000);
+    const overCap = await call(origin, TEST_ADMIN_ID, "/tournaments", "POST", {
+      name: "Invalid Kill & Earn rate",
+      mode: "battle_royale",
+      teamType: "solo",
+      entryCoins: 0,
+      prizePool: 2_100,
+      killRewardCoins: 101,
+      rules: "Test-only.",
+      banner: "br",
+      date: startsAt.toISOString().slice(0, 10),
+      time: startsAt.toISOString().slice(11, 16),
+      prizeDist: "1st: 1,500 coins\n2nd: 600 coins",
+    });
+    assert.equal(overCap.status, 400);
+
+    await createResultsTournament(origin);
+    tournamentResultsTestDb.match.starts_at = new Date(Date.now() - 60 * 60 * 1000);
+    tournamentResultsTestDb.match.game_mode = "battle_royale_kill_earn";
+    tournamentResultsTestDb.match.kill_reward_coins = 100;
+    const published = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
+      tournamentId: TEST_MATCH_ID,
+      registrationId: TEST_RUNNER_UP_REGISTRATION_ID,
+      rank: 2,
+      kills: 3,
+    });
+    assert.equal(published.status, 201);
+    assert.equal(published.body.totalKillRewardCoins, 300);
+
+    const attemptedRateChange = await call(
+      origin,
+      TEST_ADMIN_ID,
+      `/tournaments/${TEST_MATCH_ID}`,
+      "PATCH",
+      {
+        killRewardCoins: 99,
+        date: startsAt.toISOString().slice(0, 10),
+        time: startsAt.toISOString().slice(11, 16),
+      },
+    );
+    assert.equal(attemptedRateChange.status, 409);
+    assert.match(attemptedRateChange.body.error, /cannot change after any result/i);
+    assert.equal(tournamentResultsTestDb.match.kill_reward_coins, 100);
+  });
+});
+
+test("admin-verified Kill & Earn results credit once and expose the ledger-backed payout state", async () => {
+  tournamentResultsTestDb.reset();
+
+  await withServer(async (origin) => {
+    await createResultsTournament(origin);
+    tournamentResultsTestDb.match.starts_at = new Date(Date.now() - 60 * 60 * 1000);
+    tournamentResultsTestDb.match.game_mode = "battle_royale_kill_earn";
+    tournamentResultsTestDb.match.kill_reward_coins = 100;
+
+    const submittedResult = {
+      tournamentId: TEST_MATCH_ID,
+      registrationId: TEST_WINNER_REGISTRATION_ID,
+      rank: 1,
+      kills: 47,
+      killRewardCoins: 1,
+    };
+    const unauthorized = await call(
+      origin,
+      TEST_PENDING_PLAYER_ID,
+      "/admin/results",
+      "POST",
+      submittedResult,
+    );
+    assert.equal(unauthorized.status, 403);
+    assert.equal(tournamentResultsTestDb.ledger.length, 0);
+
+    const overCap = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
+      ...submittedResult,
+      kills: 48,
+    });
+    assert.equal(overCap.status, 400);
+    assert.equal(tournamentResultsTestDb.ledger.length, 0);
+
+    tournamentResultsTestDb.failOnNextMatchFinalization();
+    const failedAtomicPublish = await call(
+      origin,
+      TEST_ADMIN_ID,
+      "/admin/results",
+      "POST",
+      submittedResult,
+    );
+    assert.equal(failedAtomicPublish.status, 500);
+    assert.equal(tournamentResultsTestDb.users.get(TEST_WINNER_ID)?.wallet_coins, 100);
+    assert.equal(tournamentResultsTestDb.ledger.length, 0);
+    assert.equal(tournamentResultsTestDb.awards.length, 0);
+    assert.equal(tournamentResultsTestDb.stats.has(TEST_WINNER_ID), false);
+
+    const published = await call(
+      origin,
+      TEST_ADMIN_ID,
+      "/admin/results",
+      "POST",
+      submittedResult,
+    );
+    assert.equal(published.status, 201);
+    assert.equal(published.body.kills, 47);
+    assert.equal(published.body.totalKillRewardCoins, 4_700);
+    assert.equal(published.body.walletCoins, 6_300);
+    assert.deepEqual(published.body.playersAwarded, [{
+      registrationId: TEST_WINNER_REGISTRATION_ID,
+      userId: TEST_WINNER_ID,
+      prizeCoins: 1_500,
+      killRewardCoins: 4_700,
+      walletCoins: 6_300,
+    }]);
+    assert.equal(tournamentResultsTestDb.users.get(TEST_WINNER_ID)?.wallet_coins, 6_300);
+    assert.deepEqual(tournamentResultsTestDb.ledger, [
+      { userId: TEST_WINNER_ID, amount: 1_500, balanceAfter: 1_600, reason: "match_prize" },
+      {
+        userId: TEST_WINNER_ID,
+        amount: 4_700,
+        balanceAfter: 6_300,
+        reason: "kill_reward",
+        idempotencyKey: `kill_reward:${TEST_MATCH_ID}:${TEST_WINNER_REGISTRATION_ID}`,
+      },
+    ]);
+    assert.deepEqual(tournamentResultsTestDb.stats.get(TEST_WINNER_ID), {
+      matches: 1,
+      wins: 1,
+      kills: 47,
+      prize_coins: 1_500,
+    });
+
+    const adminLogs = await call(origin, TEST_ADMIN_ID, "/admin/results?includeUnfinalized=true", "GET");
+    assert.equal(adminLogs.status, 200);
+    assert.equal(adminLogs.body.data[0].kills, 47);
+    assert.equal(adminLogs.body.data[0].killRewardCoinsPerKill, 100);
+    assert.equal(adminLogs.body.data[0].killRewardPaidCoins, 4_700);
+    assert.equal(adminLogs.body.data[0].killRewardStatus, "paid");
+
+    const standings = await callPublic(origin, `/tournaments/${TEST_MATCH_ID}/results`);
+    assert.equal(standings.status, 200);
+    assert.equal(standings.body.entries[0].killsVerified, true);
+    assert.equal(standings.body.entries[0].killRewardPaidCoins, 4_700);
+    assert.equal(standings.body.entries[0].killRewardStatus, "paid");
+
+    const myMatches = await call(origin, TEST_WINNER_ID, "/my/registrations", "GET");
+    assert.equal(myMatches.status, 200);
+    const ownResult = myMatches.body.find((entry: any) => entry.tournamentId === TEST_MATCH_ID);
+    assert.equal(ownResult.resultDetails.kills, 47);
+    assert.equal(ownResult.resultDetails.killsVerified, true);
+    assert.equal(ownResult.resultDetails.killRewardPaidCoins, 4_700);
+    assert.equal(ownResult.resultDetails.killRewardStatus, "paid");
+
+    const beforeRetry = captureSettlementState();
+    const retry = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", submittedResult);
+    assert.equal(retry.status, 409);
+    assert.equal(tournamentResultsTestDb.users.get(TEST_WINNER_ID)?.wallet_coins, 6_300);
+    assert.deepEqual(captureSettlementState(), beforeRetry);
+  });
+});
+
+test("Kill & Earn team winners need a verified count for every active player and receive separate credits", async () => {
+  tournamentResultsTestDb.reset();
+
+  await withServer(async (origin) => {
+    await createResultsTournament(origin);
+    tournamentResultsTestDb.match.starts_at = new Date(Date.now() - 60 * 60 * 1000);
+    tournamentResultsTestDb.configureKillEarnDuo();
+
+    const baseSubmission = {
+      tournamentId: TEST_MATCH_ID,
+      registrationId: TEST_WINNER_REGISTRATION_ID,
+      rank: 1,
+      kills: 0,
+    };
+    const missingPlayer = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
+      ...baseSubmission,
+      killsByRegistration: [{ registrationId: TEST_WINNER_REGISTRATION_ID, kills: 47 }],
+    });
+    assert.equal(missingPlayer.status, 400);
+    assert.equal(tournamentResultsTestDb.ledger.length, 0);
+
+    const outOfRangePlayer = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", {
+      ...baseSubmission,
+      killsByRegistration: [
+        { registrationId: TEST_WINNER_REGISTRATION_ID, kills: 48 },
+        { registrationId: TEST_RUNNER_UP_REGISTRATION_ID, kills: 12 },
+      ],
+    });
+    assert.equal(outOfRangePlayer.status, 400);
+    assert.equal(tournamentResultsTestDb.ledger.length, 0);
+
+    const submission = {
+      ...baseSubmission,
+      killsByRegistration: [
+        { registrationId: TEST_WINNER_REGISTRATION_ID, kills: 47 },
+        { registrationId: TEST_RUNNER_UP_REGISTRATION_ID, kills: 19 },
+      ],
+    };
+    const published = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", submission);
+    assert.equal(published.status, 201);
+    assert.equal(published.body.totalPrizeCoins, 2_100);
+    assert.equal(published.body.totalKillRewardCoins, 6_600);
+    assert.deepEqual(
+      published.body.playersAwarded.map((player: any) => ({
+        registrationId: player.registrationId,
+        prizeCoins: player.prizeCoins,
+        killRewardCoins: player.killRewardCoins,
+        walletCoins: player.walletCoins,
+      })),
+      [
+        {
+          registrationId: TEST_WINNER_REGISTRATION_ID,
+          prizeCoins: 1_050,
+          killRewardCoins: 4_700,
+          walletCoins: 5_850,
+        },
+        {
+          registrationId: TEST_RUNNER_UP_REGISTRATION_ID,
+          prizeCoins: 1_050,
+          killRewardCoins: 1_900,
+          walletCoins: 3_150,
+        },
+      ],
+    );
+    assert.equal(tournamentResultsTestDb.ledger.filter((entry) => entry.reason === "kill_reward").length, 2);
+    assert.equal(
+      new Set(tournamentResultsTestDb.ledger
+        .filter((entry) => entry.reason === "kill_reward")
+        .map((entry) => entry.idempotencyKey)).size,
+      2,
+    );
+
+    const retry = await call(origin, TEST_ADMIN_ID, "/admin/results", "POST", submission);
+    assert.equal(retry.status, 409);
+    assert.equal(tournamentResultsTestDb.ledger.filter((entry) => entry.reason === "kill_reward").length, 2);
+  });
 });
 
 test("saved-prize results reject duplicate retries and competing winners without extra side effects", async () => {
@@ -630,6 +878,11 @@ test("published results exclude cancelled tournaments with existing awards", asy
           rank: 1,
           kills: 8,
           prizeCoins: 1_500,
+          killsVerified: true,
+          killRewardCoinsPerKill: 0,
+          killRewardPaidCoins: 0,
+          killRewardStatus: "no_bonus",
+          isKillEarn: false,
           gameName: "WinnerFF",
           teamName: "Winner Team",
         },
@@ -637,6 +890,11 @@ test("published results exclude cancelled tournaments with existing awards", asy
           rank: 2,
           kills: 3,
           prizeCoins: 600,
+          killsVerified: true,
+          killRewardCoinsPerKill: 0,
+          killRewardPaidCoins: 0,
+          killRewardStatus: "no_bonus",
+          isKillEarn: false,
           gameName: "RunnerUpFF",
           teamName: "Runner-Up Team",
         },
@@ -678,6 +936,11 @@ test("My Matches preserves an individual result when its tournament standings li
       rank: 2,
       kills: 3,
       prizeCoins: 600,
+      killsVerified: true,
+      killRewardCoinsPerKill: 0,
+      killRewardPaidCoins: 0,
+      killRewardStatus: "no_bonus",
+      isKillEarn: false,
       gameName: "RunnerUpFF",
       teamName: null,
     });

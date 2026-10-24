@@ -19,6 +19,14 @@ type TestRegistration = {
   team_name: string | null;
   status: "approved" | "pending" | "rejected";
 };
+type TestTeamMember = {
+  team_id: string;
+  registration_id: string;
+  captain_registration_id: string;
+  team_number: number;
+  slot_number: number;
+  is_active: boolean;
+};
 
 type TestAward = {
   id: string;
@@ -40,6 +48,7 @@ type TestMatch = {
   capacity: number;
   entry_coins: number;
   prize_pool: number;
+  kill_reward_coins: number;
   starts_at: Date;
   status: string;
   is_full: boolean;
@@ -67,6 +76,7 @@ type TestLedgerEntry = {
   amount: number;
   balanceAfter: number;
   reason: string;
+  idempotencyKey?: string;
 };
 
 export const TEST_ADMIN_ID = "70000000-0000-4000-8000-000000000004";
@@ -83,6 +93,7 @@ const PRIZE_DISTRIBUTION = "1st: 1,500 coins\n2nd: 600 coins";
 class MemoryTournamentResultsDatabase {
   users = new Map<string, TestUser>();
   registrations: TestRegistration[] = [];
+  teamMembers: TestTeamMember[] = [];
   awards: TestAward[] = [];
   stats = new Map<string, TestStats>();
   ledger: TestLedgerEntry[] = [];
@@ -101,6 +112,7 @@ class MemoryTournamentResultsDatabase {
       [TEST_PENDING_PLAYER_ID, this.user(TEST_PENDING_PLAYER_ID, "Pending Player", "pending@example.test", "user", 300)],
     ]);
     this.registrations = [];
+    this.teamMembers = [];
     this.awards = [];
     this.stats = new Map();
     this.ledger = [];
@@ -143,6 +155,32 @@ class MemoryTournamentResultsDatabase {
         captain_game_name: "RunnerUpFF",
         team_name: null,
         status: "approved",
+      },
+    ];
+  }
+
+  configureKillEarnDuo(): void {
+    this.approveTestRegistrations();
+    this.match.mode = "battle_royale";
+    this.match.game_mode = "battle_royale_kill_earn";
+    this.match.team_type = "duo";
+    this.match.kill_reward_coins = 100;
+    this.teamMembers = [
+      {
+        team_id: "70000000-0000-4000-8000-000000000009",
+        registration_id: TEST_WINNER_REGISTRATION_ID,
+        captain_registration_id: TEST_WINNER_REGISTRATION_ID,
+        team_number: 1,
+        slot_number: 1,
+        is_active: true,
+      },
+      {
+        team_id: "70000000-0000-4000-8000-000000000009",
+        registration_id: TEST_RUNNER_UP_REGISTRATION_ID,
+        captain_registration_id: TEST_WINNER_REGISTRATION_ID,
+        team_number: 1,
+        slot_number: 2,
+        is_active: true,
       },
     ];
   }
@@ -207,6 +245,7 @@ class MemoryTournamentResultsDatabase {
       capacity: 48,
       entry_coins: 0,
       prize_pool: 2_100,
+      kill_reward_coins: 0,
       starts_at: new Date(Date.now() + 86_400_000),
       status: "open",
       is_full: false,
@@ -283,6 +322,7 @@ class MemoryTournamentResultsDatabase {
         capacity,
         entryCoins,
         prizePool,
+        killRewardCoins,
         startsAt,
         rules,
         banner,
@@ -299,6 +339,7 @@ class MemoryTournamentResultsDatabase {
         capacity: Number(capacity),
         entry_coins: Number(entryCoins),
         prize_pool: Number(prizePool),
+        kill_reward_coins: Number(killRewardCoins),
         starts_at: startsAt instanceof Date ? startsAt : new Date(String(startsAt)),
         rules: String(rules),
         banner: String(banner),
@@ -308,7 +349,7 @@ class MemoryTournamentResultsDatabase {
       };
       rows = [{ id: this.match.id }];
     } else if (normalized.startsWith(
-      "SELECT mode, game_mode, team_type, capacity FROM daily007_v2_matches WHERE id = $1",
+      "SELECT mode, game_mode, team_type, capacity, kill_reward_coins FROM daily007_v2_matches WHERE id = $1 FOR UPDATE",
     )) {
       rows = values[0] === this.match.id
         ? [{
@@ -316,19 +357,34 @@ class MemoryTournamentResultsDatabase {
             game_mode: this.match.game_mode,
             team_type: this.match.team_type,
             capacity: this.match.capacity,
+            kill_reward_coins: this.match.kill_reward_coins,
           }]
         : [];
     } else if (normalized.startsWith(
-      "SELECT m.id, m.title, m.mode, m.game_mode, m.team_type, m.capacity, m.entry_coins, m.prize_pool, m.starts_at",
+      "SELECT id, title, mode, game_mode, team_type, capacity, entry_coins, prize_pool, kill_reward_coins, starts_at",
+    )) {
+      rows = values[0] === this.match.id ? [structuredClone(this.match)] : [];
+    } else if (normalized.startsWith(
+      "SELECT EXISTS (SELECT 1 FROM daily007_v2_result_awards WHERE match_id = $1) AS has_awards",
+    )) {
+      rows = [{
+        has_awards: this.awards.some((award) => award.match_id === values[0]),
+      }];
+    } else if (normalized.startsWith(
+      "SELECT m.id, m.title, m.mode, m.game_mode, m.team_type, m.capacity, m.entry_coins, m.prize_pool, m.kill_reward_coins",
     )) {
       rows = (values.length === 0 || values[0] === this.match.id) &&
         (!normalized.includes("m.enabled = true") || this.match.enabled)
         ? [{
           ...structuredClone(this.match),
           has_started: false,
+          registration_open: true,
           has_winner: false,
           completed_at: null,
           registered_count: this.registrations.filter((registration) =>
+            ["approved", "pending"].includes(registration.status),
+          ).length,
+          registered_player_count: this.registrations.filter((registration) =>
             ["approved", "pending"].includes(registration.status),
           ).length,
         }]
@@ -403,12 +459,60 @@ class MemoryTournamentResultsDatabase {
       if (user) user.wallet_coins = Number(values[1]);
     } else if (normalized.startsWith("INSERT INTO daily007_v2_wallet_ledger")) {
       rows = [];
+      const isKillReward = normalized.includes("'kill_reward'");
       this.ledger.push({
         userId: String(values[0]),
         amount: Number(values[1]),
         balanceAfter: Number(values[2]),
-        reason: "match_prize",
+        reason: isKillReward ? "kill_reward" : "match_prize",
+        ...(isKillReward ? { idempotencyKey: String(values[5]) } : {}),
       });
+    } else if (normalized.startsWith(
+      "SELECT r.id, r.captain_game_name, r.captain_game_uid, r.assigned_group_number AS team_number",
+    )) {
+      rows = [];
+    } else if (normalized ===
+      "SELECT team_number FROM daily007_v2_squad_teams WHERE match_id = $1 FOR UPDATE"
+    ) {
+      rows = [];
+    } else if (normalized.startsWith(
+      "SELECT member.team_id, team.captain_registration_id, team.team_number, member.is_active",
+    )) {
+      const member = this.teamMembers.find((entry) => entry.registration_id === values[0]);
+      rows = member
+        ? [{
+            team_id: member.team_id,
+            captain_registration_id: member.captain_registration_id,
+            team_number: member.team_number,
+            is_active: member.is_active,
+          }]
+        : [];
+    } else if (normalized.startsWith(
+      "SELECT registration.id AS registration_id, registration.captain_user_id AS user_id, member.slot_number",
+    )) {
+      const teamId = String(values[1]);
+      rows = this.teamMembers
+        .filter((member) => member.team_id === teamId && member.is_active)
+        .flatMap((member) => {
+          const registration = this.registrations.find((entry) =>
+            entry.id === member.registration_id && entry.status === "approved",
+          );
+          return registration
+            ? [{
+                registration_id: registration.id,
+                user_id: registration.captain_user_id,
+                slot_number: member.slot_number,
+              }]
+            : [];
+        });
+    } else if (normalized.startsWith(
+      "SELECT award.registration_id FROM daily007_v2_result_awards award WHERE award.match_id = $1 AND award.registration_id = ANY",
+    )) {
+      const registrationIds = Array.isArray(values[1]) ? values[1].map(String) : [];
+      const award = this.awards.find((entry) =>
+        entry.match_id === values[0] && registrationIds.includes(entry.registration_id),
+      );
+      rows = award ? [{ registration_id: award.registration_id }] : [];
     } else if (normalized.startsWith("SELECT EXISTS (SELECT 1 FROM daily007_v2_registrations WHERE match_id = $1)")) {
       const matchId = String(values[0]);
       rows = [{
@@ -494,6 +598,7 @@ class MemoryTournamentResultsDatabase {
             match_entry_coins: match.entry_coins,
             match_status: match.status,
             prize_pool: match.prize_pool,
+            kill_reward_coins: match.kill_reward_coins,
             rules: match.rules,
             banner: match.banner,
             image_url: match.image_url,
@@ -520,6 +625,22 @@ class MemoryTournamentResultsDatabase {
                     rank: award.rank,
                     kills: award.kills,
                     prizeCoins: award.prize_coins,
+                      killsVerified: true,
+                      killRewardCoinsPerKill: match.kill_reward_coins,
+                      killRewardPaidCoins: this.ledger.find((entry) =>
+                        entry.reason === "kill_reward" &&
+                        entry.idempotencyKey === `kill_reward:${match.id}:${award.registration_id}`,
+                      )?.amount ?? 0,
+                      killRewardStatus: match.game_mode !== "battle_royale_kill_earn" ||
+                        award.kills === 0 || match.kill_reward_coins === 0
+                        ? "no_bonus"
+                        : this.ledger.some((entry) =>
+                          entry.reason === "kill_reward" &&
+                          entry.idempotencyKey === `kill_reward:${match.id}:${award.registration_id}`,
+                        )
+                          ? "paid"
+                          : "not_paid",
+                      isKillEarn: match.game_mode === "battle_royale_kill_earn",
                     gameName: resultRegistration.captain_game_name,
                     teamName: resultRegistration.team_name,
                   };
@@ -531,6 +652,23 @@ class MemoryTournamentResultsDatabase {
             result_rank: individualAward?.rank ?? null,
             result_kills: individualAward?.kills ?? null,
             result_prize_coins: individualAward?.prize_coins ?? null,
+            result_kill_reward_paid_coins: individualAward
+              ? this.ledger.find((entry) =>
+                entry.reason === "kill_reward" &&
+                entry.idempotencyKey === `kill_reward:${match.id}:${individualAward.registration_id}`,
+              )?.amount ?? 0
+              : null,
+            result_kill_reward_status: individualAward
+              ? match.game_mode !== "battle_royale_kill_earn" ||
+                individualAward.kills === 0 || match.kill_reward_coins === 0
+                ? "no_bonus"
+                : this.ledger.some((entry) =>
+                  entry.reason === "kill_reward" &&
+                  entry.idempotencyKey === `kill_reward:${match.id}:${individualAward.registration_id}`,
+                )
+                  ? "paid"
+                  : "not_paid"
+              : null,
             registered_count: this.registrations.filter((candidate) =>
               candidate.match_id === match.id &&
               ["approved", "pending"].includes(candidate.status),
@@ -543,17 +681,31 @@ class MemoryTournamentResultsDatabase {
     ) {
       rows = [];
     } else if (normalized.startsWith(
-      "SELECT award.registration_id, award.rank, award.kills, award.prize_coins, COALESCE",
+      "SELECT award.registration_id, award.rank, award.kills, award.prize_coins,",
     )) {
       rows = this.awards
         .filter((award) => award.match_id === values[0])
         .map((award) => {
           const registration = this.registrations.find((entry) => entry.id === award.registration_id)!;
+          const match = [this.match, ...this.additionalMatches].find((entry) => entry.id === award.match_id)!;
+          const credit = this.ledger.find((entry) =>
+            entry.reason === "kill_reward" &&
+            entry.idempotencyKey === `kill_reward:${match.id}:${award.registration_id}`,
+          );
           return {
             registration_id: award.registration_id,
             rank: award.rank,
             kills: award.kills,
             prize_coins: award.prize_coins,
+            kill_reward_paid_coins: credit?.amount ?? 0,
+            kill_reward_status: match.game_mode !== "battle_royale_kill_earn" ||
+              award.kills === 0 || match.kill_reward_coins === 0
+              ? "no_bonus"
+              : credit
+                ? "paid"
+                : "not_paid",
+            kill_reward_coins_per_kill: match.kill_reward_coins,
+            is_kill_earn: match.game_mode === "battle_royale_kill_earn",
             game_name: registration.captain_game_name,
             team_name: registration.team_name,
             created_at: award.created_at,
@@ -594,6 +746,21 @@ class MemoryTournamentResultsDatabase {
             rank: award.rank,
             kills: award.kills,
             prizeCoins: award.prize_coins,
+            killRewardCoinsPerKill: match.kill_reward_coins,
+            killRewardPaidCoins: this.ledger.find((entry) =>
+              entry.reason === "kill_reward" &&
+              entry.idempotencyKey === `kill_reward:${match.id}:${award.registration_id}`,
+            )?.amount ?? 0,
+            killRewardStatus: match.game_mode !== "battle_royale_kill_earn" ||
+              award.kills === 0 || match.kill_reward_coins === 0
+              ? "no_bonus"
+              : this.ledger.some((entry) =>
+                entry.reason === "kill_reward" &&
+                entry.idempotencyKey === `kill_reward:${match.id}:${award.registration_id}`,
+              )
+                ? "paid"
+                : "not_paid",
+            isKillEarn: match.game_mode === "battle_royale_kill_earn",
             createdAt: award.created_at,
           };
         })

@@ -45,7 +45,10 @@ export interface Daily007AdminTournament {
   completedAt: string | null;
   entryCoins: number;
   prizePool: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
   killRewardCoins: number;
   totalSlots: number;
   totalPlayerSlots: number;
@@ -74,6 +77,15 @@ export interface TournamentLifecycleUpdate {
   status: TournamentLifecycleUpdateStatus;
 }
 
+export type TournamentResultSubmissionKillsByRegistrationItem = {
+  registrationId: string;
+  /**
+     * @minimum 0
+     * @maximum 47
+     */
+  kills: number;
+};
+
 export interface TournamentResultSubmission {
   tournamentId: string;
   /** For a team-based rank-1 result, an approved registration identifies the winning team; the server awards its active approved registered players. */
@@ -84,11 +96,13 @@ export interface TournamentResultSubmission {
      */
   rank: number;
   /**
-     * Individual kills for a single-player result; team rank-1 awards record zero so personal kill totals remain unchanged.
+     * Admin-recorded kills. Kill & Earn counts are capped at 47 per player by the server; a Kill & Earn team winner must also send each member's verified count.
      * @minimum 0
      * @maximum 2147483647
      */
   kills: number;
+  /** Required for Kill & Earn team winners; one verified count for every active approved player on that team. */
+  killsByRegistration?: TournamentResultSubmissionKillsByRegistrationItem[];
 }
 
 export interface TournamentPrizeRecipient {
@@ -96,6 +110,8 @@ export interface TournamentPrizeRecipient {
   userId: string;
   /** @minimum 0 */
   prizeCoins: number;
+  /** @minimum 0 */
+  killRewardCoins: number;
   /** @minimum 0 */
   walletCoins: number;
 }
@@ -114,6 +130,8 @@ export interface TournamentResultPublishResponse {
      */
   prizeCoins: number;
   /** @minimum 0 */
+  totalKillRewardCoins: number;
+  /** @minimum 0 */
   walletCoins: number;
   /** @minimum 0 */
   totalPrizeCoins: number;
@@ -125,11 +143,30 @@ export interface TournamentResultPublishResponse {
   teamNumber?: number;
 }
 
+export type TournamentResultEntryKillRewardStatus = typeof TournamentResultEntryKillRewardStatus[keyof typeof TournamentResultEntryKillRewardStatus];
+
+
+export const TournamentResultEntryKillRewardStatus = {
+  paid: 'paid',
+  not_paid: 'not_paid',
+  no_bonus: 'no_bonus',
+} as const;
+
 export interface TournamentResultEntry {
   registrationId: string;
   rank: number;
   kills: number;
   prizeCoins: number;
+  killsVerified: boolean;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  killRewardCoinsPerKill: number;
+  /** @minimum 0 */
+  killRewardPaidCoins: number;
+  killRewardStatus: TournamentResultEntryKillRewardStatus;
+  isKillEarn: boolean;
   gameName: string;
   teamName: string | null;
 }
@@ -150,6 +187,15 @@ export interface TournamentResultsView {
   entries: TournamentResultEntry[];
 }
 
+export type AdminResultLogKillRewardStatus = typeof AdminResultLogKillRewardStatus[keyof typeof AdminResultLogKillRewardStatus];
+
+
+export const AdminResultLogKillRewardStatus = {
+  paid: 'paid',
+  not_paid: 'not_paid',
+  no_bonus: 'no_bonus',
+} as const;
+
 export interface AdminResultLog {
   tournamentId: string;
   tournamentName: string;
@@ -165,6 +211,15 @@ export interface AdminResultLog {
   kills: number;
   /** @minimum 0 */
   prizeCoins: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  killRewardCoinsPerKill: number;
+  /** @minimum 0 */
+  killRewardPaidCoins: number;
+  killRewardStatus: AdminResultLogKillRewardStatus;
+  isKillEarn: boolean;
   createdAt: string;
 }
 

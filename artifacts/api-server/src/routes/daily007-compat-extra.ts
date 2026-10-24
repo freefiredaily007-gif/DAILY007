@@ -39,6 +39,12 @@ import { createDaily007ReferralLinks } from "../lib/daily007-referral-links";
 import { ensureLegacySquadTeams } from "../lib/daily007-squad-slots";
 import { legacyTournamentMode } from "../lib/daily007-mode-rules";
 import {
+  killRewardAmount,
+  MAX_KILL_EARN_RATE,
+  MAX_VERIFIED_KILLS_PER_PLAYER,
+  type VerifiedPlayerKills,
+} from "../lib/daily007-kill-rewards";
+import {
   reviewYoutubeSubscribeClaim,
   submitYoutubeSubscribeClaim,
   youtubeClaimResponse,
@@ -2517,15 +2523,35 @@ router.get("/admin/results", authenticate, async (req, res): Promise<void> => {
         rank: number;
         kills: number;
         prizeCoins: number;
+        killRewardCoinsPerKill: number;
+        killRewardPaidCoins: number;
+        killRewardStatus: "paid" | "not_paid" | "no_bonus";
+        isKillEarn: boolean;
         createdAt: Date | string;
       }>(
         `SELECT award.match_id AS "tournamentId", m.title AS "tournamentName",
                 award.registration_id AS "registrationId", registration.captain_name AS "playerName",
                 registration.captain_game_name AS "gameName", registration.team_name AS "teamName",
-                award.rank, award.kills, award.prize_coins AS "prizeCoins", award.created_at AS "createdAt"
+                award.rank, award.kills, award.prize_coins AS "prizeCoins",
+                m.kill_reward_coins AS "killRewardCoinsPerKill",
+                COALESCE(m.game_mode = 'battle_royale_kill_earn', false) AS "isKillEarn",
+                COALESCE(kill_credit.amount, 0)::int AS "killRewardPaidCoins",
+                CASE
+                  WHEN COALESCE(m.game_mode, '') <> 'battle_royale_kill_earn'
+                    OR award.kills = 0 OR m.kill_reward_coins = 0 THEN 'no_bonus'
+                  WHEN kill_credit.id IS NOT NULL THEN 'paid'
+                  ELSE 'not_paid'
+                END AS "killRewardStatus",
+                award.created_at AS "createdAt"
            FROM daily007_v2_result_awards award
            JOIN daily007_v2_matches m ON m.id = award.match_id
            JOIN daily007_v2_registrations registration ON registration.id = award.registration_id
+           LEFT JOIN daily007_v2_wallet_ledger kill_credit
+             ON kill_credit.match_id = award.match_id
+            AND kill_credit.registration_id = award.registration_id
+            AND kill_credit.user_id = award.user_id
+            AND kill_credit.reason = 'kill_reward'
+            AND kill_credit.idempotency_key = 'kill_reward:' || award.match_id::text || ':' || award.registration_id::text
            WHERE m.status <> 'cancelled'
              AND (
                $1::boolean
@@ -2564,17 +2590,43 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
   const registrationId = body.registrationId as string;
   const rank = body.rank as number;
   const kills = body.kills as number;
+  const submittedKills = body.killsByRegistration;
+  if (submittedKills !== undefined && (
+    !Array.isArray(submittedKills) ||
+    submittedKills.some((entry) =>
+      !isObject(entry) ||
+      !validId(entry.registrationId) ||
+      !integer(entry.kills, 0, MAX_VERIFIED_KILLS_PER_PLAYER)
+    ) ||
+    new Set(submittedKills.map((entry) => (entry as Record<string, unknown>).registrationId)).size !== submittedKills.length
+  )) {
+    error(res, 400, `killsByRegistration must contain unique registration IDs and verified whole-number kills from 0 to ${MAX_VERIFIED_KILLS_PER_PLAYER}.`);
+    return;
+  }
+  const killsByRegistration = (submittedKills ?? []) as VerifiedPlayerKills[];
   try {
     const result = await roleTransaction(req, "tournament_admin", async (client) => {
       const matchFormat = await client.query<{
         mode: string; game_mode: string | null; team_type: string | null; capacity: number;
+        kill_reward_coins: number;
       }>(
-        "SELECT mode, game_mode, team_type, capacity FROM daily007_v2_matches WHERE id = $1 FOR UPDATE",
+        "SELECT mode, game_mode, team_type, capacity, kill_reward_coins FROM daily007_v2_matches WHERE id = $1 FOR UPDATE",
         [tournamentId],
       );
       const format = matchFormat.rows[0];
       if (!format) throw Object.assign(new Error("Tournament was not found."), { status: 404 });
       const resolvedMode = legacyTournamentMode(format.mode, format.game_mode, format.team_type);
+      const isKillEarn = format.game_mode === "battle_royale_kill_earn";
+      const killRewardRate = Number(format.kill_reward_coins);
+      if (isKillEarn && kills > MAX_VERIFIED_KILLS_PER_PLAYER) {
+        throw Object.assign(
+          new Error(`Kill & Earn results allow up to ${MAX_VERIFIED_KILLS_PER_PLAYER} verified kills per player.`),
+          { status: 400 },
+        );
+      }
+      if (!Number.isSafeInteger(killRewardRate) || killRewardRate < 0 || killRewardRate > MAX_KILL_EARN_RATE) {
+        throw Object.assign(new Error(`The saved per-kill rate must be between 0 and ${MAX_KILL_EARN_RATE} coins.`), { status: 409 });
+      }
       const usesTeamSeats = resolvedMode.teamSize > 1;
       if (usesTeamSeats) {
         await ensureLegacySquadTeams(
@@ -2653,6 +2705,12 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
       const isTeamWinner = usesTeamSeats && rank === 1 && teamId !== null;
       let prizeCoins = configuredPrizeForRank(row.prize_pool, row.prize_distribution, rank);
       const awardKills = isTeamWinner ? 0 : kills;
+      if (killsByRegistration.length > 0 && (!isKillEarn || !isTeamWinner)) {
+        throw Object.assign(
+          new Error("Per-player kill entries are only accepted for a Kill & Earn winning team."),
+          { status: 400 },
+        );
+      }
 
       if (usesTeamSeats && teamId) {
         if (isTeamWinner) {
@@ -2702,6 +2760,19 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
             userId: member.user_id,
             slotNumber: member.slot_number,
           }));
+          if (isKillEarn) {
+            const submittedIds = new Set(killsByRegistration.map((entry) => entry.registrationId));
+            const expectedIds = new Set(awardTargets.map((target) => target.registrationId));
+            if (
+              submittedIds.size !== expectedIds.size ||
+              [...expectedIds].some((id) => !submittedIds.has(id))
+            ) {
+              throw Object.assign(
+                new Error("Enter a verified kill count for every active player on the winning team."),
+                { status: 400 },
+              );
+            }
+          }
         } else {
           const previousTeamAward = await client.query<{ registration_id: string }>(
             `SELECT award.registration_id
@@ -2736,11 +2807,17 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
         walletCoins: number;
         awardId: string;
         prizeCoins: number;
+        killRewardCoins: number;
+        kills: number;
       }> = [];
       for (const target of awardTargets) {
         const balance = accounts.get(target.userId);
         if (balance === undefined) throw Object.assign(new Error("Player account not found."), { status: 404 });
-        const next = balance + prizeCoins;
+        const playerKills = isTeamWinner && isKillEarn
+          ? killsByRegistration.find((entry) => entry.registrationId === target.registrationId)!.kills
+          : awardKills;
+        const killCoins = isKillEarn ? killRewardAmount(playerKills, killRewardRate) : 0;
+        const next = balance + prizeCoins + killCoins;
         if (!Number.isSafeInteger(next) || next > MAX_INT) {
           throw Object.assign(new Error("Prize would exceed the supported wallet range."), { status: 409 });
         }
@@ -2761,7 +2838,7 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
         const statIncrements: Array<[string, number, number]> = [
           ["matches", stats.matches, 1],
           ["wins", stats.wins, rank === 1 ? 1 : 0],
-          ["kills", stats.kills, awardKills],
+          ["kills", stats.kills, playerKills],
           ["prize total", stats.prize_coins, prizeCoins],
         ];
         for (const [statName, currentValue, increment] of statIncrements) {
@@ -2778,7 +2855,7 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
           `INSERT INTO daily007_v2_result_awards (match_id, registration_id, user_id, rank, kills, prize_coins)
            VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING id`,
-          [row.match_id, target.registrationId, target.userId, rank, awardKills, prizeCoins],
+          [row.match_id, target.registrationId, target.userId, rank, playerKills, prizeCoins],
         );
         await client.query(
           `INSERT INTO daily007_v2_user_stats (user_id, matches, wins, kills, prize_coins)
@@ -2788,11 +2865,7 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
              wins = daily007_v2_user_stats.wins + EXCLUDED.wins,
              kills = daily007_v2_user_stats.kills + EXCLUDED.kills,
              prize_coins = daily007_v2_user_stats.prize_coins + EXCLUDED.prize_coins`,
-          [target.userId, rank === 1 ? 1 : 0, awardKills, prizeCoins],
-        );
-        await client.query(
-          "UPDATE daily007_v2_users SET wallet_coins = $2 WHERE id = $1",
-          [target.userId, next],
+           [target.userId, rank === 1 ? 1 : 0, playerKills, prizeCoins],
         );
         if (prizeCoins > 0 || isTeamWinner) {
           const details = isTeamWinner
@@ -2802,15 +2875,41 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
             `INSERT INTO daily007_v2_wallet_ledger
                (user_id, amount, balance_after, reason, match_id, registration_id, details)
              VALUES ($1, $2, $3, 'match_prize', $4, $5, $6::jsonb)`,
-            [target.userId, prizeCoins, next, row.match_id, target.registrationId, details],
+            [target.userId, prizeCoins, balance + prizeCoins, row.match_id, target.registrationId, details],
           );
         }
+        if (killCoins > 0) {
+          await client.query(
+            `INSERT INTO daily007_v2_wallet_ledger
+               (user_id, amount, balance_after, reason, match_id, registration_id, idempotency_key, details)
+             VALUES ($1, $2, $3, 'kill_reward', $4, $5, $6, $7::jsonb)`,
+            [
+              target.userId,
+              killCoins,
+              next,
+              row.match_id,
+              target.registrationId,
+              `kill_reward:${row.match_id}:${target.registrationId}`,
+              JSON.stringify({
+                kills: playerKills,
+                coinsPerKill: killRewardRate,
+                description: `Kill & Earn reward - ${row.title}`,
+              }),
+            ],
+          );
+        }
+        await client.query(
+          "UPDATE daily007_v2_users SET wallet_coins = $2 WHERE id = $1",
+          [target.userId, next],
+        );
         accounts.set(target.userId, next);
         settlements.push({
           ...target,
           walletCoins: next,
           awardId: (award.rows[0] as { id: string }).id,
           prizeCoins,
+          killRewardCoins: killCoins,
+          kills: playerKills,
         });
       }
 
@@ -2827,14 +2926,16 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
         registrationId: row.id,
         userId: row.captain_user_id,
         rank,
-        kills: awardKills,
+        kills: selectedSettlement.kills,
         prizeCoins,
         walletCoins: selectedSettlement.walletCoins,
         totalPrizeCoins: prizeCoins * settlements.length,
+        totalKillRewardCoins: settlements.reduce((total, settlement) => total + settlement.killRewardCoins, 0),
         playersAwarded: settlements.map((settlement) => ({
           registrationId: settlement.registrationId,
           userId: settlement.userId,
           prizeCoins: settlement.prizeCoins,
+          killRewardCoins: settlement.killRewardCoins,
           walletCoins: settlement.walletCoins,
         })),
         ...(isTeamWinner && winningTeamNumber !== null ? { teamNumber: winningTeamNumber } : {}),

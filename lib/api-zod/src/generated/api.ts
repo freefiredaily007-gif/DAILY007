@@ -2124,6 +2124,13 @@ export const GetTournamentResultsParams = zod.object({
   "id": zod.coerce.string().uuid()
 })
 
+export const getTournamentResultsResponseEntriesItemKillRewardCoinsPerKillMin = 0;
+export const getTournamentResultsResponseEntriesItemKillRewardCoinsPerKillMax = 100;
+
+export const getTournamentResultsResponseEntriesItemKillRewardPaidCoinsMin = 0;
+
+
+
 export const GetTournamentResultsResponse = zod.object({
   "tournamentId": zod.string().uuid(),
   "status": zod.enum(['draft', 'finalized']).optional(),
@@ -2133,6 +2140,11 @@ export const GetTournamentResultsResponse = zod.object({
   "rank": zod.number().int(),
   "kills": zod.number().int(),
   "prizeCoins": zod.number().int(),
+  "killsVerified": zod.boolean(),
+  "killRewardCoinsPerKill": zod.number().int().min(getTournamentResultsResponseEntriesItemKillRewardCoinsPerKillMin).max(getTournamentResultsResponseEntriesItemKillRewardCoinsPerKillMax),
+  "killRewardPaidCoins": zod.number().int().min(getTournamentResultsResponseEntriesItemKillRewardPaidCoinsMin),
+  "killRewardStatus": zod.enum(['paid', 'not_paid', 'no_bonus']),
+  "isKillEarn": zod.boolean(),
   "gameName": zod.string(),
   "teamName": zod.string().nullable()
 }))
@@ -2194,6 +2206,7 @@ export const Daily007AdminDeleteTournamentWithoutRefundResponse = zod.object({
  * @summary List all tournaments for administrators, including cancelled matches
  */
 export const daily007AdminListTournamentsResponseKillRewardCoinsMin = 0;
+export const daily007AdminListTournamentsResponseKillRewardCoinsMax = 100;
 
 
 
@@ -2211,7 +2224,7 @@ export const Daily007AdminListTournamentsResponseItem = zod.object({
   "completedAt": zod.coerce.date().nullable(),
   "entryCoins": zod.number().int(),
   "prizePool": zod.number().int(),
-  "killRewardCoins": zod.number().int().min(daily007AdminListTournamentsResponseKillRewardCoinsMin),
+  "killRewardCoins": zod.number().int().min(daily007AdminListTournamentsResponseKillRewardCoinsMin).max(daily007AdminListTournamentsResponseKillRewardCoinsMax),
   "totalSlots": zod.number().int(),
   "totalPlayerSlots": zod.number().int(),
   "rules": zod.string(),
@@ -2236,6 +2249,13 @@ export const GetAdminTournamentResultsParams = zod.object({
   "id": zod.coerce.string().uuid()
 })
 
+export const getAdminTournamentResultsResponseEntriesItemKillRewardCoinsPerKillMin = 0;
+export const getAdminTournamentResultsResponseEntriesItemKillRewardCoinsPerKillMax = 100;
+
+export const getAdminTournamentResultsResponseEntriesItemKillRewardPaidCoinsMin = 0;
+
+
+
 export const GetAdminTournamentResultsResponse = zod.object({
   "tournamentId": zod.string().uuid(),
   "status": zod.enum(['draft', 'finalized']).optional(),
@@ -2245,6 +2265,11 @@ export const GetAdminTournamentResultsResponse = zod.object({
   "rank": zod.number().int(),
   "kills": zod.number().int(),
   "prizeCoins": zod.number().int(),
+  "killsVerified": zod.boolean(),
+  "killRewardCoinsPerKill": zod.number().int().min(getAdminTournamentResultsResponseEntriesItemKillRewardCoinsPerKillMin).max(getAdminTournamentResultsResponseEntriesItemKillRewardCoinsPerKillMax),
+  "killRewardPaidCoins": zod.number().int().min(getAdminTournamentResultsResponseEntriesItemKillRewardPaidCoinsMin),
+  "killRewardStatus": zod.enum(['paid', 'not_paid', 'no_bonus']),
+  "isKillEarn": zod.boolean(),
   "gameName": zod.string(),
   "teamName": zod.string().nullable()
 }))
@@ -2263,6 +2288,11 @@ export const daily007ListAdminResultLogsResponseDataItemKillsMin = 0;
 
 export const daily007ListAdminResultLogsResponseDataItemPrizeCoinsMin = 0;
 
+export const daily007ListAdminResultLogsResponseDataItemKillRewardCoinsPerKillMin = 0;
+export const daily007ListAdminResultLogsResponseDataItemKillRewardCoinsPerKillMax = 100;
+
+export const daily007ListAdminResultLogsResponseDataItemKillRewardPaidCoinsMin = 0;
+
 
 
 export const Daily007ListAdminResultLogsResponse = zod.object({
@@ -2277,6 +2307,10 @@ export const Daily007ListAdminResultLogsResponse = zod.object({
   "rank": zod.number().int().min(1),
   "kills": zod.number().int().min(daily007ListAdminResultLogsResponseDataItemKillsMin),
   "prizeCoins": zod.number().int().min(daily007ListAdminResultLogsResponseDataItemPrizeCoinsMin),
+  "killRewardCoinsPerKill": zod.number().int().min(daily007ListAdminResultLogsResponseDataItemKillRewardCoinsPerKillMin).max(daily007ListAdminResultLogsResponseDataItemKillRewardCoinsPerKillMax),
+  "killRewardPaidCoins": zod.number().int().min(daily007ListAdminResultLogsResponseDataItemKillRewardPaidCoinsMin),
+  "killRewardStatus": zod.enum(['paid', 'not_paid', 'no_bonus']),
+  "isKillEarn": zod.boolean(),
   "createdAt": zod.coerce.date()
 }))
 })
@@ -2290,13 +2324,20 @@ export const publishTournamentResultBodyRankMax = 2147483647;
 export const publishTournamentResultBodyKillsMin = 0;
 export const publishTournamentResultBodyKillsMax = 2147483647;
 
+export const publishTournamentResultBodyKillsByRegistrationItemKillsMin = 0;
+export const publishTournamentResultBodyKillsByRegistrationItemKillsMax = 47;
+
 
 
 export const PublishTournamentResultBody = zod.object({
   "tournamentId": zod.string().uuid(),
   "registrationId": zod.string().uuid().describe('For a team-based rank-1 result, an approved registration identifies the winning team; the server awards its active approved registered players.'),
   "rank": zod.number().int().min(1).max(publishTournamentResultBodyRankMax),
-  "kills": zod.number().int().min(publishTournamentResultBodyKillsMin).max(publishTournamentResultBodyKillsMax).describe('Individual kills for a single-player result; team rank-1 awards record zero so personal kill totals remain unchanged.')
+  "kills": zod.number().int().min(publishTournamentResultBodyKillsMin).max(publishTournamentResultBodyKillsMax).describe('Admin-recorded kills. Kill & Earn counts are capped at 47 per player by the server; a Kill & Earn team winner must also send each member\'s verified count.'),
+  "killsByRegistration": zod.array(zod.object({
+  "registrationId": zod.string().uuid(),
+  "kills": zod.number().int().min(publishTournamentResultBodyKillsByRegistrationItemKillsMin).max(publishTournamentResultBodyKillsByRegistrationItemKillsMax)
+})).optional().describe('Required for Kill & Earn team winners; one verified count for every active approved player on that team.')
 })
 
 
@@ -2304,11 +2345,15 @@ export const publishTournamentResultResponseKillsMin = 0;
 
 export const publishTournamentResultResponsePrizeCoinsMin = 0;
 
+export const publishTournamentResultResponseTotalKillRewardCoinsMin = 0;
+
 export const publishTournamentResultResponseWalletCoinsMin = 0;
 
 export const publishTournamentResultResponseTotalPrizeCoinsMin = 0;
 
 export const publishTournamentResultResponsePlayersAwardedItemPrizeCoinsMin = 0;
+
+export const publishTournamentResultResponsePlayersAwardedItemKillRewardCoinsMin = 0;
 
 export const publishTournamentResultResponsePlayersAwardedItemWalletCoinsMin = 0;
 
@@ -2323,12 +2368,14 @@ export const PublishTournamentResultResponse = zod.object({
   "rank": zod.number().int().min(1),
   "kills": zod.number().int().min(publishTournamentResultResponseKillsMin),
   "prizeCoins": zod.number().int().min(publishTournamentResultResponsePrizeCoinsMin).describe('Equal per-player prize for team wins; otherwise the saved rank prize.'),
+  "totalKillRewardCoins": zod.number().int().min(publishTournamentResultResponseTotalKillRewardCoinsMin),
   "walletCoins": zod.number().int().min(publishTournamentResultResponseWalletCoinsMin),
   "totalPrizeCoins": zod.number().int().min(publishTournamentResultResponseTotalPrizeCoinsMin),
   "playersAwarded": zod.array(zod.object({
   "registrationId": zod.string().uuid(),
   "userId": zod.string().uuid(),
   "prizeCoins": zod.number().int().min(publishTournamentResultResponsePlayersAwardedItemPrizeCoinsMin),
+  "killRewardCoins": zod.number().int().min(publishTournamentResultResponsePlayersAwardedItemKillRewardCoinsMin),
   "walletCoins": zod.number().int().min(publishTournamentResultResponsePlayersAwardedItemWalletCoinsMin)
 })),
   "teamNumber": zod.number().int().min(1).max(publishTournamentResultResponseTeamNumberMax).optional()

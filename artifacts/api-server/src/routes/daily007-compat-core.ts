@@ -4,6 +4,7 @@ import { pool } from "@workspace/db";
 import { awardDaily007SignupBonus, ensureDaily007ReferralCode } from "../lib/daily007-referrals";
 import { parseOptionalHttpsImageUrl } from "../lib/tournament-image-url";
 import { legacyTournamentMode, resolveTournamentMode, tournamentModeCapacityLabel } from "../lib/daily007-mode-rules";
+import { MAX_KILL_EARN_RATE } from "../lib/daily007-kill-rewards";
 import { isTournamentStartInFuture, tournamentInstantFromStored } from "../lib/daily007-schedule-time";
 import { canRevealRoomCredentials } from "../lib/daily007-room-access";
 import {
@@ -147,8 +148,13 @@ type RegistrationRow = {
   squad_team_number?: number | null; squad_slot_number?: number | null;
   squad_is_captain?: boolean | null;
   result_rank?: number | null; result_kills?: number | null; result_prize_coins?: number | null;
+  result_kill_reward_paid_coins?: number | null;
+  result_kill_reward_status?: "paid" | "not_paid" | "no_bonus" | null;
+  kill_reward_coins?: number;
   match_results?: {
-    rank: number; kills: number; prizeCoins: number; playerName: string; gameName: string; teamName: string;
+    rank: number; kills: number; prizeCoins: number; gameName: string; teamName: string;
+    killsVerified: boolean; killRewardCoinsPerKill: number; killRewardPaidCoins: number;
+    killRewardStatus: "paid" | "not_paid" | "no_bonus"; isKillEarn: boolean;
   }[] | null;
 };
 export { tournamentCancellationError };
@@ -796,16 +802,36 @@ router.get("/tournaments/:id/results", async (req, res): Promise<void> => {
     rank: number;
     kills: number;
     prize_coins: number;
+    kill_reward_paid_coins: number;
+    kill_reward_status: "paid" | "not_paid" | "no_bonus";
+    kill_reward_coins_per_kill: number;
+    is_kill_earn: boolean;
     game_name: string;
     team_name: string | null;
     created_at: Date | string;
   }>(
     `SELECT award.registration_id, award.rank, award.kills, award.prize_coins,
+            m.kill_reward_coins AS kill_reward_coins_per_kill,
+            COALESCE(m.game_mode = 'battle_royale_kill_earn', false) AS is_kill_earn,
+            COALESCE(kill_credit.amount, 0)::int AS kill_reward_paid_coins,
+            CASE
+              WHEN COALESCE(m.game_mode, '') <> 'battle_royale_kill_earn'
+                OR award.kills = 0 OR m.kill_reward_coins = 0 THEN 'no_bonus'
+              WHEN kill_credit.id IS NOT NULL THEN 'paid'
+              ELSE 'not_paid'
+            END AS kill_reward_status,
             COALESCE(NULLIF(BTRIM(registration.captain_game_name), ''), 'Player') AS game_name,
             NULLIF(BTRIM(registration.team_name), '') AS team_name,
             award.created_at
        FROM daily007_v2_result_awards award
        JOIN daily007_v2_registrations registration ON registration.id = award.registration_id
+       JOIN daily007_v2_matches m ON m.id = award.match_id
+       LEFT JOIN daily007_v2_wallet_ledger kill_credit
+         ON kill_credit.match_id = award.match_id
+        AND kill_credit.registration_id = award.registration_id
+        AND kill_credit.user_id = award.user_id
+        AND kill_credit.reason = 'kill_reward'
+        AND kill_credit.idempotency_key = 'kill_reward:' || award.match_id::text || ':' || award.registration_id::text
       WHERE award.match_id = $1
       ORDER BY award.rank, award.created_at, award.registration_id`,
     [id],
@@ -828,6 +854,11 @@ router.get("/tournaments/:id/results", async (req, res): Promise<void> => {
       rank: row.rank,
       kills: row.kills,
       prizeCoins: row.prize_coins,
+      killsVerified: true,
+      killRewardCoinsPerKill: row.kill_reward_coins_per_kill,
+      killRewardPaidCoins: row.kill_reward_paid_coins,
+      killRewardStatus: row.kill_reward_status,
+      isKillEarn: row.is_kill_earn,
       gameName: row.game_name,
       teamName: row.team_name,
     })) : [],
@@ -1096,6 +1127,7 @@ function tournamentValues(body: Record<string, unknown>, fallback?: MatchRow) {
   if (body.enabled !== undefined && typeof body.enabled !== "boolean") return null;
   if (!configuredMode || !title || !nonnegativeInt(entryCoins) ||
       !nonnegativeInt(prizePool) || !nonnegativeInt(killRewardCoins) ||
+      killRewardCoins > MAX_KILL_EARN_RATE ||
       rules === null || !banner || !parsedImageUrl.ok || prizeDistribution === null ||
       !startsAt || !Number.isFinite(startsAt.getTime()) || !isTournamentStartInFuture(startsAt)) return null;
   return {
@@ -1178,6 +1210,13 @@ router.patch("/tournaments/:id", authenticate, async (req, res): Promise<void> =
       if (!current) return "missing" as const;
       const values = tournamentValues(req.body as Record<string, unknown>, current);
       if (!values) return "invalid" as const;
+      if (Number(current.kill_reward_coins ?? 0) !== values.killRewardCoins) {
+        const existingAwards = await client.query<{ has_awards: boolean }>(
+          "SELECT EXISTS (SELECT 1 FROM daily007_v2_result_awards WHERE match_id = $1) AS has_awards",
+          [id],
+        );
+        if (existingAwards.rows[0]?.has_awards) return "kill-reward-locked" as const;
+      }
       const currentMode = legacyTournamentMode(current.mode, current.game_mode, current.team_type);
       let activeCount: number;
       if (currentMode.teamSize > 1) {
@@ -1229,6 +1268,7 @@ router.patch("/tournaments/:id", authenticate, async (req, res): Promise<void> =
     });
     if (outcome === "missing") return fail(res, 404, "Tournament not found.");
      if (outcome === "invalid") return fail(res, 400, "Tournament fields are invalid; use a supported game mode, future date/time, nonnegative integer coin values, and an optional HTTPS image URL.");
+     if (outcome === "kill-reward-locked") return fail(res, 409, "The per-kill rate cannot change after any result has been published.");
     if (outcome === "capacity") return fail(res, 409, "Capacity or game mode cannot be reduced/changed below the current active registration count.");
   } catch (error) {
     throw error;
@@ -1294,7 +1334,7 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
     `SELECT r.id, r.match_id, r.captain_user_id, r.captain_name, r.captain_game_name, r.captain_game_uid, r.team_name,
             r.entry_coins_paid, r.status, r.created_at, m.title, m.mode, m.game_mode, m.team_type, m.capacity, m.starts_at,
             m.entry_coins AS match_entry_coins, m.status AS match_status,
-            m.prize_pool, m.rules, m.banner, m.image_url, m.prize_distribution, m.enabled, m.is_full,
+             m.prize_pool, m.kill_reward_coins, m.rules, m.banner, m.image_url, m.prize_distribution, m.enabled, m.is_full,
             m.room_id, m.room_password, m.room_time, m.room_published,
             m.starts_at <= clock_timestamp() + interval '5 hours 30 minutes' AS match_has_started,
             EXISTS (
@@ -1305,6 +1345,33 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
                        'rank', published.rank,
                        'kills', published.kills,
                        'prizeCoins', published.prize_coins,
+                        'killsVerified', true,
+                        'killRewardCoinsPerKill', m.kill_reward_coins,
+                        'isKillEarn', COALESCE(m.game_mode = 'battle_royale_kill_earn', false),
+                        'killRewardPaidCoins', COALESCE((
+                          SELECT credit.amount
+                            FROM daily007_v2_wallet_ledger credit
+                           WHERE credit.match_id = published.match_id
+                             AND credit.registration_id = published.registration_id
+                             AND credit.user_id = published.user_id
+                             AND credit.reason = 'kill_reward'
+                             AND credit.idempotency_key = 'kill_reward:' || published.match_id::text || ':' || published.registration_id::text
+                           LIMIT 1
+                        ), 0),
+                        'killRewardStatus', CASE
+                          WHEN COALESCE(m.game_mode, '') <> 'battle_royale_kill_earn'
+                            OR published.kills = 0 OR m.kill_reward_coins = 0 THEN 'no_bonus'
+                          WHEN EXISTS (
+                            SELECT 1
+                              FROM daily007_v2_wallet_ledger credit
+                             WHERE credit.match_id = published.match_id
+                               AND credit.registration_id = published.registration_id
+                               AND credit.user_id = published.user_id
+                               AND credit.reason = 'kill_reward'
+                               AND credit.idempotency_key = 'kill_reward:' || published.match_id::text || ':' || published.registration_id::text
+                          ) THEN 'paid'
+                          ELSE 'not_paid'
+                        END,
                        'gameName', result_registration.captain_game_name,
                        'teamName', result_registration.team_name
                       ) ORDER BY published.rank, result_registration.captain_game_name)
@@ -1313,6 +1380,13 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
                   ON result_registration.id = published.registration_id
                 WHERE published.match_id = m.id AND m.status <> 'cancelled') AS match_results,
             award.rank AS result_rank, award.kills AS result_kills, award.prize_coins AS result_prize_coins,
+             COALESCE(kill_credit.amount, 0)::int AS result_kill_reward_paid_coins,
+             CASE
+               WHEN COALESCE(m.game_mode, '') <> 'battle_royale_kill_earn'
+                 OR award.kills = 0 OR m.kill_reward_coins = 0 THEN 'no_bonus'
+               WHEN kill_credit.id IS NOT NULL THEN 'paid'
+               ELSE 'not_paid'
+             END AS result_kill_reward_status,
              CASE WHEN m.team_type IN ('duo', 'trio', 'squad') OR
                          (m.game_mode IS NULL AND m.mode IN ('squad', 'clash')) THEN
                (SELECT count(DISTINCT COALESCE(team.id::text, active.id::text))::integer
@@ -1350,6 +1424,12 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
        FROM daily007_v2_registrations r JOIN daily007_v2_matches m ON m.id = r.match_id
         LEFT JOIN daily007_v2_result_awards award
           ON award.registration_id = r.id AND m.status <> 'cancelled'
+         LEFT JOIN daily007_v2_wallet_ledger kill_credit
+           ON kill_credit.match_id = award.match_id
+          AND kill_credit.registration_id = award.registration_id
+          AND kill_credit.user_id = award.user_id
+          AND kill_credit.reason = 'kill_reward'
+          AND kill_credit.idempotency_key = 'kill_reward:' || award.match_id::text || ':' || award.registration_id::text
         LEFT JOIN daily007_v2_squad_team_members squad_member
           ON squad_member.registration_id = r.id
         LEFT JOIN daily007_v2_squad_teams squad_team ON squad_team.id = squad_member.team_id
@@ -1402,6 +1482,11 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
           rank: row.result_rank,
           kills: row.result_kills ?? 0,
           prizeCoins: row.result_prize_coins ?? 0,
+          killsVerified: true,
+          killRewardCoinsPerKill: Number(row.kill_reward_coins ?? 0),
+          killRewardPaidCoins: row.result_kill_reward_paid_coins ?? 0,
+          killRewardStatus: row.result_kill_reward_status ?? "no_bonus",
+          isKillEarn: row.game_mode === "battle_royale_kill_earn",
           gameName: row.captain_game_name,
           teamName: row.team_name,
         },

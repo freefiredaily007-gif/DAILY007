@@ -74,12 +74,14 @@ export type AdminResultPublishResponse = {
   rank: number;
   kills: number;
   prizeCoins: number;
+  totalKillRewardCoins: number;
   walletCoins: number;
   totalPrizeCoins: number;
   playersAwarded: Array<{
     registrationId: string;
     userId: string;
     prizeCoins: number;
+    killRewardCoins: number;
     walletCoins: number;
   }>;
   teamNumber?: number;

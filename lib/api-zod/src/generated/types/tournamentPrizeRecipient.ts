@@ -29,5 +29,7 @@ export interface TournamentPrizeRecipient {
   /** @minimum 0 */
   prizeCoins: number;
   /** @minimum 0 */
+  killRewardCoins: number;
+  /** @minimum 0 */
   walletCoins: number;
 }

@@ -22,12 +22,23 @@
  *
  * OpenAPI spec version: 0.1.0
  */
+import type { TournamentResultEntryKillRewardStatus } from './tournamentResultEntryKillRewardStatus';
 
 export interface TournamentResultEntry {
   registrationId: string;
   rank: number;
   kills: number;
   prizeCoins: number;
+  killsVerified: boolean;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  killRewardCoinsPerKill: number;
+  /** @minimum 0 */
+  killRewardPaidCoins: number;
+  killRewardStatus: TournamentResultEntryKillRewardStatus;
+  isKillEarn: boolean;
   gameName: string;
   teamName: string | null;
 }

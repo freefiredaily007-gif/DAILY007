@@ -76,6 +76,8 @@ type TournamentAction = { tournamentId: string; kind: 'room' | 'results' };
 const WINNER_PUBLISH_SUCCESS_MESSAGE = 'Winner published — prize credited and tournament completed.';
 const RESULT_ALREADY_PUBLISHED_PREFIX = 'Result already published — ';
 const CUSTOM_BANNER_URL_ERROR = 'Custom banner image must be a valid HTTPS URL.';
+const MAX_KILL_EARN_RATE = 100;
+const MAX_VERIFIED_KILLS_PER_PLAYER = 47;
 
 function configuredPrizeForRank(tournament: Tournament, rank: number): number {
   const configured = /(?:#\s*)?(\d+)(?:st|nd|rd|th)?\s*(?:place)?\s*[:=-]\s*([\d,]+)/gi;
@@ -139,6 +141,7 @@ export default function AdminTournaments() {
   const [selectedWinningTeamNumber, setSelectedWinningTeamNumber] = useState<number | null>(null);
   const [resultRank, setResultRank] = useState('1');
   const [resultKills, setResultKills] = useState('');
+  const [resultKillsByRegistration, setResultKillsByRegistration] = useState<Record<string, string>>({});
   const [resultBusy, setResultBusy] = useState(false);
   const [retryingApprovedRegistrations, setRetryingApprovedRegistrations] = useState(false);
   const [resultError, setResultError] = useState('');
@@ -395,6 +398,7 @@ export default function AdminTournaments() {
     const requestId = actionRequestId.current;
     const rank = Number(resultRank);
     const teamTournament = Number(tournament.teamSize ?? 1) > 1;
+    const killEarn = tournament.gameMode === 'battle_royale_kill_earn';
     const teamWinnerEntry = teamTournament && rank === 1;
     const winningTeams = groupApprovedRegistrationsByTeam(resultRegs ?? []);
     const selectedWinningTeam = teamWinnerEntry
@@ -425,13 +429,35 @@ export default function AdminTournaments() {
       setResultError('The prize pool must divide evenly among the approved players on the winning team.');
       return;
     }
-    const kills = teamWinnerEntry ? 0 : Number(resultKills || 0);
+    const killsText = resultKills.trim();
+    const kills = teamWinnerEntry ? 0 : Number(killsText || 0);
+    const teamKills = teamWinnerEntry && killEarn
+      ? selectedWinningTeam?.registrations.map((registration) => ({
+        registrationId: registration.id,
+        kills: Number(resultKillsByRegistration[registration.id] ?? ''),
+      })) ?? []
+      : [];
     if (!Number.isInteger(rank) || rank < 1) {
       setResultError('Enter a valid rank.');
       return;
     }
-    if (!teamWinnerEntry && (!Number.isInteger(kills) || kills < 0)) {
-      setResultError('Kills must be a non-negative whole number.');
+    if (!teamWinnerEntry && (
+      (killEarn && killsText === '') ||
+      !Number.isInteger(kills) ||
+      kills < 0 ||
+      kills > (killEarn ? MAX_VERIFIED_KILLS_PER_PLAYER : 2_147_483_647)
+    )) {
+      setResultError(`Enter verified kills as a whole number from 0 to ${MAX_VERIFIED_KILLS_PER_PLAYER}.`);
+      return;
+    }
+    if (teamWinnerEntry && killEarn && teamKills.some((entry) => {
+      const killsText = String(resultKillsByRegistration[entry.registrationId] ?? '').trim();
+      return killsText === '' ||
+        !Number.isInteger(entry.kills) ||
+        entry.kills < 0 ||
+        entry.kills > MAX_VERIFIED_KILLS_PER_PLAYER;
+    })) {
+      setResultError(`Enter verified kills from 0 to ${MAX_VERIFIED_KILLS_PER_PLAYER} for every winning-team player.`);
       return;
     }
     setResultBusy(true);
@@ -441,6 +467,7 @@ export default function AdminTournaments() {
         registrationId,
         rank,
         kills,
+        ...(teamWinnerEntry && killEarn ? { killsByRegistration: teamKills } : {}),
       });
       setPublishedRegistrationIds((current) => ({
         ...current,
@@ -455,11 +482,12 @@ export default function AdminTournaments() {
       setSelectedWinningTeamNumber(null);
       setResultRank('1');
       setResultKills('');
+      setResultKillsByRegistration({});
       if (rank === 1) {
         setExpandedAction(null);
         if (teamWinnerEntry && selectedWinningTeam) {
           setOkMsg(
-            `${playerLabel} published — ${Number(published.prizeCoins).toLocaleString()} coins credited to each of ${published.playersAwarded.length} approved players.`,
+            `${playerLabel} published — prize and verified kill rewards credited to ${published.playersAwarded.length} approved players.`,
           );
         } else {
           setOkMsg(WINNER_PUBLISH_SUCCESS_MESSAGE);
@@ -649,8 +677,8 @@ export default function AdminTournaments() {
     const killRewardText = String(form.killRewardCoins ?? '0').trim();
     const killRewardCoins = Number(killRewardText);
     if (!/^\d+$/.test(killRewardText) || !Number.isSafeInteger(killRewardCoins) ||
-        killRewardCoins < 0 || killRewardCoins > 2_147_483_647) {
-      return setErr('Coins per kill must be a whole number from 0 to 2,147,483,647.');
+        killRewardCoins < 0 || killRewardCoins > MAX_KILL_EARN_RATE) {
+      return setErr(`Coins per kill must be a whole number from 0 to ${MAX_KILL_EARN_RATE}.`);
     }
     const imageUrl = String(form.imageUrl || '').trim();
     if (imageUrl) {
@@ -1220,12 +1248,15 @@ export default function AdminTournaments() {
               <Text style={st.lbl}>PER-KILL REWARD</Text>
               <Input
                 testID="admin-kill-earn-reward"
-                placeholder="Coins paid per kill *"
+                placeholder={`Coins paid per kill (0–${MAX_KILL_EARN_RATE}) *`}
                 value={String(form.killRewardCoins ?? '0')}
                 onChangeText={(v) => set('killRewardCoins', v.replace(/\D/g, ''))}
                 keyboardType="number-pad"
-                maxLength={10}
+                maxLength={3}
               />
+              <Text style={st.capacityNote}>
+                Maximum kill reward per player: {MAX_VERIFIED_KILLS_PER_PLAYER * MAX_KILL_EARN_RATE} coins (47 kills × 100 coins).
+              </Text>
             </>
           )}
           <Text style={st.lbl}>CANONICAL CAPACITY</Text>
@@ -1273,6 +1304,7 @@ export default function AdminTournaments() {
           (registration) => !(publishedRegistrationIds[t.id] ?? []).includes(registration.id),
         );
         const teamTournament = Number(t.teamSize ?? 1) > 1;
+        const killEarn = t.gameMode === 'battle_royale_kill_earn';
         const teamWinnerEntry = teamTournament && Number(resultRank) === 1;
         const winningTeams = groupApprovedRegistrationsByTeam(resultRegs ?? []);
         const selectedWinningTeam = winningTeams.find(
@@ -1509,6 +1541,11 @@ export default function AdminTournaments() {
             {expandedAction?.tournamentId === t.id && expandedAction.kind === 'results' && ongoing && (
               <View testID={`inline-results-entry-${t.id}`} style={st.actionPanel}>
                 <Text style={st.actionTitle}>RESULT ENTRY</Text>
+                {killEarn && (
+                  <Text style={st.prizeHint} testID={`kill-earn-verification-policy-${t.id}`}>
+                    Verify every count against the match end screen or recording and the player’s registered Free Fire UID. Publishing locks the result and pays the saved rate (maximum 100 coins per kill; 47 kills per player). Corrections are not self-service: retain the evidence and ask a Full Admin to review a compensating adjustment; never republish to retry a payout.
+                  </Text>
+                )}
                 <Msg kind="err" text={resultError} accessibilityLiveRegion="polite" />
                 <Msg kind="ok" text={resultSuccess} accessibilityLiveRegion="polite" />
                 {resultRegs === null ? (
@@ -1559,6 +1596,7 @@ export default function AdminTournaments() {
                         onSelect={(team) => {
                           setSelectedWinningTeamNumber(team.teamNumber);
                           setSelectedRegistrationId(team.registrations[0]?.id ?? '');
+                          setResultKillsByRegistration({});
                           setResultError('');
                         }}
                       />
@@ -1600,6 +1638,33 @@ export default function AdminTournaments() {
                         })}
                       </>
                     )}
+                    {teamWinnerEntry && killEarn && selectedWinningTeam && (
+                      <View testID={`kill-earn-winning-team-kills-${t.id}`}>
+                        <Text style={st.lbl}>VERIFIED KILLS BY WINNING-TEAM PLAYER</Text>
+                        {selectedWinningTeam.registrations.map((registration) => (
+                          <View key={registration.id} style={{ marginBottom: 8 }}>
+                            <Text style={st.resultLine}>
+                              {registration.playerName} · UID {registration.gameUid || '—'}
+                            </Text>
+                            <Input
+                              testID={`result-kills-${t.id}-${registration.id}`}
+                              placeholder={`Verified kills (0–${MAX_VERIFIED_KILLS_PER_PLAYER}) *`}
+                              accessibilityLabel={`Verified kills for ${registration.playerName}`}
+                              accessibilityHint={`Enter this player's admin-verified kill total from 0 to ${MAX_VERIFIED_KILLS_PER_PLAYER}.`}
+                              value={resultKillsByRegistration[registration.id] ?? ''}
+                              onChangeText={(value) => {
+                                setResultKillsByRegistration((current) => ({
+                                  ...current,
+                                  [registration.id]: value.replace(/\D/g, ''),
+                                }));
+                              }}
+                              keyboardType="number-pad"
+                              maxLength={2}
+                            />
+                          </View>
+                        ))}
+                      </View>
+                    )}
                     <View style={{ flexDirection: 'row', gap: 8 }}>
                       <View style={{ flex: 1 }}>
                         <Text style={st.lbl}>RANK</Text>
@@ -1613,26 +1678,32 @@ export default function AdminTournaments() {
                             setResultRank(value);
                             setSelectedRegistrationId('');
                             setSelectedWinningTeamNumber(null);
+                            setResultKillsByRegistration({});
                           }}
                           keyboardType="number-pad"
                         />
                       </View>
                       {!teamWinnerEntry && (
                         <View style={{ flex: 1 }}>
-                          <Text style={st.lbl}>KILLS</Text>
+                          <Text style={st.lbl}>{killEarn ? 'VERIFIED KILLS' : 'KILLS'}</Text>
                           <Input
-                            placeholder="Kills, optional"
-                            accessibilityLabel="Kills, optional"
-                            accessibilityHint="Enter a non-negative whole number, or leave blank for zero."
+                            placeholder={killEarn
+                              ? `Verified kills (0–${MAX_VERIFIED_KILLS_PER_PLAYER}) *`
+                              : 'Kills, optional'}
+                            accessibilityLabel={killEarn ? 'Verified kills, required' : 'Kills, optional'}
+                            accessibilityHint={killEarn
+                              ? `Enter the admin-verified whole-number kill count from 0 to ${MAX_VERIFIED_KILLS_PER_PLAYER}.`
+                              : 'Enter a non-negative whole number, or leave blank for zero.'}
                             testID={`result-kills-${t.id}`}
                             value={resultKills}
-                            onChangeText={setResultKills}
+                            onChangeText={(value) => { setResultKills(value.replace(/\D/g, '')); }}
                             keyboardType="number-pad"
+                            maxLength={killEarn ? 2 : 10}
                           />
                         </View>
                       )}
                     </View>
-                    {teamWinnerEntry && (
+                    {teamWinnerEntry && !killEarn && (
                       <Text style={st.prizeHint}>
                         Winning-team kills are recorded as zero, so each player’s existing kill total stays unchanged.
                       </Text>
@@ -1667,6 +1738,11 @@ export default function AdminTournaments() {
                             : `${Number(t.prizePool).toLocaleString()} coins ÷ ${selectedWinningTeam.registrations.length} approved players.`
                         : `Auto-calculated for rank ${resultRank || '—'} from the saved prize distribution.`}
                     </Text>
+                    {killEarn && (
+                      <Text style={st.prizeHint}>
+                        The verified per-kill reward is calculated by the server and credited with this result. Published kills and payouts cannot be edited or paid twice.
+                      </Text>
+                    )}
                     <Btn
                       title={Number(resultRank) === 1 ? 'FINISH & PUBLISH WINNER' : 'PUBLISH PLACEMENT'}
                       accessibilityLabel={`Publish ${Number(resultRank) === 1 ? 'winner' : 'placement'} for ${selectedResultPlayerLabel}, rank ${resultRank || 'not entered'}`}
@@ -1707,6 +1783,14 @@ export default function AdminTournaments() {
                     {tournamentResults.map((entry) => {
                       const playerName = String(entry.gameName || entry.playerName || entry.teamName || 'Player');
                       const team = entry.teamName && entry.teamName !== playerName ? ` · ${entry.teamName}` : '';
+                      const killRewardStatus = entry.killRewardStatus === 'paid'
+                        ? 'PAID'
+                        : entry.killRewardStatus === 'not_paid'
+                          ? 'NOT PAID'
+                          : 'NO BONUS';
+                      const killReward = entry.isKillEarn
+                        ? ` · KILL REWARD ${Number(entry.killRewardPaidCoins).toLocaleString()} COINS · ${killRewardStatus}`
+                        : '';
                       return (
                         <Text
                           key={entry.registrationId}
@@ -1716,7 +1800,7 @@ export default function AdminTournaments() {
                           testID={`completed-result-entry-${entry.registrationId}`}
                           style={st.resultLine}
                         >
-                          {`#${entry.rank} ${playerName}${team} · ${Number(entry.kills)} kills · ${Number(entry.prizeCoins).toLocaleString()} coins`}
+                          {`#${entry.rank} ${playerName}${team} · ${Number(entry.kills)} verified kills · ${Number(entry.prizeCoins).toLocaleString()} prize coins${killReward}`}
                         </Text>
                       );
                     })}

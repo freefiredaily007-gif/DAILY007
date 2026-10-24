@@ -79,7 +79,10 @@ try {
 
   const testProcess = spawnSync(
     process.execPath,
-    ['--test', bundlePath],
+    [
+      '--test',
+      bundlePath,
+    ],
     {
       stdio: 'inherit',
       env: {

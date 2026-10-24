@@ -22,6 +22,7 @@
  *
  * OpenAPI spec version: 0.1.0
  */
+import type { AdminResultLogKillRewardStatus } from './adminResultLogKillRewardStatus';
 
 export interface AdminResultLog {
   tournamentId: string;
@@ -38,5 +39,14 @@ export interface AdminResultLog {
   kills: number;
   /** @minimum 0 */
   prizeCoins: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  killRewardCoinsPerKill: number;
+  /** @minimum 0 */
+  killRewardPaidCoins: number;
+  killRewardStatus: AdminResultLogKillRewardStatus;
+  isKillEarn: boolean;
   createdAt: Date;
 }

@@ -38,6 +38,8 @@ export interface TournamentResultPublishResponse {
      */
   prizeCoins: number;
   /** @minimum 0 */
+  totalKillRewardCoins: number;
+  /** @minimum 0 */
   walletCoins: number;
   /** @minimum 0 */
   totalPrizeCoins: number;

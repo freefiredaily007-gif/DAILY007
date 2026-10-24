@@ -5,6 +5,9 @@ type AdminPublishedResult = {
   teamName?: string | null;
   kills?: string | number | null;
   prizeCoins?: string | number | null;
+  isKillEarn?: boolean;
+  killRewardPaidCoins?: string | number | null;
+  killRewardStatus?: string;
 };
 
 export function adminPublishedResultAccessibilityLabel(
@@ -19,5 +22,15 @@ export function adminPublishedResultAccessibilityLabel(
       ? `team ${teamName}`
       : 'Player';
 
-  return `Rank ${entry.rank}, ${participant}, ${Number(entry.kills)} kills, prize ${Number(entry.prizeCoins).toLocaleString()} coins`;
+  const verifiedKills = `${Number(entry.kills)} ${entry.isKillEarn ? 'admin-verified ' : ''}kills`;
+  const killReward = entry.isKillEarn
+    ? `, kill reward ${Number(entry.killRewardPaidCoins ?? 0).toLocaleString()} coins, ${
+      entry.killRewardStatus === 'paid'
+        ? 'paid'
+        : entry.killRewardStatus === 'not_paid'
+          ? 'not paid'
+          : 'no bonus'
+    }`
+    : '';
+  return `Rank ${entry.rank}, ${participant}, ${verifiedKills}${killReward}, prize ${Number(entry.prizeCoins).toLocaleString()} coins`;
 }

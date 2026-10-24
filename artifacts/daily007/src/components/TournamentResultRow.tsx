@@ -44,9 +44,17 @@ export function TournamentResultRow({
   const gameName = String(entry.gameName || '').trim();
   const teamName = String(entry.teamName || '').trim();
   const winnerName = gameName || teamName || 'Player';
+  const killRewardStatus = entry.killRewardStatus === 'paid'
+    ? 'PAID'
+    : entry.killRewardStatus === 'not_paid'
+      ? 'NOT PAID'
+      : 'NO BONUS';
   const resultMeta = [
     teamName ? `TEAM ${teamName}` : '',
-    entry.kills != null ? `${entry.kills} KILLS` : '',
+    entry.kills != null ? `${entry.killsVerified ? 'VERIFIED ' : ''}${entry.kills} KILLS` : '',
+    entry.isKillEarn === true
+      ? `KILL REWARD ${Number(entry.killRewardPaidCoins ?? 0).toLocaleString()} COINS · ${killRewardStatus}`
+      : '',
   ].filter(Boolean).join(' · ');
   const avatarName = gameName || teamName || 'P';
   const rank = Number(entry.rank) || index + 1;
@@ -78,6 +86,10 @@ export function TournamentResultRow({
         teamName,
         kills: entry.kills,
         prizeCoins: entry.prizeCoins,
+        killsVerified: entry.killsVerified,
+        isKillEarn: entry.isKillEarn,
+        killRewardPaidCoins: entry.killRewardPaidCoins,
+        killRewardStatus: entry.killRewardStatus,
       })}
       onLayout={onLayoutProbe ? report('row') : undefined}
       style={[
