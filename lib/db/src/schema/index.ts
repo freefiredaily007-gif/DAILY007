@@ -19,5 +19,6 @@
 
 export * from "./daily007-v2";
 export * from "./daily007-extra";
+export * from "./daily007-kill-earn-rewards";
 export * from "./daily007-leaderboards";
 export * from "./daily007-login-rate-limits";

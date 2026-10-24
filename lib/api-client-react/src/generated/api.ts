@@ -110,6 +110,13 @@ import type {
   Daily007YoutubeSubscribeReviewBody,
   Daily007YoutubeSubscribeTaskStatus,
   HealthStatus,
+  KillEarnMatchesResponse,
+  KillEarnParticipantsResponse,
+  KillEarnRewardHistoryResponse,
+  KillEarnRewardMutationResponse,
+  KillEarnRewardRejection,
+  KillEarnRewardSubmission,
+  ListDaily007KillEarnRewardHistoryParams,
   TournamentLifecycleUpdate,
   TournamentLiveCountsResponse,
   TournamentParticipantsResponse,
@@ -6406,6 +6413,498 @@ export const usePublishTournamentResult = <TError = ErrorType<void>,
       > => {
       return useMutation(getPublishTournamentResultMutationOptions(options));
     }
+
+export const getListDaily007KillEarnMatchesUrl = () => {
+
+
+
+
+  return `/api/admin/kill-earn/matches`
+}
+
+/**
+ * @summary List completed Kill & Earn matches available for reward review
+ */
+export const listDaily007KillEarnMatches = async ( options?: Parameters<typeof customFetch>[1]): Promise<KillEarnMatchesResponse> => {
+
+  return customFetch<KillEarnMatchesResponse>(getListDaily007KillEarnMatchesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListDaily007KillEarnMatchesQueryKey = () => {
+    return [
+    `/api/admin/kill-earn/matches`
+    ] as const;
+    }
+
+
+export const getListDaily007KillEarnMatchesQueryOptions = <TData = Awaited<ReturnType<typeof listDaily007KillEarnMatches>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listDaily007KillEarnMatches>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListDaily007KillEarnMatchesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listDaily007KillEarnMatches>>> = ({ signal }) => listDaily007KillEarnMatches({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listDaily007KillEarnMatches>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListDaily007KillEarnMatchesQueryResult = NonNullable<Awaited<ReturnType<typeof listDaily007KillEarnMatches>>>
+export type ListDaily007KillEarnMatchesQueryError = ErrorType<void>
+
+
+/**
+ * @summary List completed Kill & Earn matches available for reward review
+ */
+
+export function useListDaily007KillEarnMatches<TData = Awaited<ReturnType<typeof listDaily007KillEarnMatches>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listDaily007KillEarnMatches>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListDaily007KillEarnMatchesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListDaily007KillEarnParticipantsUrl = (matchId: string,) => {
+
+
+
+
+  return `/api/admin/kill-earn/matches/${matchId}/participants`
+}
+
+/**
+ * @summary List approved players and saved kill rewards for one completed match
+ */
+export const listDaily007KillEarnParticipants = async (matchId: string, options?: Parameters<typeof customFetch>[1]): Promise<KillEarnParticipantsResponse> => {
+
+  return customFetch<KillEarnParticipantsResponse>(getListDaily007KillEarnParticipantsUrl(matchId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListDaily007KillEarnParticipantsQueryKey = (matchId: string,) => {
+    return [
+    `/api/admin/kill-earn/matches/${matchId}/participants`
+    ] as const;
+    }
+
+
+export const getListDaily007KillEarnParticipantsQueryOptions = <TData = Awaited<ReturnType<typeof listDaily007KillEarnParticipants>>, TError = ErrorType<void>>(matchId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listDaily007KillEarnParticipants>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListDaily007KillEarnParticipantsQueryKey(matchId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listDaily007KillEarnParticipants>>> = ({ signal }) => listDaily007KillEarnParticipants(matchId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: matchId !== null && matchId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listDaily007KillEarnParticipants>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListDaily007KillEarnParticipantsQueryResult = NonNullable<Awaited<ReturnType<typeof listDaily007KillEarnParticipants>>>
+export type ListDaily007KillEarnParticipantsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List approved players and saved kill rewards for one completed match
+ */
+
+export function useListDaily007KillEarnParticipants<TData = Awaited<ReturnType<typeof listDaily007KillEarnParticipants>>, TError = ErrorType<void>>(
+ matchId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listDaily007KillEarnParticipants>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListDaily007KillEarnParticipantsQueryOptions(matchId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSaveDaily007KillEarnKillsUrl = (matchId: string,
+    registrationId: string,) => {
+
+
+
+
+  return `/api/admin/kill-earn/matches/${matchId}/participants/${registrationId}/kills`
+}
+
+/**
+ * @summary Save verified kills without crediting the wallet
+ */
+export const saveDaily007KillEarnKills = async (matchId: string,
+    registrationId: string,
+    killEarnRewardSubmission: KillEarnRewardSubmission, options?: Parameters<typeof customFetch>[1]): Promise<KillEarnRewardMutationResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<KillEarnRewardMutationResponse>(getSaveDaily007KillEarnKillsUrl(matchId,registrationId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(killEarnRewardSubmission)
+  }
+);}
+
+
+
+
+
+export const getSaveDaily007KillEarnKillsMutationKey = () => ['saveDaily007KillEarnKills'] as const;
+
+export const getSaveDaily007KillEarnKillsMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveDaily007KillEarnKills>>, TError,SaveDaily007KillEarnKillsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof saveDaily007KillEarnKills>>, TError,SaveDaily007KillEarnKillsMutationVariables, TContext> => {
+
+const mutationKey = getSaveDaily007KillEarnKillsMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveDaily007KillEarnKills>>, SaveDaily007KillEarnKillsMutationVariables> = (props) => {
+          const {matchId,registrationId,data} = props ?? {};
+
+          return  saveDaily007KillEarnKills(matchId,registrationId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveDaily007KillEarnKillsMutationResult = NonNullable<Awaited<ReturnType<typeof saveDaily007KillEarnKills>>>
+    export type SaveDaily007KillEarnKillsMutationBody = BodyType<KillEarnRewardSubmission>
+    export type SaveDaily007KillEarnKillsMutationError = ErrorType<void>
+    export type SaveDaily007KillEarnKillsMutationVariables = {matchId: string;registrationId: string;data: BodyType<KillEarnRewardSubmission>}
+
+    /**
+ * @summary Save verified kills without crediting the wallet
+ */
+export const useSaveDaily007KillEarnKills = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveDaily007KillEarnKills>>, TError,SaveDaily007KillEarnKillsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof saveDaily007KillEarnKills>>,
+        TError,
+        SaveDaily007KillEarnKillsMutationVariables,
+        TContext
+      > => {
+      return useMutation(getSaveDaily007KillEarnKillsMutationOptions(options));
+    }
+
+export const getApproveDaily007KillEarnRewardUrl = (rewardId: string,) => {
+
+
+
+
+  return `/api/admin/kill-earn/rewards/${rewardId}/approve`
+}
+
+/**
+ * @summary Approve and atomically credit one Kill & Earn reward
+ */
+export const approveDaily007KillEarnReward = async (rewardId: string, options?: Parameters<typeof customFetch>[1]): Promise<KillEarnRewardMutationResponse> => {
+
+  return customFetch<KillEarnRewardMutationResponse>(getApproveDaily007KillEarnRewardUrl(rewardId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getApproveDaily007KillEarnRewardMutationKey = () => ['approveDaily007KillEarnReward'] as const;
+
+export const getApproveDaily007KillEarnRewardMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveDaily007KillEarnReward>>, TError,ApproveDaily007KillEarnRewardMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof approveDaily007KillEarnReward>>, TError,ApproveDaily007KillEarnRewardMutationVariables, TContext> => {
+
+const mutationKey = getApproveDaily007KillEarnRewardMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveDaily007KillEarnReward>>, ApproveDaily007KillEarnRewardMutationVariables> = (props) => {
+          const {rewardId} = props ?? {};
+
+          return  approveDaily007KillEarnReward(rewardId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApproveDaily007KillEarnRewardMutationResult = NonNullable<Awaited<ReturnType<typeof approveDaily007KillEarnReward>>>
+
+    export type ApproveDaily007KillEarnRewardMutationError = ErrorType<void>
+    export type ApproveDaily007KillEarnRewardMutationVariables = {rewardId: string}
+
+    /**
+ * @summary Approve and atomically credit one Kill & Earn reward
+ */
+export const useApproveDaily007KillEarnReward = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveDaily007KillEarnReward>>, TError,ApproveDaily007KillEarnRewardMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof approveDaily007KillEarnReward>>,
+        TError,
+        ApproveDaily007KillEarnRewardMutationVariables,
+        TContext
+      > => {
+      return useMutation(getApproveDaily007KillEarnRewardMutationOptions(options));
+    }
+
+export const getRejectDaily007KillEarnRewardUrl = (rewardId: string,) => {
+
+
+
+
+  return `/api/admin/kill-earn/rewards/${rewardId}/reject`
+}
+
+/**
+ * @summary Reject one saved Kill & Earn reward with an audit reason
+ */
+export const rejectDaily007KillEarnReward = async (rewardId: string,
+    killEarnRewardRejection: KillEarnRewardRejection, options?: Parameters<typeof customFetch>[1]): Promise<KillEarnRewardMutationResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<KillEarnRewardMutationResponse>(getRejectDaily007KillEarnRewardUrl(rewardId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(killEarnRewardRejection)
+  }
+);}
+
+
+
+
+
+export const getRejectDaily007KillEarnRewardMutationKey = () => ['rejectDaily007KillEarnReward'] as const;
+
+export const getRejectDaily007KillEarnRewardMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rejectDaily007KillEarnReward>>, TError,RejectDaily007KillEarnRewardMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof rejectDaily007KillEarnReward>>, TError,RejectDaily007KillEarnRewardMutationVariables, TContext> => {
+
+const mutationKey = getRejectDaily007KillEarnRewardMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof rejectDaily007KillEarnReward>>, RejectDaily007KillEarnRewardMutationVariables> = (props) => {
+          const {rewardId,data} = props ?? {};
+
+          return  rejectDaily007KillEarnReward(rewardId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RejectDaily007KillEarnRewardMutationResult = NonNullable<Awaited<ReturnType<typeof rejectDaily007KillEarnReward>>>
+    export type RejectDaily007KillEarnRewardMutationBody = BodyType<KillEarnRewardRejection>
+    export type RejectDaily007KillEarnRewardMutationError = ErrorType<void>
+    export type RejectDaily007KillEarnRewardMutationVariables = {rewardId: string;data: BodyType<KillEarnRewardRejection>}
+
+    /**
+ * @summary Reject one saved Kill & Earn reward with an audit reason
+ */
+export const useRejectDaily007KillEarnReward = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rejectDaily007KillEarnReward>>, TError,RejectDaily007KillEarnRewardMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof rejectDaily007KillEarnReward>>,
+        TError,
+        RejectDaily007KillEarnRewardMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRejectDaily007KillEarnRewardMutationOptions(options));
+    }
+
+export const getListDaily007KillEarnRewardHistoryUrl = (params?: ListDaily007KillEarnRewardHistoryParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/kill-earn/reward-history?${stringifiedParams}` : `/api/admin/kill-earn/reward-history`
+}
+
+/**
+ * @summary Search Kill & Earn reward review and payment history
+ */
+export const listDaily007KillEarnRewardHistory = async (params?: ListDaily007KillEarnRewardHistoryParams, options?: Parameters<typeof customFetch>[1]): Promise<KillEarnRewardHistoryResponse> => {
+
+  return customFetch<KillEarnRewardHistoryResponse>(getListDaily007KillEarnRewardHistoryUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListDaily007KillEarnRewardHistoryQueryKey = (params?: ListDaily007KillEarnRewardHistoryParams,) => {
+    return [
+    `/api/admin/kill-earn/reward-history`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListDaily007KillEarnRewardHistoryQueryOptions = <TData = Awaited<ReturnType<typeof listDaily007KillEarnRewardHistory>>, TError = ErrorType<void>>(params?: ListDaily007KillEarnRewardHistoryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listDaily007KillEarnRewardHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListDaily007KillEarnRewardHistoryQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listDaily007KillEarnRewardHistory>>> = ({ signal }) => listDaily007KillEarnRewardHistory(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listDaily007KillEarnRewardHistory>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListDaily007KillEarnRewardHistoryQueryResult = NonNullable<Awaited<ReturnType<typeof listDaily007KillEarnRewardHistory>>>
+export type ListDaily007KillEarnRewardHistoryQueryError = ErrorType<void>
+
+
+/**
+ * @summary Search Kill & Earn reward review and payment history
+ */
+
+export function useListDaily007KillEarnRewardHistory<TData = Awaited<ReturnType<typeof listDaily007KillEarnRewardHistory>>, TError = ErrorType<void>>(
+ params?: ListDaily007KillEarnRewardHistoryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listDaily007KillEarnRewardHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListDaily007KillEarnRewardHistoryQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getDaily007ListAdminDuplicatePlacementsUrl = () => {
 

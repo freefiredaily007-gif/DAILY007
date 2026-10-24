@@ -37,7 +37,7 @@ const SENSITIVE_ADMIN_SCREEN_KEYS = [
   "earnTasks",
   "videos",
 ];
-const TOURNAMENT_ADMIN_NAV_KEYS = ["tournaments", "registrations"];
+const TOURNAMENT_ADMIN_NAV_KEYS = ["tournaments", "killEarn", "registrations"];
 const PLAYER_TAB_NAMES = ["Home", "Video", "Earn", "Wallet", "Profile"];
 const ADMIN_NAV_ITEMS = ADMIN_NAV_KEYS.map((key) => ({ key }));
 
@@ -605,7 +605,7 @@ test("a Clerk logout failure keeps the app signed out, shows the warning, and al
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
   assert.match(
     appSource,
-    /if \(clerkSignOutFailed\) \{\s*Alert\.alert\('Sign-out issue', 'Daily007 signed out, but Clerk sign-out could not be confirmed\. Please reopen the app and try again\.'\);/,
+    /if \(clerkSignOutFailed\) \{\s*showLocalizedAlert\('Sign-out issue', 'Daily007 signed out, but Clerk sign-out could not be confirmed\. Please reopen the app and try again\.'\);/,
     "The signed-out app must show the existing warning when Clerk sign-out rejects.",
   );
   assert.match(
@@ -1061,7 +1061,7 @@ test("App and AdminApp use the tested refresh and role-navigation decisions", as
   );
   assert.match(
     authSource,
-    /if \(Platform\.OS === 'ios' && notice\) \{\s*AccessibilityInfo\.announceForAccessibility\(notice\);\s*\}/,
+    /if \(Platform\.OS === 'ios' && notice\) \{\s*AccessibilityInfo\.announceForAccessibility\(translateExactText\(notice\)\);\s*\}/,
     "iOS must announce the sign-in explanation through the native accessibility API.",
   );
   assert.equal(
@@ -1124,6 +1124,7 @@ test("App and AdminApp use the tested refresh and role-navigation decisions", as
     ["payments", "AdminPayments"],
     ["wallet", "AdminWallet"],
     ["leaderboards", "AdminLeaderboards"],
+    ["killEarn", "AdminKillEarnRewards"],
     ["earnTasks", "AdminEarnTasks"],
     ["videos", "AdminVideos"],
   ]) {

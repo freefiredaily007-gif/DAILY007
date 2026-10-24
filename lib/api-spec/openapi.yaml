@@ -1364,6 +1364,117 @@ paths:
         "403": { description: Tournament administrator required }
         "404": { description: Tournament or player registration not found }
         "409": { description: Result cannot be published or payout validation failed }
+  /admin/kill-earn/matches:
+    get:
+      operationId: listDaily007KillEarnMatches
+      summary: List completed Kill & Earn matches available for reward review
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Completed Kill & Earn matches
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KillEarnMatchesResponse" }
+        "403": { description: Tournament administrator required }
+  /admin/kill-earn/matches/{matchId}/participants:
+    get:
+      operationId: listDaily007KillEarnParticipants
+      summary: List approved players and saved kill rewards for one completed match
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: matchId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Approved participants and their reward review state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KillEarnParticipantsResponse" }
+        "403": { description: Tournament administrator required }
+        "404": { description: Completed Kill & Earn match not found }
+  /admin/kill-earn/matches/{matchId}/participants/{registrationId}/kills:
+    put:
+      operationId: saveDaily007KillEarnKills
+      summary: Save verified kills without crediting the wallet
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: matchId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: registrationId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/KillEarnRewardSubmission" }
+      responses:
+        "200":
+          description: Verified kill count saved; no wallet transaction created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KillEarnRewardMutationResponse" }
+        "400": { description: Verified kills must be a non-negative integer }
+        "403": { description: Tournament administrator required }
+        "404": { description: Match or approved registration not found }
+        "409": { description: Match is not completed or reward is already reviewed }
+  /admin/kill-earn/rewards/{rewardId}/approve:
+    post:
+      operationId: approveDaily007KillEarnReward
+      summary: Approve and atomically credit one Kill & Earn reward
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: rewardId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Reward approved or credited exactly once
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KillEarnRewardMutationResponse" }
+        "403": { description: Tournament administrator required }
+        "404": { description: Reward not found }
+        "409": { description: Reward cannot be approved or was already credited }
+  /admin/kill-earn/rewards/{rewardId}/reject:
+    post:
+      operationId: rejectDaily007KillEarnReward
+      summary: Reject one saved Kill & Earn reward with an audit reason
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: rewardId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/KillEarnRewardRejection" }
+      responses:
+        "200":
+          description: Reward rejected without changing the player's wallet
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KillEarnRewardMutationResponse" }
+        "400": { description: Rejection reason is required }
+        "403": { description: Tournament administrator required }
+        "404": { description: Reward not found }
+        "409": { description: Reward has already been reviewed }
+  /admin/kill-earn/reward-history:
+    get:
+      operationId: listDaily007KillEarnRewardHistory
+      summary: Search Kill & Earn reward review and payment history
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: matchId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: tournament, in: query, required: false, schema: { type: string, maxLength: 200 } }
+        - { name: player, in: query, required: false, schema: { type: string, maxLength: 200 } }
+        - { name: fromDate, in: query, required: false, schema: { type: string, format: date } }
+        - { name: toDate, in: query, required: false, schema: { type: string, format: date } }
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [pending, approved, rejected, credited] }
+      responses:
+        "200":
+          description: Filtered immutable Kill & Earn reward history
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KillEarnRewardHistoryResponse" }
+        "400": { description: Invalid filter value }
+        "403": { description: Tournament administrator required }
   /admin/results/duplicate-placements:
     get:
       operationId: daily007ListAdminDuplicatePlacements
@@ -1559,6 +1670,100 @@ components:
           type: array
           items: { $ref: "#/components/schemas/AdminResultLog" }
       required: [success, data]
+    KillEarnMatch:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        submode: { type: string, enum: [solo, duo, squad] }
+        startsAt: { type: string, format: date-time }
+        killRewardCoins: { type: integer, minimum: 0 }
+        approvedPlayers: { type: integer, minimum: 0 }
+      required: [id, title, submode, startsAt, killRewardCoins, approvedPlayers]
+    KillEarnMatchesResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/KillEarnMatch" }
+      required: [success, data]
+    KillEarnParticipant:
+      type: object
+      properties:
+        registrationId: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        playerName: { type: string }
+        playerUid: { type: string }
+        teamNumber: { type: ["integer", "null"], minimum: 1 }
+        verifiedKills: { type: ["integer", "null"], minimum: 0 }
+        rewardPerKill: { type: integer, minimum: 0 }
+        rewardCoins: { type: ["integer", "null"], minimum: 0 }
+        rewardId: { type: ["string", "null"], format: uuid }
+        status:
+          type: ["string", "null"]
+          enum: [pending, approved, rejected, credited, null]
+        reviewedBy: { type: ["string", "null"], format: uuid }
+        reviewedAt: { type: ["string", "null"], format: date-time }
+        creditedAt: { type: ["string", "null"], format: date-time }
+        walletTransactionId: { type: ["string", "null"], format: uuid }
+        rejectionReason: { type: ["string", "null"] }
+      required: [registrationId, userId, playerName, playerUid, teamNumber, verifiedKills, rewardPerKill, rewardCoins, rewardId, status, reviewedBy, reviewedAt, creditedAt, walletTransactionId, rejectionReason]
+    KillEarnParticipantsResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/KillEarnParticipant" }
+      required: [success, data]
+    KillEarnRewardSubmission:
+      type: object
+      properties:
+        verifiedKills: { type: integer, minimum: 0, maximum: 2147483647 }
+      required: [verifiedKills]
+    KillEarnRewardRejection:
+      type: object
+      properties:
+        reason: { type: string, minLength: 3, maxLength: 500 }
+      required: [reason]
+    KillEarnRewardRecord:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        matchId: { type: string, format: uuid }
+        registrationId: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        tournamentName: { type: string }
+        submode: { type: string, enum: [solo, duo, squad] }
+        playerName: { type: string }
+        playerUid: { type: string }
+        verifiedKills: { type: integer, minimum: 0 }
+        rewardPerKill: { type: integer, minimum: 0 }
+        rewardCoins: { type: integer, minimum: 0 }
+        status: { type: string, enum: [pending, approved, rejected, credited] }
+        reviewedBy: { type: ["string", "null"], format: uuid }
+        reviewedAt: { type: ["string", "null"], format: date-time }
+        creditedAt: { type: ["string", "null"], format: date-time }
+        walletTransactionId: { type: ["string", "null"], format: uuid }
+        rejectionReason: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+      required: [id, matchId, registrationId, userId, tournamentName, submode, playerName, playerUid, verifiedKills, rewardPerKill, rewardCoins, status, reviewedBy, reviewedAt, creditedAt, walletTransactionId, rejectionReason, createdAt]
+    KillEarnRewardHistoryResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/KillEarnRewardRecord" }
+      required: [success, data]
+    KillEarnRewardMutationResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        data: { $ref: "#/components/schemas/KillEarnRewardRecord" }
+        message: { type: ["string", "null"] }
+      required: [success, data, message]
     AdminDuplicatePlacementAward:
       type: object
       properties:

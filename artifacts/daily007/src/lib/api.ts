@@ -2,6 +2,11 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { setAuthExpiredHandler as setGeneratedAuthExpiredHandler } from '@workspace/api-client-react';
+import type {
+  KillEarnMatch,
+  KillEarnParticipant,
+  KillEarnRewardRecord,
+} from '@workspace/api-client-react';
 import { API_BASE_URL } from './backendUrl';
 import { isBlockedAccountError, type SessionExpiredReason } from './session-verification';
 import { isAppLanguage } from '../i18n/languagePreference';
@@ -677,6 +682,36 @@ export const Api = {
       r != null && r.tournamentId === tid && r.status === 'approved');
   },
   adminPublishResult: (b: object): Promise<AdminResultPublishResponse> => unwrap(http.post('/admin/results', b)),
+  adminKillEarnMatches: (): Promise<KillEarnMatch[]> => unwrap(http.get('/admin/kill-earn/matches', {
+    headers: LIVE_DATA_HEADERS,
+  })),
+  adminKillEarnParticipants: (matchId: string): Promise<KillEarnParticipant[]> =>
+    unwrap(http.get(`/admin/kill-earn/matches/${encodeURIComponent(matchId)}/participants`, {
+      headers: LIVE_DATA_HEADERS,
+    })),
+  adminSaveKillEarnKills: (
+    matchId: string,
+    registrationId: string,
+    verifiedKills: number,
+  ): Promise<KillEarnRewardRecord> => unwrap(http.put(
+    `/admin/kill-earn/matches/${encodeURIComponent(matchId)}/participants/${encodeURIComponent(registrationId)}/kills`,
+    { verifiedKills },
+  )),
+  adminApproveKillEarnReward: (rewardId: string): Promise<KillEarnRewardRecord> =>
+    unwrap(http.post(`/admin/kill-earn/rewards/${encodeURIComponent(rewardId)}/approve`, {})),
+  adminRejectKillEarnReward: (rewardId: string, reason: string): Promise<KillEarnRewardRecord> =>
+    unwrap(http.post(`/admin/kill-earn/rewards/${encodeURIComponent(rewardId)}/reject`, { reason })),
+  adminKillEarnRewardHistory: (filters: {
+    matchId?: string;
+    tournament?: string;
+    player?: string;
+    fromDate?: string;
+    toDate?: string;
+    status?: 'pending' | 'approved' | 'rejected' | 'credited';
+  }): Promise<KillEarnRewardRecord[]> => unwrap(http.get('/admin/kill-earn/reward-history', {
+    params: filters,
+    headers: LIVE_DATA_HEADERS,
+  })),
   adminAdjustCoins: (id: string, coinsDelta: number, note: string, requestId: string) =>
     unwrap(http.patch('/admin/users/' + id, { coinsDelta, note, requestId })),
   adminSetUser: (id: string, b: object) => unwrap(http.patch('/admin/users/' + id, b)),

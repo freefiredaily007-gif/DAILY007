@@ -173,6 +173,163 @@ export interface AdminResultLogsResponse {
   data: AdminResultLog[];
 }
 
+export type KillEarnMatchSubmode = typeof KillEarnMatchSubmode[keyof typeof KillEarnMatchSubmode];
+
+
+export const KillEarnMatchSubmode = {
+  solo: 'solo',
+  duo: 'duo',
+  squad: 'squad',
+} as const;
+
+export interface KillEarnMatch {
+  id: string;
+  title: string;
+  submode: KillEarnMatchSubmode;
+  startsAt: string;
+  /** @minimum 0 */
+  killRewardCoins: number;
+  /** @minimum 0 */
+  approvedPlayers: number;
+}
+
+export interface KillEarnMatchesResponse {
+  success: boolean;
+  data: KillEarnMatch[];
+}
+
+/**
+ * @nullable
+ */
+export type KillEarnParticipantStatus = typeof KillEarnParticipantStatus[keyof typeof KillEarnParticipantStatus] | null;
+
+
+export const KillEarnParticipantStatus = {
+  pending: 'pending',
+  approved: 'approved',
+  rejected: 'rejected',
+  credited: 'credited',
+} as const;
+
+export interface KillEarnParticipant {
+  registrationId: string;
+  userId: string;
+  playerName: string;
+  playerUid: string;
+  /**
+     * @minimum 1
+     * @nullable
+     */
+  teamNumber: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  verifiedKills: number | null;
+  /** @minimum 0 */
+  rewardPerKill: number;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  rewardCoins: number | null;
+  /** @nullable */
+  rewardId: string | null;
+  /** @nullable */
+  status: KillEarnParticipantStatus;
+  /** @nullable */
+  reviewedBy: string | null;
+  /** @nullable */
+  reviewedAt: string | null;
+  /** @nullable */
+  creditedAt: string | null;
+  /** @nullable */
+  walletTransactionId: string | null;
+  /** @nullable */
+  rejectionReason: string | null;
+}
+
+export interface KillEarnParticipantsResponse {
+  success: boolean;
+  data: KillEarnParticipant[];
+}
+
+export interface KillEarnRewardSubmission {
+  /**
+     * @minimum 0
+     * @maximum 2147483647
+     */
+  verifiedKills: number;
+}
+
+export interface KillEarnRewardRejection {
+  /**
+     * @minLength 3
+     * @maxLength 500
+     */
+  reason: string;
+}
+
+export type KillEarnRewardRecordSubmode = typeof KillEarnRewardRecordSubmode[keyof typeof KillEarnRewardRecordSubmode];
+
+
+export const KillEarnRewardRecordSubmode = {
+  solo: 'solo',
+  duo: 'duo',
+  squad: 'squad',
+} as const;
+
+export type KillEarnRewardRecordStatus = typeof KillEarnRewardRecordStatus[keyof typeof KillEarnRewardRecordStatus];
+
+
+export const KillEarnRewardRecordStatus = {
+  pending: 'pending',
+  approved: 'approved',
+  rejected: 'rejected',
+  credited: 'credited',
+} as const;
+
+export interface KillEarnRewardRecord {
+  id: string;
+  matchId: string;
+  registrationId: string;
+  userId: string;
+  tournamentName: string;
+  submode: KillEarnRewardRecordSubmode;
+  playerName: string;
+  playerUid: string;
+  /** @minimum 0 */
+  verifiedKills: number;
+  /** @minimum 0 */
+  rewardPerKill: number;
+  /** @minimum 0 */
+  rewardCoins: number;
+  status: KillEarnRewardRecordStatus;
+  /** @nullable */
+  reviewedBy: string | null;
+  /** @nullable */
+  reviewedAt: string | null;
+  /** @nullable */
+  creditedAt: string | null;
+  /** @nullable */
+  walletTransactionId: string | null;
+  /** @nullable */
+  rejectionReason: string | null;
+  createdAt: string;
+}
+
+export interface KillEarnRewardHistoryResponse {
+  success: boolean;
+  data: KillEarnRewardRecord[];
+}
+
+export interface KillEarnRewardMutationResponse {
+  success: boolean;
+  data: KillEarnRewardRecord;
+  /** @nullable */
+  message: string | null;
+}
+
 export interface AdminDuplicatePlacementAward {
   awardId: string;
   registrationId: string;
@@ -1826,4 +1983,29 @@ export type Daily007ListAdminResultLogsParams = {
  */
 includeUnfinalized?: boolean;
 };
+
+export type ListDaily007KillEarnRewardHistoryParams = {
+matchId?: string;
+/**
+ * @maxLength 200
+ */
+tournament?: string;
+/**
+ * @maxLength 200
+ */
+player?: string;
+fromDate?: string;
+toDate?: string;
+status?: ListDaily007KillEarnRewardHistoryStatus;
+};
+
+export type ListDaily007KillEarnRewardHistoryStatus = typeof ListDaily007KillEarnRewardHistoryStatus[keyof typeof ListDaily007KillEarnRewardHistoryStatus];
+
+
+export const ListDaily007KillEarnRewardHistoryStatus = {
+  pending: 'pending',
+  approved: 'approved',
+  rejected: 'rejected',
+  credited: 'credited',
+} as const;
 

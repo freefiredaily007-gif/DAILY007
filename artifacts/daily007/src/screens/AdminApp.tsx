@@ -8,6 +8,7 @@ import { A, AdminToastHost } from '../components/adminKit';
 import { AdminUiProvider } from '../components/ui';
 import AdminDashboard from './AdminDashboard';
 import AdminTournaments from './AdminTournaments';
+import AdminKillEarnRewards from './AdminKillEarnRewards';
 import AdminRegs from './AdminRegs';
 import AdminPayments from './AdminPayments';
 import AdminWallet from './AdminWallet';
@@ -29,6 +30,7 @@ const NAV: {
   { key: 'dashboard', label: 'Dashboard', icon: 'grid' },
   { key: 'leaderboards', label: 'Leaderboards', accessibilityLabel: 'Leaderboard rewards', icon: 'award' },
   { key: 'tournaments', label: 'Tournaments', icon: 'award' },
+  { key: 'killEarn', label: 'Kill & Earn', icon: 'zap' },
   { key: 'registrations', label: 'Registrations', icon: 'file-text' },
   { key: 'payments', label: 'Payments', icon: 'credit-card' },
   { key: 'wallet', label: 'Wallet', icon: 'database' },
@@ -65,7 +67,8 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
     if (canNavigateAdminScreen(user.role, next)) setScreen(next);
   };
   const Screen: any = {
-    dashboard: AdminDashboard, leaderboards: AdminLeaderboards, tournaments: AdminTournaments, registrations: AdminRegs,
+    dashboard: AdminDashboard, leaderboards: AdminLeaderboards, tournaments: AdminTournaments,
+    killEarn: AdminKillEarnRewards, registrations: AdminRegs,
     payments: AdminPayments, wallet: AdminWallet, earnTasks: AdminEarnTasks, videos: AdminVideos,
     users: AdminUsers, notifications: AdminNotifications, settings: AdminSettings,
   }[activeScreen] || AdminDashboard;

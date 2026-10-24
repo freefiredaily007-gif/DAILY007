@@ -2336,6 +2336,259 @@ export const PublishTournamentResultResponse = zod.object({
 
 
 /**
+ * @summary List completed Kill & Earn matches available for reward review
+ */
+export const listDaily007KillEarnMatchesResponseDataItemKillRewardCoinsMin = 0;
+
+export const listDaily007KillEarnMatchesResponseDataItemApprovedPlayersMin = 0;
+
+
+
+export const ListDaily007KillEarnMatchesResponse = zod.object({
+  "success": zod.boolean(),
+  "data": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "title": zod.string(),
+  "submode": zod.enum(['solo', 'duo', 'squad']),
+  "startsAt": zod.coerce.date(),
+  "killRewardCoins": zod.number().int().min(listDaily007KillEarnMatchesResponseDataItemKillRewardCoinsMin),
+  "approvedPlayers": zod.number().int().min(listDaily007KillEarnMatchesResponseDataItemApprovedPlayersMin)
+}))
+})
+
+
+/**
+ * @summary List approved players and saved kill rewards for one completed match
+ */
+export const ListDaily007KillEarnParticipantsParams = zod.object({
+  "matchId": zod.coerce.string().uuid()
+})
+
+
+export const listDaily007KillEarnParticipantsResponseDataItemVerifiedKillsMin = 0;
+
+export const listDaily007KillEarnParticipantsResponseDataItemRewardPerKillMin = 0;
+
+export const listDaily007KillEarnParticipantsResponseDataItemRewardCoinsMin = 0;
+
+
+
+export const ListDaily007KillEarnParticipantsResponse = zod.object({
+  "success": zod.boolean(),
+  "data": zod.array(zod.object({
+  "registrationId": zod.string().uuid(),
+  "userId": zod.string().uuid(),
+  "playerName": zod.string(),
+  "playerUid": zod.string(),
+  "teamNumber": zod.number().int().min(1).nullable(),
+  "verifiedKills": zod.number().int().min(listDaily007KillEarnParticipantsResponseDataItemVerifiedKillsMin).nullable(),
+  "rewardPerKill": zod.number().int().min(listDaily007KillEarnParticipantsResponseDataItemRewardPerKillMin),
+  "rewardCoins": zod.number().int().min(listDaily007KillEarnParticipantsResponseDataItemRewardCoinsMin).nullable(),
+  "rewardId": zod.string().uuid().nullable(),
+  "status": zod.union([zod.literal('pending'),zod.literal('approved'),zod.literal('rejected'),zod.literal('credited'),zod.literal(null)]).nullable(),
+  "reviewedBy": zod.string().uuid().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "creditedAt": zod.coerce.date().nullable(),
+  "walletTransactionId": zod.string().uuid().nullable(),
+  "rejectionReason": zod.string().nullable()
+}))
+})
+
+
+/**
+ * @summary Save verified kills without crediting the wallet
+ */
+export const SaveDaily007KillEarnKillsParams = zod.object({
+  "matchId": zod.coerce.string().uuid(),
+  "registrationId": zod.coerce.string().uuid()
+})
+
+export const saveDaily007KillEarnKillsBodyVerifiedKillsMin = 0;
+export const saveDaily007KillEarnKillsBodyVerifiedKillsMax = 2147483647;
+
+
+
+export const SaveDaily007KillEarnKillsBody = zod.object({
+  "verifiedKills": zod.number().int().min(saveDaily007KillEarnKillsBodyVerifiedKillsMin).max(saveDaily007KillEarnKillsBodyVerifiedKillsMax)
+})
+
+export const saveDaily007KillEarnKillsResponseDataVerifiedKillsMin = 0;
+
+export const saveDaily007KillEarnKillsResponseDataRewardPerKillMin = 0;
+
+export const saveDaily007KillEarnKillsResponseDataRewardCoinsMin = 0;
+
+
+
+export const SaveDaily007KillEarnKillsResponse = zod.object({
+  "success": zod.boolean(),
+  "data": zod.object({
+  "id": zod.string().uuid(),
+  "matchId": zod.string().uuid(),
+  "registrationId": zod.string().uuid(),
+  "userId": zod.string().uuid(),
+  "tournamentName": zod.string(),
+  "submode": zod.enum(['solo', 'duo', 'squad']),
+  "playerName": zod.string(),
+  "playerUid": zod.string(),
+  "verifiedKills": zod.number().int().min(saveDaily007KillEarnKillsResponseDataVerifiedKillsMin),
+  "rewardPerKill": zod.number().int().min(saveDaily007KillEarnKillsResponseDataRewardPerKillMin),
+  "rewardCoins": zod.number().int().min(saveDaily007KillEarnKillsResponseDataRewardCoinsMin),
+  "status": zod.enum(['pending', 'approved', 'rejected', 'credited']),
+  "reviewedBy": zod.string().uuid().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "creditedAt": zod.coerce.date().nullable(),
+  "walletTransactionId": zod.string().uuid().nullable(),
+  "rejectionReason": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+}),
+  "message": zod.string().nullable()
+})
+
+
+/**
+ * @summary Approve and atomically credit one Kill & Earn reward
+ */
+export const ApproveDaily007KillEarnRewardParams = zod.object({
+  "rewardId": zod.coerce.string().uuid()
+})
+
+export const approveDaily007KillEarnRewardResponseDataVerifiedKillsMin = 0;
+
+export const approveDaily007KillEarnRewardResponseDataRewardPerKillMin = 0;
+
+export const approveDaily007KillEarnRewardResponseDataRewardCoinsMin = 0;
+
+
+
+export const ApproveDaily007KillEarnRewardResponse = zod.object({
+  "success": zod.boolean(),
+  "data": zod.object({
+  "id": zod.string().uuid(),
+  "matchId": zod.string().uuid(),
+  "registrationId": zod.string().uuid(),
+  "userId": zod.string().uuid(),
+  "tournamentName": zod.string(),
+  "submode": zod.enum(['solo', 'duo', 'squad']),
+  "playerName": zod.string(),
+  "playerUid": zod.string(),
+  "verifiedKills": zod.number().int().min(approveDaily007KillEarnRewardResponseDataVerifiedKillsMin),
+  "rewardPerKill": zod.number().int().min(approveDaily007KillEarnRewardResponseDataRewardPerKillMin),
+  "rewardCoins": zod.number().int().min(approveDaily007KillEarnRewardResponseDataRewardCoinsMin),
+  "status": zod.enum(['pending', 'approved', 'rejected', 'credited']),
+  "reviewedBy": zod.string().uuid().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "creditedAt": zod.coerce.date().nullable(),
+  "walletTransactionId": zod.string().uuid().nullable(),
+  "rejectionReason": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+}),
+  "message": zod.string().nullable()
+})
+
+
+/**
+ * @summary Reject one saved Kill & Earn reward with an audit reason
+ */
+export const RejectDaily007KillEarnRewardParams = zod.object({
+  "rewardId": zod.coerce.string().uuid()
+})
+
+export const rejectDaily007KillEarnRewardBodyReasonMin = 3;
+export const rejectDaily007KillEarnRewardBodyReasonMax = 500;
+
+
+
+export const RejectDaily007KillEarnRewardBody = zod.object({
+  "reason": zod.string().min(rejectDaily007KillEarnRewardBodyReasonMin).max(rejectDaily007KillEarnRewardBodyReasonMax)
+})
+
+export const rejectDaily007KillEarnRewardResponseDataVerifiedKillsMin = 0;
+
+export const rejectDaily007KillEarnRewardResponseDataRewardPerKillMin = 0;
+
+export const rejectDaily007KillEarnRewardResponseDataRewardCoinsMin = 0;
+
+
+
+export const RejectDaily007KillEarnRewardResponse = zod.object({
+  "success": zod.boolean(),
+  "data": zod.object({
+  "id": zod.string().uuid(),
+  "matchId": zod.string().uuid(),
+  "registrationId": zod.string().uuid(),
+  "userId": zod.string().uuid(),
+  "tournamentName": zod.string(),
+  "submode": zod.enum(['solo', 'duo', 'squad']),
+  "playerName": zod.string(),
+  "playerUid": zod.string(),
+  "verifiedKills": zod.number().int().min(rejectDaily007KillEarnRewardResponseDataVerifiedKillsMin),
+  "rewardPerKill": zod.number().int().min(rejectDaily007KillEarnRewardResponseDataRewardPerKillMin),
+  "rewardCoins": zod.number().int().min(rejectDaily007KillEarnRewardResponseDataRewardCoinsMin),
+  "status": zod.enum(['pending', 'approved', 'rejected', 'credited']),
+  "reviewedBy": zod.string().uuid().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "creditedAt": zod.coerce.date().nullable(),
+  "walletTransactionId": zod.string().uuid().nullable(),
+  "rejectionReason": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+}),
+  "message": zod.string().nullable()
+})
+
+
+/**
+ * @summary Search Kill & Earn reward review and payment history
+ */
+export const listDaily007KillEarnRewardHistoryQueryTournamentMax = 200;
+
+export const listDaily007KillEarnRewardHistoryQueryPlayerMax = 200;
+
+
+
+export const ListDaily007KillEarnRewardHistoryQueryParams = zod.object({
+  "matchId": zod.coerce.string().uuid().optional(),
+  "tournament": zod.coerce.string().max(listDaily007KillEarnRewardHistoryQueryTournamentMax).optional(),
+  "player": zod.coerce.string().max(listDaily007KillEarnRewardHistoryQueryPlayerMax).optional(),
+  "fromDate": zod.date().optional(),
+  "toDate": zod.date().optional(),
+  "status": zod.enum(['pending', 'approved', 'rejected', 'credited']).optional()
+})
+
+export const listDaily007KillEarnRewardHistoryResponseDataItemVerifiedKillsMin = 0;
+
+export const listDaily007KillEarnRewardHistoryResponseDataItemRewardPerKillMin = 0;
+
+export const listDaily007KillEarnRewardHistoryResponseDataItemRewardCoinsMin = 0;
+
+
+
+export const ListDaily007KillEarnRewardHistoryResponse = zod.object({
+  "success": zod.boolean(),
+  "data": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "matchId": zod.string().uuid(),
+  "registrationId": zod.string().uuid(),
+  "userId": zod.string().uuid(),
+  "tournamentName": zod.string(),
+  "submode": zod.enum(['solo', 'duo', 'squad']),
+  "playerName": zod.string(),
+  "playerUid": zod.string(),
+  "verifiedKills": zod.number().int().min(listDaily007KillEarnRewardHistoryResponseDataItemVerifiedKillsMin),
+  "rewardPerKill": zod.number().int().min(listDaily007KillEarnRewardHistoryResponseDataItemRewardPerKillMin),
+  "rewardCoins": zod.number().int().min(listDaily007KillEarnRewardHistoryResponseDataItemRewardCoinsMin),
+  "status": zod.enum(['pending', 'approved', 'rejected', 'credited']),
+  "reviewedBy": zod.string().uuid().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "creditedAt": zod.coerce.date().nullable(),
+  "walletTransactionId": zod.string().uuid().nullable(),
+  "rejectionReason": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
  * Read-only report of tournament result awards where multiple registrations share the same rank.
  * @summary Audit historical duplicate tournament placements
  */

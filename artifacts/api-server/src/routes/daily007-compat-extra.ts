@@ -66,6 +66,14 @@ import {
   daily007UserDeletionCandidateError,
   deleteDaily007UserData,
 } from "../lib/daily007-user-deletion";
+import {
+  approveKillEarnReward,
+  listCompletedKillEarnMatches,
+  listKillEarnParticipants,
+  listKillEarnRewardHistory,
+  rejectKillEarnReward,
+  saveKillEarnKills,
+} from "../lib/daily007-kill-earn-rewards";
 
 const router: IRouter = Router();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -2842,6 +2850,143 @@ router.post("/admin/results", authenticate, async (req, res): Promise<void> => {
       error(res, 409, "A result has already been published for this registration.");
       return;
     }
+    respondFailure(res, e);
+  }
+});
+
+router.get("/admin/kill-earn/matches", authenticate, async (req, res): Promise<void> => {
+  if (!requireTournamentAdmin(req, res)) return;
+  try {
+    const data = await roleTransaction(req, "tournament_admin", listCompletedKillEarnMatches);
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ success: true, data });
+  } catch (e) {
+    respondFailure(res, e);
+  }
+});
+
+router.get("/admin/kill-earn/matches/:matchId/participants", authenticate, async (req, res): Promise<void> => {
+  if (!requireTournamentAdmin(req, res)) return;
+  const matchId = req.params.matchId;
+  if (!validId(matchId)) return error(res, 400, "Tournament id must be a UUID.");
+  try {
+    const data = await roleTransaction(req, "tournament_admin", (client) =>
+      listKillEarnParticipants(client, matchId),
+    );
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ success: true, data });
+  } catch (e) {
+    respondFailure(res, e);
+  }
+});
+
+router.put(
+  "/admin/kill-earn/matches/:matchId/participants/:registrationId/kills",
+  authenticate,
+  async (req, res): Promise<void> => {
+    if (!requireTournamentAdmin(req, res)) return;
+    const matchId = req.params.matchId;
+    const registrationId = req.params.registrationId;
+    if (!validId(matchId) || !validId(registrationId)) {
+      return error(res, 400, "Tournament and registration ids must be UUIDs.");
+    }
+    if (!isObject(req.body) || !integer(req.body.verifiedKills)) {
+      return error(res, 400, "Verified kills must be a non-negative whole number.");
+    }
+    try {
+      const data = await roleTransaction(req, "tournament_admin", (client) =>
+        saveKillEarnKills(client, matchId, registrationId, req.body.verifiedKills),
+      );
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ success: true, data, message: "Verified kills saved. No coins were credited." });
+    } catch (e) {
+      respondFailure(res, e);
+    }
+  },
+);
+
+router.post("/admin/kill-earn/rewards/:rewardId/approve", authenticate, async (req, res): Promise<void> => {
+  if (!requireTournamentAdmin(req, res)) return;
+  const rewardId = req.params.rewardId;
+  if (!validId(rewardId)) return error(res, 400, "Reward id must be a UUID.");
+  try {
+    const outcome = await roleTransaction(req, "tournament_admin", (client) => {
+      const adminId = userId(req);
+      if (!adminId) throw Object.assign(new Error("A valid Daily007 account is required."), { status: 401 });
+      return approveKillEarnReward(client, rewardId, adminId);
+    });
+    if (outcome.kind === "already_credited") {
+      res.status(409).json({ error: "Reward Already Credited", code: "REWARD_ALREADY_CREDITED" });
+      return;
+    }
+    if (outcome.kind === "already_approved") {
+      res.status(409).json({ error: "This zero-coin reward has already been approved." });
+      return;
+    }
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      success: true,
+      data: outcome.reward,
+      message: outcome.kind === "credited"
+        ? "Battle Royale Kill & Earn Reward credited."
+        : "Reward approved; no coins were due.",
+    });
+  } catch (e) {
+    respondFailure(res, e);
+  }
+});
+
+router.post("/admin/kill-earn/rewards/:rewardId/reject", authenticate, async (req, res): Promise<void> => {
+  if (!requireTournamentAdmin(req, res)) return;
+  const rewardId = req.params.rewardId;
+  if (!validId(rewardId)) return error(res, 400, "Reward id must be a UUID.");
+  if (!isObject(req.body)) return error(res, 400, "A rejection reason is required.");
+  try {
+    const adminId = userId(req);
+    if (!adminId) return error(res, 401, "A valid Daily007 account is required.");
+    const data = await roleTransaction(req, "tournament_admin", (client) =>
+      rejectKillEarnReward(client, rewardId, adminId, req.body.reason),
+    );
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ success: true, data, message: "Reward rejected. No coins were credited." });
+  } catch (e) {
+    respondFailure(res, e);
+  }
+});
+
+router.get("/admin/kill-earn/reward-history", authenticate, async (req, res): Promise<void> => {
+  if (!requireTournamentAdmin(req, res)) return;
+  const matchId = typeof req.query.matchId === "string" ? req.query.matchId : undefined;
+  const tournament = typeof req.query.tournament === "string" ? req.query.tournament.trim() : undefined;
+  const player = typeof req.query.player === "string" ? req.query.player.trim() : undefined;
+  const fromDate = typeof req.query.fromDate === "string" ? req.query.fromDate : undefined;
+  const toDate = typeof req.query.toDate === "string" ? req.query.toDate : undefined;
+  const status = typeof req.query.status === "string" ? req.query.status : undefined;
+  const isDate = (value: string | undefined) => value === undefined ||
+    (/^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`)) &&
+      new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) === value);
+  if (matchId && !validId(matchId)) return error(res, 400, "Tournament id must be a UUID.");
+  if (tournament && tournament.length > 200) return error(res, 400, "Tournament search must be at most 200 characters.");
+  if (player && player.length > 200) return error(res, 400, "Player search must be at most 200 characters.");
+  if (!isDate(fromDate) || !isDate(toDate)) return error(res, 400, "Dates must use YYYY-MM-DD format.");
+  if (fromDate && toDate && fromDate > toDate) return error(res, 400, "From date must not be after the to date.");
+  if (status && !["pending", "approved", "rejected", "credited"].includes(status)) {
+    return error(res, 400, "Choose a valid reward status.");
+  }
+  try {
+    const data = await roleTransaction(req, "tournament_admin", (client) =>
+      listKillEarnRewardHistory(client, {
+        matchId,
+        tournament,
+        player,
+        fromDate,
+        toDate,
+        ...(status ? { status: status as "pending" | "approved" | "rejected" | "credited" } : {}),
+      }),
+    );
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ success: true, data });
+  } catch (e) {
     respondFailure(res, e);
   }
 });
