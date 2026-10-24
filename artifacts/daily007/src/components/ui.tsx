@@ -553,12 +553,6 @@ export function MatchCard({
     : formatPresentation.image;
   const filledPlayers = t?.filledPlayerSlots ?? filled * (t?.teamSize ?? 1);
   const totalPlayers = t?.totalPlayerSlots ?? total * (t?.teamSize ?? 1);
-  const mode = String(t?.mode ?? t?.gameMode ?? '').toLowerCase();
-  const isIndividualSquad = String(t?.teamType ?? '').toLowerCase() === 'squad' &&
-    (mode.includes('battle royale') || mode === 'battle_royale');
-  const slotUnit = isIndividualSquad ? 'players' : t?.slotUnit === 'player' ? 'players' : 'teams';
-  const displayedFilled = isIndividualSquad ? filledPlayers : filled;
-  const displayedTotal = isIndividualSquad ? totalPlayers : total;
   const schedule = getRoomCredentialSchedule(t?.startsAt);
   const scheduledDate = schedule?.date ?? fmtDate(t?.date);
   const scheduledTime = schedule?.startTime24 ?? t?.time;
@@ -639,7 +633,7 @@ export function MatchCard({
             📅 {scheduledDate}{scheduledTime ? ' • ' : ''}
             {scheduledTime ? <Text style={mc.metaTime}>{fmtTime12(scheduledTime)} IST</Text> : null}
           </Text>
-          <Text style={[mc.meta, largeText && mc.metaLarge]}>{displayedFilled}/{displayedTotal} {slotUnit}</Text>
+          <Text style={[mc.meta, largeText && mc.metaLarge]}>{filledPlayers}/{totalPlayers} players</Text>
         </View>
         {t?.gameMode === 'battle_royale_kill_earn' && (
           <Text style={{
@@ -663,9 +657,8 @@ export function MatchCard({
             <Text style={[mc.statV, { color: C.green }]}>🪙 {t?.prizePool ?? 0}</Text>
           </View>
           <View style={[mc.stat, largeText && mc.statLarge]}>
-            <Text style={mc.statK}>{slotUnit.toUpperCase()}</Text>
-            <Text style={[mc.statV, { color: C.blue }]}>{displayedFilled}/{displayedTotal}</Text>
-            <Text style={{ color: C.dim, fontSize: 9, marginTop: 2 }}>{filledPlayers}/{totalPlayers} players</Text>
+            <Text style={mc.statK}>PLAYERS</Text>
+            <Text style={[mc.statV, { color: C.blue }]}>{filledPlayers}/{totalPlayers}</Text>
           </View>
         </View>
         {roomDetails}
