@@ -2017,6 +2017,14 @@ export const getTournamentLiveCountsResponseBattleRoyaleTrioMin = 0;
 
 export const getTournamentLiveCountsResponseBattleRoyaleSquadMin = 0;
 
+export const getTournamentLiveCountsResponseBattleRoyaleKillEarnSoloMin = 0;
+
+export const getTournamentLiveCountsResponseBattleRoyaleKillEarnDuoMin = 0;
+
+export const getTournamentLiveCountsResponseBattleRoyaleKillEarnTrioMin = 0;
+
+export const getTournamentLiveCountsResponseBattleRoyaleKillEarnSquadMin = 0;
+
 export const getTournamentLiveCountsResponseClashSquadSoloMin = 0;
 
 export const getTournamentLiveCountsResponseClashSquadDuoMin = 0;
@@ -2041,6 +2049,12 @@ export const GetTournamentLiveCountsResponse = zod.object({
   "duo": zod.number().int().min(getTournamentLiveCountsResponseBattleRoyaleDuoMin),
   "trio": zod.number().int().min(getTournamentLiveCountsResponseBattleRoyaleTrioMin),
   "squad": zod.number().int().min(getTournamentLiveCountsResponseBattleRoyaleSquadMin)
+}),
+  "battle_royale_kill_earn": zod.object({
+  "solo": zod.number().int().min(getTournamentLiveCountsResponseBattleRoyaleKillEarnSoloMin),
+  "duo": zod.number().int().min(getTournamentLiveCountsResponseBattleRoyaleKillEarnDuoMin),
+  "trio": zod.number().int().min(getTournamentLiveCountsResponseBattleRoyaleKillEarnTrioMin),
+  "squad": zod.number().int().min(getTournamentLiveCountsResponseBattleRoyaleKillEarnSquadMin)
 }),
   "clash_squad": zod.object({
   "solo": zod.number().int().min(getTournamentLiveCountsResponseClashSquadSoloMin),
@@ -2179,6 +2193,10 @@ export const Daily007AdminDeleteTournamentWithoutRefundResponse = zod.object({
 /**
  * @summary List all tournaments for administrators, including cancelled matches
  */
+export const daily007AdminListTournamentsResponseKillRewardCoinsMin = 0;
+
+
+
 export const Daily007AdminListTournamentsResponseItem = zod.object({
   "id": zod.string().uuid(),
   "name": zod.string(),
@@ -2193,6 +2211,7 @@ export const Daily007AdminListTournamentsResponseItem = zod.object({
   "completedAt": zod.coerce.date().nullable(),
   "entryCoins": zod.number().int(),
   "prizePool": zod.number().int(),
+  "killRewardCoins": zod.number().int().min(daily007AdminListTournamentsResponseKillRewardCoinsMin),
   "totalSlots": zod.number().int(),
   "totalPlayerSlots": zod.number().int(),
   "rules": zod.string(),

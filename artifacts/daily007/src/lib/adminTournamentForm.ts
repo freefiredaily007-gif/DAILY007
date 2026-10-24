@@ -1,7 +1,7 @@
 export type AdminTournamentFormat = 'Solo' | 'Duo' | 'Trio' | 'Squad';
 
 export function getAdminTournamentFormatOptions(mode: string) {
-  if (mode === 'Battle Royale') {
+  if (mode === 'Battle Royale' || mode === 'Battle Royale Kill & Earn') {
     return [
       { value: 'Solo' as const, label: 'Solo' },
       { value: 'Duo' as const, label: 'Duo' },
@@ -34,7 +34,7 @@ export function getAdminTournamentCapacity(mode: string, format: string) {
     format === 'Duo' || format === 'Trio' || format === 'Squad' ? format : 'Solo';
   const playersPerTeam = playerCountByFormat[selectedFormat];
 
-  if (mode === 'Battle Royale') {
+  if (mode === 'Battle Royale' || mode === 'Battle Royale Kill & Earn') {
     if (selectedFormat === 'Solo') return { slots: 48, label: '48 player slots' };
     const teamCount = selectedFormat === 'Duo' ? 24 : 12;
     return {

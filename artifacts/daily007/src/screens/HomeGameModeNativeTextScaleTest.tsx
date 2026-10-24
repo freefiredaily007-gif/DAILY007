@@ -24,6 +24,8 @@ function NativeFixture() {
   const [textLayouts, setTextLayouts] = useState<Record<string, NativeTextScaleLayout>>({});
   const requiredTextLayouts = [
     'battle_royale:category', 'battle_royale:title', 'battle_royale:capacity', 'battle_royale:action',
+    'battle_royale_kill_earn:category', 'battle_royale_kill_earn:title',
+    'battle_royale_kill_earn:capacity', 'battle_royale_kill_earn:action',
     'clash_squad:category', 'clash_squad:title', 'clash_squad:capacity', 'clash_squad:action',
     'lone_wolf:category', 'lone_wolf:title', 'lone_wolf:capacity', 'lone_wolf:action',
   ];

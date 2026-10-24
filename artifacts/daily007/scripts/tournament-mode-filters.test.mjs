@@ -366,16 +366,15 @@ test('Solo, Duo, Trio, and Squad selections keep the selected game mode in their
     modeSubmodesSource,
     /navigation\.push\('Tournaments', \{\s*\.\.\.submodeRouteParams\(gameMode, format\.type, mode\.title\),\s*registrationOnly: true,\s*\}\)/,
   );
-  assert.match(modeSubmodesSource, /const formatTitle = gameMode === 'battle_royale'/);
+  assert.match(modeSubmodesSource, /const isBattleRoyaleFormat = gameMode === 'battle_royale' \|\| gameMode === 'battle_royale_kill_earn'/);
   assert.match(modeSubmodesSource, /`\$\{format\.size\} VS \$\{format\.size\}`/);
 });
 
-test('all eight Clash Squad and Lone Wolf formats show only published, open matches for their exact mode and format', () => {
+test('all selectable Clash Squad and Lone Wolf formats show only published, open matches for their exact mode and format', () => {
   const now = Date.now();
   const formats = [
     { teamType: 'solo', size: 1 },
     { teamType: 'duo', size: 2 },
-    { teamType: 'trio', size: 3 },
     { teamType: 'squad', size: 4 },
   ];
   const matches = ['clash_squad', 'lone_wolf'].flatMap((gameMode) =>
@@ -553,16 +552,16 @@ test('format cards announce one mode, format, and capacity action without decora
   assert.match(uiSource, /importantForAccessibility=\{accessibilityGroup \? 'no-hide-descendants' : undefined\}/);
 
   const tournaments = HOME_GAME_MODE_CARDS.flatMap(({ gameMode }) =>
-    (gameMode === 'battle_royale' ? ['Solo', 'Duo', 'Squad'] : ['Solo', 'Duo', 'Trio', 'Squad']).map((teamType) => ({
+    ['Solo', 'Duo', 'Squad'].map((teamType) => ({
       id: `${gameMode}-${teamType.toLowerCase()}`,
       gameMode,
       teamType,
     })),
   );
   for (const mode of HOME_GAME_MODE_CARDS) {
-    const modeFormats = mode.gameMode === 'battle_royale'
+    const modeFormats = mode.gameMode === 'battle_royale' || mode.gameMode === 'battle_royale_kill_earn'
       ? ['solo', 'duo', 'squad']
-      : ['solo', 'duo', 'trio', 'squad'];
+      : ['solo', 'duo', 'squad'];
     for (const teamType of modeFormats) {
       const routeParams = submodeRouteParams(mode.gameMode, teamType, mode.mode);
       assert.deepEqual(routeParams, {
@@ -584,6 +583,9 @@ test('format capacity counts and labels are correct for every mode and team size
     { gameMode: 'battle_royale', teamType: 'solo', playersPerTeam: 1, slots: 48, totalPlayers: 48, label: '48 player slots' },
     { gameMode: 'battle_royale', teamType: 'duo', playersPerTeam: 2, slots: 24, totalPlayers: 48, label: '24 team slots · 48 players' },
     { gameMode: 'battle_royale', teamType: 'squad', playersPerTeam: 4, slots: 12, totalPlayers: 48, label: '12 team slots · 48 players' },
+    { gameMode: 'battle_royale_kill_earn', teamType: 'solo', playersPerTeam: 1, slots: 48, totalPlayers: 48, label: '48 player slots' },
+    { gameMode: 'battle_royale_kill_earn', teamType: 'duo', playersPerTeam: 2, slots: 24, totalPlayers: 48, label: '24 team slots · 48 players' },
+    { gameMode: 'battle_royale_kill_earn', teamType: 'squad', playersPerTeam: 4, slots: 12, totalPlayers: 48, label: '12 team slots · 48 players' },
     { gameMode: 'clash_squad', teamType: 'solo', playersPerTeam: 1, slots: 2, totalPlayers: 2, label: '2 team slots · 2 players' },
     { gameMode: 'clash_squad', teamType: 'duo', playersPerTeam: 2, slots: 2, totalPlayers: 4, label: '2 team slots · 4 players' },
     { gameMode: 'clash_squad', teamType: 'trio', playersPerTeam: 3, slots: 2, totalPlayers: 6, label: '2 team slots · 6 players' },
@@ -613,7 +615,7 @@ test('format capacity counts and labels are correct for every mode and team size
   );
   assert.match(
     modeSubmodesSource,
-    /gameMode === 'battle_royale'\s*\?\s*`\$\{capacity\.playersPerTeam\}P`\s*:\s*`\$\{format\.size\}V\$\{format\.size\}`/,
+    /isBattleRoyaleFormat\s*\?\s*`\$\{capacity\.playersPerTeam\}P`\s*:\s*`\$\{format\.size\}V\$\{format\.size\}`/,
   );
   assert.match(
     modeSubmodesSource,
@@ -660,8 +662,9 @@ test('Home mode cards keep every lifecycle tab mode-scoped and the format picker
   const lifecycleTabs = ['upcoming', 'ongoing', 'completed'];
   const formatsByMode = {
     battle_royale: ['Solo', 'Duo', 'Squad'],
-    clash_squad: ['Solo', 'Duo', 'Trio', 'Squad'],
-    lone_wolf: ['Solo', 'Duo', 'Trio', 'Squad'],
+    battle_royale_kill_earn: ['Solo', 'Duo', 'Squad'],
+    clash_squad: ['Solo', 'Duo', 'Squad'],
+    lone_wolf: ['Solo', 'Duo', 'Squad'],
   };
   const tournaments = HOME_GAME_MODE_CARDS.flatMap(({ gameMode }) =>
     formatsByMode[gameMode].flatMap((teamType) =>

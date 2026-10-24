@@ -11,11 +11,12 @@ import {
 import { submodeRouteParams } from '../lib/tournamentFilters';
 import { getTournamentFormatCapacity } from '../lib/tournamentFormatCapacity';
 
-type ModeKey = 'battle_royale' | 'clash_squad' | 'lone_wolf';
+type ModeKey = 'battle_royale' | 'battle_royale_kill_earn' | 'clash_squad' | 'lone_wolf';
 type TeamType = 'solo' | 'duo' | 'squad';
 
 const MODES: Record<ModeKey, { title: string; kicker: string; icon: keyof typeof Ionicons.glyphMap; accent: string }> = {
   battle_royale: { title: 'BATTLE ROYALE', kicker: 'CLASSIC SURVIVAL', icon: 'flame-outline', accent: C.gold },
+  battle_royale_kill_earn: { title: 'BATTLE ROYALE KILL & EARN', kicker: 'ELIMINATION REWARDS', icon: 'trophy-outline', accent: C.orange },
   clash_squad: { title: 'CLASH SQUAD', kicker: 'TEAM BATTLE', icon: 'shield-outline', accent: C.neon },
   lone_wolf: { title: 'LONE WOLF', kicker: 'DUEL ARENA', icon: 'flash-outline', accent: C.purple },
 };
@@ -103,7 +104,8 @@ export default function ModeSubmodes() {
         {FORMATS.map((format) => {
           const capacity = getTournamentFormatCapacity(gameMode, format.type, format.size);
           const displayAccent = swapThemeColor(format.accent);
-          const formatTitle = gameMode === 'battle_royale'
+          const isBattleRoyaleFormat = gameMode === 'battle_royale' || gameMode === 'battle_royale_kill_earn';
+          const formatTitle = isBattleRoyaleFormat
             ? format.title
             : `${format.size} VS ${format.size}`;
           const count = liveCounts?.[format.type];
@@ -127,7 +129,7 @@ export default function ModeSubmodes() {
                 <View style={[styles.formatTopRow, largeText && styles.formatTopRowLarge]}>
                   <View style={[styles.sizeBadge, { borderColor: `${displayAccent}88`, backgroundColor: `${displayAccent}16` }]}>
                     <Text style={[styles.sizeText, { color: format.accent }]}>
-                      {gameMode === 'battle_royale' ? `${capacity.playersPerTeam}P` : `${format.size}V${format.size}`}
+                      {isBattleRoyaleFormat ? `${capacity.playersPerTeam}P` : `${format.size}V${format.size}`}
                     </Text>
                   </View>
                   {largeText && <Ionicons name="chevron-forward" size={20} color={C.sub} />}

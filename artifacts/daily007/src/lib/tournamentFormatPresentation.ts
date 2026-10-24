@@ -18,7 +18,7 @@ export function getTournamentFormatPresentation<TImage>(
     .trim()
     .toLowerCase()
     .replace(/[\s-]+/g, '_');
-  const isBattleRoyale = modeKey === 'battle_royale';
+  const isBattleRoyale = modeKey === 'battle_royale' || modeKey === 'battle_royale_kill_earn';
 
   return {
     format,

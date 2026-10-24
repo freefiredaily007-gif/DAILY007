@@ -23,6 +23,7 @@ CREATE TABLE daily007_v2_matches (
   capacity integer NOT NULL,
   entry_coins integer NOT NULL DEFAULT 0,
   prize_pool integer NOT NULL DEFAULT 0,
+  kill_reward_coins integer NOT NULL DEFAULT 0,
   prize_distribution text NOT NULL DEFAULT '',
   rules text NOT NULL DEFAULT '',
   banner text NOT NULL DEFAULT '',

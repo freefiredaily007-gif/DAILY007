@@ -1427,6 +1427,7 @@ components:
         completedAt: { type: ["string", "null"], format: date-time }
         entryCoins: { type: integer }
         prizePool: { type: integer }
+        killRewardCoins: { type: integer, minimum: 0 }
         totalSlots: { type: integer }
         totalPlayerSlots: { type: integer }
         rules: { type: string }
@@ -1454,6 +1455,7 @@ components:
         - completedAt
         - entryCoins
         - prizePool
+        - killRewardCoins
         - totalSlots
         - totalPlayerSlots
         - rules
@@ -1694,9 +1696,10 @@ components:
       additionalProperties: false
       properties:
         battle_royale: { $ref: "#/components/schemas/TournamentLiveFormatCounts" }
+        battle_royale_kill_earn: { $ref: "#/components/schemas/TournamentLiveFormatCounts" }
         clash_squad: { $ref: "#/components/schemas/TournamentLiveFormatCounts" }
         lone_wolf: { $ref: "#/components/schemas/TournamentLiveFormatCounts" }
-      required: [battle_royale, clash_squad, lone_wolf]
+      required: [battle_royale, battle_royale_kill_earn, clash_squad, lone_wolf]
     Daily007V2SquadJoinBody:
       type: object
       additionalProperties: false

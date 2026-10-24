@@ -25,7 +25,7 @@ test("native route renders the shared Home game-mode cards with deterministic de
   assert.match(cards, /export default function HomeGameModeCards/);
   assert.match(
     home,
-    /onOpenMode=\{\(params\) => \{\s*if \(params\.gameMode === 'battle_royale'\) nav\.navigate\('Tournaments', params\);\s*else nav\.navigate\('ModeSubmodes', params\);\s*\}\}/,
+    /onOpenMode=\{\(params\) => nav\.navigate\('ModeSubmodes', params\)\}/,
   );
 });
 
@@ -34,6 +34,7 @@ test("Maestro scrolls to each Home mode card, checks its action, and verifies th
     ["battle-royale", "BATTLE ROYALE", "battle_royale"],
     ["clash-squad", "CLASH SQUAD", "clash_squad"],
     ["lone-wolf", "LONE WOLF", "lone_wolf"],
+    ["battle-royale-kill-earn", "BATTLE ROYALE KILL & EARN", "battle_royale_kill_earn"],
   ]) {
     assert.ok(flow.includes(`id: home-mode-${id}`), `Missing scroll/tap target for ${title}`);
     assert.ok(flow.includes(`text: "${title}"`), `Missing title assertion for ${title}`);

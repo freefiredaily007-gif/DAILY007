@@ -58,12 +58,21 @@ export default function HomeGameModeCards({
       formatLinkLabel: '1 VS 1 / 2 VS 2 / 4 VS 4',
       accent: C.purple,
     },
+    {
+      ...HOME_GAME_MODE_CARDS[3],
+      img: modeSquadLogo,
+      category: 'ELIMINATION REWARDS',
+      title: 'BATTLE ROYALE KILL & EARN',
+      capacity: 'SOLO · DUO · SQUAD',
+      formatLinkLabel: 'SOLO / DUO / SQUAD',
+      accent: C.orange,
+    },
   ];
 
   return (
     <>
       {modes.map((mode) => {
-        const versusFormatMode = mode.gameMode !== 'battle_royale';
+        const versusFormatMode = mode.gameMode === 'clash_squad' || mode.gameMode === 'lone_wolf';
         const spokenCapacity = mode.capacity
           .split('·')
           .map((size) => size.trim().toLowerCase())

@@ -35,6 +35,9 @@ test("all supported game modes expose their fixed Solo, Duo, Trio, and Squad cap
     ["battle_royale", "solo", 48, 1, "player"],
     ["battle_royale", "duo", 24, 2, "team"],
     ["battle_royale", "squad", 12, 4, "team"],
+    ["battle_royale_kill_earn", "solo", 48, 1, "player"],
+    ["battle_royale_kill_earn", "duo", 24, 2, "team"],
+    ["battle_royale_kill_earn", "squad", 12, 4, "team"],
     ["clash_squad", "solo", 2, 1, "team"],
     ["clash_squad", "duo", 2, 2, "team"],
     ["clash_squad", "trio", 2, 3, "team"],
@@ -52,6 +55,8 @@ test("all supported game modes expose their fixed Solo, Duo, Trio, and Squad cap
     assert.equal(resolved.slotUnit, slotUnit);
   }
   assert.equal(resolveTournamentMode("battle_royale", "trio"), null);
+  assert.equal(resolveTournamentMode("Battle Royale Kill & Earn", "Solo")?.gameMode, "battle_royale_kill_earn");
+  assert.equal(resolveTournamentMode("battle_royale_kill_earn", "Duo")?.capacity, 24);
 });
 
 test("referral links are clickable HTTPS URLs with the code in the query", () => {

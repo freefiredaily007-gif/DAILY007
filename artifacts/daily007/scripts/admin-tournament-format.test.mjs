@@ -22,6 +22,14 @@ test('format options use mode-specific labels while retaining the same saved for
       { value: 'Squad', label: 'Squad' },
     ],
   );
+  assert.deepEqual(
+    getAdminTournamentFormatOptions('Battle Royale Kill & Earn'),
+    [
+      { value: 'Solo', label: 'Solo' },
+      { value: 'Duo', label: 'Duo' },
+      { value: 'Squad', label: 'Squad' },
+    ],
+  );
   for (const mode of ['Clash Squad', 'Lone Wolf']) {
     assert.deepEqual(
       getAdminTournamentFormatOptions(mode),
@@ -38,6 +46,9 @@ test('format options use mode-specific labels while retaining the same saved for
 test('generated tournament titles combine the selected game mode and displayed format', () => {
   assert.equal(getAdminTournamentTitle('Battle Royale', 'Solo'), 'Battle Royale Solo');
   assert.equal(getAdminTournamentTitle('Battle Royale', 'Duo'), 'Battle Royale Duo');
+  assert.equal(getAdminTournamentTitle('Battle Royale Kill & Earn', 'Solo'), 'Battle Royale Kill & Earn Solo');
+  assert.equal(getAdminTournamentTitle('Battle Royale Kill & Earn', 'Duo'), 'Battle Royale Kill & Earn Duo');
+  assert.equal(getAdminTournamentTitle('Battle Royale Kill & Earn', 'Squad'), 'Battle Royale Kill & Earn Squad');
   assert.equal(getAdminTournamentTitle('Clash Squad', 'Solo'), 'Clash Squad 1 VS 1');
   assert.equal(getAdminTournamentTitle('Clash Squad', 'Trio'), 'Clash Squad 3 VS 3');
   assert.equal(getAdminTournamentTitle('Clash Squad', 'Squad'), 'Clash Squad 4 VS 4');
@@ -55,6 +66,18 @@ test('selected format determines canonical slot and player capacities', () => {
     label: '24 team slots · 48 players',
   });
   assert.deepEqual(getAdminTournamentCapacity('Battle Royale', 'Squad'), {
+    slots: 12,
+    label: '12 team slots · 48 players',
+  });
+  assert.deepEqual(getAdminTournamentCapacity('Battle Royale Kill & Earn', 'Solo'), {
+    slots: 48,
+    label: '48 player slots',
+  });
+  assert.deepEqual(getAdminTournamentCapacity('Battle Royale Kill & Earn', 'Duo'), {
+    slots: 24,
+    label: '24 team slots · 48 players',
+  });
+  assert.deepEqual(getAdminTournamentCapacity('Battle Royale Kill & Earn', 'Squad'), {
     slots: 12,
     label: '12 team slots · 48 players',
   });
@@ -107,4 +130,6 @@ test('create and edit forms show a read-only title and save its generated value'
   assert.match(screenSource, /mode: form\.mode, teamType: form\.teamType/);
   assert.match(screenSource, /getAdminTournamentFormatOptions\(form\.mode\)\.map/);
   assert.match(screenSource, /totalSlots: capacity\.slots/);
+  assert.match(screenSource, /admin-kill-earn-submode-dropdown/);
+  assert.match(screenSource, /killRewardCoins/);
 });

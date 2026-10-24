@@ -116,7 +116,9 @@ export default function Tournaments() {
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '');
   const registrationOnly = route?.params?.registrationOnly === true &&
-    (normalizedRouteMode === 'clashsquad' || normalizedRouteMode === 'lonewolf');
+    (normalizedRouteMode === 'clashsquad' ||
+      normalizedRouteMode === 'lonewolf' ||
+      normalizedRouteMode === 'battleroyalekillearn');
 
   const loadLatest = useCallback(async (trigger: TournamentLoadTrigger) => {
     const request = loadRequests.current.begin();

@@ -39,6 +39,8 @@ export interface Daily007AdminTournament {
   completedAt: Date | null;
   entryCoins: number;
   prizePool: number;
+  /** @minimum 0 */
+  killRewardCoins: number;
   totalSlots: number;
   totalPlayerSlots: number;
   rules: string;

@@ -32,6 +32,7 @@ export const HOME_GAME_MODE_CARDS = [
   { mode: 'Battle Royale', gameMode: 'battle_royale' },
   { mode: 'Clash Squad', gameMode: 'clash_squad' },
   { mode: 'Lone Wolf', gameMode: 'lone_wolf' },
+  { mode: 'Battle Royale Kill & Earn', gameMode: 'battle_royale_kill_earn' },
 ] as const;
 
 export type HomeGameMode = typeof HOME_GAME_MODE_CARDS[number]['gameMode'];

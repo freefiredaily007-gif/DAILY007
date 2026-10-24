@@ -1,4 +1,4 @@
-export type GameModeKey = "battle_royale" | "clash_squad" | "lone_wolf";
+export type GameModeKey = "battle_royale" | "battle_royale_kill_earn" | "clash_squad" | "lone_wolf";
 export type TeamTypeKey = "solo" | "duo" | "trio" | "squad";
 export type SlotUnit = "player" | "team";
 
@@ -18,6 +18,10 @@ const GAME_MODES: Record<string, { key: GameModeKey; label: string }> = {
   battleroyale: { key: "battle_royale", label: "Battle Royale" },
   br: { key: "battle_royale", label: "Battle Royale" },
   battle_royale: { key: "battle_royale", label: "Battle Royale" },
+  battle_royale_kill_earn: { key: "battle_royale_kill_earn", label: "Battle Royale Kill & Earn" },
+  "battle_royale_kill_&_earn": { key: "battle_royale_kill_earn", label: "Battle Royale Kill & Earn" },
+  battle_royale_kill_and_earn: { key: "battle_royale_kill_earn", label: "Battle Royale Kill & Earn" },
+  "battle royale kill & earn": { key: "battle_royale_kill_earn", label: "Battle Royale Kill & Earn" },
   "clash squad": { key: "clash_squad", label: "Clash Squad" },
   clash: { key: "clash_squad", label: "Clash Squad" },
   cs: { key: "clash_squad", label: "Clash Squad" },
@@ -69,7 +73,7 @@ export function resolveTournamentMode(gameModeValue: unknown, teamTypeValue: unk
 
   if (!game || !team) return null;
 
-  if (game.key === "battle_royale") {
+  if (game.key === "battle_royale" || game.key === "battle_royale_kill_earn") {
     if (team.key === "trio") return null;
     const capacity = team.key === "solo" ? 48 : team.key === "duo" ? 24 : 12;
     return {

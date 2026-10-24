@@ -44,7 +44,7 @@ export type Tournament = {
   startsAt?: string;
   registrationOpen?: boolean;
   gameMode?: string; teamSize?: number; slotUnit?: 'player' | 'team';
-  entryCoins: number; prizePool: number; totalSlots: number; rules?: string;
+  entryCoins: number; prizePool: number; killRewardCoins?: number; totalSlots: number; rules?: string;
   banner?: string; imageUrl?: string | null; prizeDist?: string; enabled?: boolean; status?: string;
   filledSlots?: number; filledPlayerSlots?: number; totalPlayerSlots?: number; capacityLabel?: string;
   availableSlots?: number; roomId?: string; roomPassword?: string; roomTime?: string; roomPublished?: boolean;

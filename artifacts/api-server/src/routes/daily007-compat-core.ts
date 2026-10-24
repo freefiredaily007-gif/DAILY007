@@ -36,7 +36,7 @@ import {
 
 const router: IRouter = Router();
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-type LiveCountGameMode = "battle_royale" | "clash_squad" | "lone_wolf";
+type LiveCountGameMode = "battle_royale" | "battle_royale_kill_earn" | "clash_squad" | "lone_wolf";
 type LiveCountTeamType = "solo" | "duo" | "trio" | "squad";
 type TournamentLiveCounts = Record<LiveCountGameMode, Record<LiveCountTeamType, number>>;
 
@@ -121,7 +121,7 @@ async function finishPasswordChangeAttempt(
 type MatchRow = {
   id: string; title: string; mode: string; game_mode?: string | null; team_type?: string | null;
   capacity: number; entry_coins: number;
-  prize_pool: number; starts_at: Date | string; status: string; is_full: boolean;
+  prize_pool: number; kill_reward_coins?: number; starts_at: Date | string; status: string; is_full: boolean;
   rules: string; banner: string; image_url: string | null; prize_distribution: string; enabled: boolean;
   has_winner?: boolean; has_started?: boolean;
   registration_open?: boolean;
@@ -274,6 +274,7 @@ function tournament(row: MatchRow, includeRoomCredentials = false) {
     completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
     entryCoins: row.entry_coins,
     prizePool: row.prize_pool,
+    killRewardCoins: Number(row.kill_reward_coins ?? 0),
     totalSlots: row.capacity,
     totalPlayerSlots: row.capacity * mode.teamSize,
     rules: row.rules,
@@ -302,7 +303,8 @@ async function getMatches(id?: string, enabledOnly = false, includeCancelled = f
   } else if (!includeCancelled) clauses.push("m.status <> 'cancelled'");
   if (enabledOnly) clauses.push("m.enabled = true");
   const result = await pool.query<MatchRow>(
-    `SELECT m.id, m.title, m.mode, m.game_mode, m.team_type, m.capacity, m.entry_coins, m.prize_pool, m.starts_at,
+    `SELECT m.id, m.title, m.mode, m.game_mode, m.team_type, m.capacity, m.entry_coins, m.prize_pool,
+            m.kill_reward_coins, m.starts_at,
             m.status, m.is_full, m.rules, m.banner, m.image_url, m.prize_distribution, m.enabled,
             m.room_id, m.room_password, m.room_time, m.room_published,
             m.starts_at <= clock_timestamp() + interval '5 hours 30 minutes' AS has_started,
@@ -664,6 +666,8 @@ router.get("/tournaments/live-counts", async (_req, res): Promise<void> => {
      resolved_matches AS (
        SELECT raw_matches.*,
               CASE
+                WHEN raw_game_mode IN ('battle_royale_kill_earn', 'battle_royale_kill_&_earn', 'battle_royale_kill_and_earn')
+                     AND raw_team_type IN ('solo', 'duo', 'squad') THEN 'battle_royale_kill_earn'
                 WHEN raw_game_mode IN ('battle_royale', 'battleroyale', 'br')
                      AND raw_team_type IN ('solo', 'duo', 'squad') THEN 'battle_royale'
                 WHEN raw_game_mode IN ('clash_squad', 'clash', 'cs')
@@ -756,6 +760,7 @@ router.get("/tournaments/live-counts", async (_req, res): Promise<void> => {
 
   const counts: TournamentLiveCounts = {
     battle_royale: { solo: 0, duo: 0, trio: 0, squad: 0 },
+    battle_royale_kill_earn: { solo: 0, duo: 0, trio: 0, squad: 0 },
     clash_squad: { solo: 0, duo: 0, trio: 0, squad: 0 },
     lone_wolf: { solo: 0, duo: 0, trio: 0, squad: 0 },
   };
@@ -1070,6 +1075,9 @@ function tournamentValues(body: Record<string, unknown>, fallback?: MatchRow) {
   const title = body.name === undefined && fallback ? fallback.title : nonempty(body.name, 100);
   const entryCoins = body.entryCoins === undefined && fallback ? fallback.entry_coins : body.entryCoins;
   const prizePool = body.prizePool === undefined && fallback ? fallback.prize_pool : body.prizePool;
+  const killRewardCoins = body.killRewardCoins === undefined
+    ? fallback?.kill_reward_coins ?? 0
+    : body.killRewardCoins;
   const rules = body.rules === undefined && fallback
     ? fallback.rules
     : typeof body.rules === "string" && body.rules.length <= 10_000 ? body.rules : null;
@@ -1087,12 +1095,13 @@ function tournamentValues(body: Record<string, unknown>, fallback?: MatchRow) {
   } else if (fallback) startsAt = new Date(fallback.starts_at);
   if (body.enabled !== undefined && typeof body.enabled !== "boolean") return null;
   if (!configuredMode || !title || !nonnegativeInt(entryCoins) ||
-      !nonnegativeInt(prizePool) || rules === null || !banner || !parsedImageUrl.ok || prizeDistribution === null ||
+      !nonnegativeInt(prizePool) || !nonnegativeInt(killRewardCoins) ||
+      rules === null || !banner || !parsedImageUrl.ok || prizeDistribution === null ||
       !startsAt || !Number.isFinite(startsAt.getTime()) || !isTournamentStartInFuture(startsAt)) return null;
   return {
     mode: configuredMode.storageMode, gameMode: configuredMode.gameMode,
     teamType: configuredMode.teamType, title, capacity: configuredMode.capacity,
-    entryCoins, prizePool, startsAt,
+    entryCoins, prizePool, killRewardCoins, startsAt,
     rules, banner, imageUrl: parsedImageUrl.value, prizeDistribution,
     enabled: body.enabled === undefined ? fallback?.enabled ?? true : body.enabled,
   };
@@ -1137,12 +1146,14 @@ router.post("/tournaments", authenticate, async (req, res): Promise<void> => {
   if (!values) return fail(res, 400, "Tournament fields are invalid; use a supported game mode, future date/time, nonnegative integer coin values, and an optional HTTPS image URL.");
   const result = await pool.query(
     `INSERT INTO daily007_v2_matches
-       (title, mode, game_mode, team_type, capacity, entry_coins, prize_pool, starts_at, rules, banner, image_url, prize_distribution, enabled)
-     SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
-       WHERE $8::timestamptz > clock_timestamp() + interval '5 hours 30 minutes'
+       (title, mode, game_mode, team_type, capacity, entry_coins, prize_pool, kill_reward_coins,
+        starts_at, rules, banner, image_url, prize_distribution, enabled)
+     SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+       WHERE $9::timestamptz > clock_timestamp() + interval '5 hours 30 minutes'
      RETURNING id`,
     [values.title, values.mode, values.gameMode, values.teamType, values.capacity, values.entryCoins,
-       values.prizePool, values.startsAt, values.rules, values.banner, values.imageUrl, values.prizeDistribution, values.enabled],
+       values.prizePool, values.killRewardCoins, values.startsAt, values.rules, values.banner,
+       values.imageUrl, values.prizeDistribution, values.enabled],
   );
   if (!result.rows[0]) return fail(res, 400, "Tournament start time must still be in the future.");
   const created = await getMatches(result.rows[0].id as string);
@@ -1157,7 +1168,7 @@ router.patch("/tournaments/:id", authenticate, async (req, res): Promise<void> =
   try {
     const outcome = await transaction(async (client) => {
       const selected = await client.query<MatchRow>(
-        `SELECT id, title, mode, game_mode, team_type, capacity, entry_coins, prize_pool, starts_at,
+        `SELECT id, title, mode, game_mode, team_type, capacity, entry_coins, prize_pool, kill_reward_coins, starts_at,
                 status, is_full, rules, banner, image_url, prize_distribution, enabled,
                 room_id, room_password, room_time, room_published, 0::integer AS registered_count
            FROM daily007_v2_matches WHERE id = $1 FOR UPDATE`,
@@ -1203,13 +1214,14 @@ router.patch("/tournaments/:id", authenticate, async (req, res): Promise<void> =
         `UPDATE daily007_v2_matches
             SET title = $2, mode = $3, game_mode = $4, team_type = $5, capacity = $6,
                  entry_coins = $7, prize_pool = $8, starts_at = $9, rules = $10, banner = $11,
-                 image_url = $12, prize_distribution = $13, enabled = $14, is_full = $15, status = $16
+                 image_url = $12, prize_distribution = $13, enabled = $14, is_full = $15, status = $16,
+                 kill_reward_coins = $17
           WHERE id = $1 AND $9::timestamptz > clock_timestamp() + interval '5 hours 30 minutes'
           RETURNING id`,
         [id, values.title, values.mode, values.gameMode, values.teamType, values.capacity,
            values.entryCoins, values.prizePool, values.startsAt, values.rules, values.banner,
            values.imageUrl, values.prizeDistribution, values.enabled,
-          capacityState.isFull, capacityState.status],
+          capacityState.isFull, capacityState.status, values.killRewardCoins],
       );
       // A time can pass while validation/locking is in progress.
       if (!updated.rows[0]) return "invalid" as const;
@@ -1373,7 +1385,9 @@ router.get("/my/registrations", authenticate, async (req, res): Promise<void> =>
       gameUid: row.captain_game_uid, teamName: row.team_name,
        teamNumber: row.squad_team_number ?? null,
        slotNumber: row.squad_slot_number ?? null,
-       isSquadCaptain: legacyTournamentMode(row.mode ?? "solo", row.game_mode, row.team_type).gameMode === "battle_royale" &&
+       isSquadCaptain: ["battle_royale", "battle_royale_kill_earn"].includes(
+         legacyTournamentMode(row.mode ?? "solo", row.game_mode, row.team_type).gameMode,
+       ) &&
          legacyTournamentMode(row.mode ?? "solo", row.game_mode, row.team_type).teamType === "squad"
          ? row.squad_is_captain ?? false
          : true,
@@ -1435,7 +1449,7 @@ router.get("/admin/registrations", authenticate, async (req, res): Promise<void>
        teamNumber: row.squad_team_number ?? null,
        slotNumber: row.squad_slot_number ?? null,
         assignedGroupNumber: row.assigned_group_number ?? null,
-       isSquadCaptain: mode.gameMode === "battle_royale" && mode.teamType === "squad"
+       isSquadCaptain: ["battle_royale", "battle_royale_kill_earn"].includes(mode.gameMode) && mode.teamType === "squad"
          ? row.squad_is_captain ?? false
          : true,
       entryCoins: row.entry_coins_paid, createdAt: new Date(row.created_at).toISOString(),
@@ -1592,7 +1606,8 @@ router.patch("/my/registrations/:id/team", authenticate, async (req, res): Promi
     }
 
     const mode = legacyTournamentMode(match.mode, match.game_mode, match.team_type);
-    if (mode.gameMode === "battle_royale" && mode.teamType === "squad") {
+    if ((mode.gameMode === "battle_royale" || mode.gameMode === "battle_royale_kill_earn") &&
+        mode.teamType === "squad") {
       return { kind: "individualSquad" as const };
     }
     const parsed = parseTeamEditPayload(req.body as Record<string, unknown>, mode.teamSize);

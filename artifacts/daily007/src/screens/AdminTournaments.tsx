@@ -62,7 +62,7 @@ function todayInIST() {
 function newTournamentForm() {
   return {
     mode: 'Battle Royale', teamType: 'Solo', date: todayInIST(), time: '08:00 PM',
-    entryCoins: '', prizePool: '', totalSlots: '48', rules: '', banner: 'br', imageUrl: '', prizeDist: '',
+    entryCoins: '', prizePool: '', killRewardCoins: '0', totalSlots: '48', rules: '', banner: 'br', imageUrl: '', prizeDist: '',
   };
 }
 const TOURNAMENT_TABS = [
@@ -110,6 +110,7 @@ export default function AdminTournaments() {
   const [list, setList] = useState<Tournament[] | null>(null);
   const [tab, setTab] = useState<TournamentAdminTab>('upcoming');
   const [form, setForm] = useState<any>(newTournamentForm);
+  const [killEarnSubmodeOpen, setKillEarnSubmodeOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -645,6 +646,12 @@ export default function AdminTournaments() {
     if (!form.date.trim() || form.entryCoins === '') {
       return setErr('Date and entry coins are required.');
     }
+    const killRewardText = String(form.killRewardCoins ?? '0').trim();
+    const killRewardCoins = Number(killRewardText);
+    if (!/^\d+$/.test(killRewardText) || !Number.isSafeInteger(killRewardCoins) ||
+        killRewardCoins < 0 || killRewardCoins > 2_147_483_647) {
+      return setErr('Coins per kill must be a whole number from 0 to 2,147,483,647.');
+    }
     const imageUrl = String(form.imageUrl || '').trim();
     if (imageUrl) {
       if (imageUrl.length > 2048) return setErr('Custom banner image URL must be 2,048 characters or fewer.');
@@ -662,12 +669,12 @@ export default function AdminTournaments() {
       const capacity = getAdminTournamentCapacity(form.mode, form.teamType);
       const payload = {
         name: getAdminTournamentTitle(form.mode, form.teamType), mode: form.mode, teamType: form.teamType, date: form.date.trim(), time: form.time,
-        entryCoins: Number(form.entryCoins), prizePool: Number(form.prizePool || 0), totalSlots: capacity.slots,
+        entryCoins: Number(form.entryCoins), prizePool: Number(form.prizePool || 0), killRewardCoins, totalSlots: capacity.slots,
         rules: form.rules, banner: form.banner, imageUrl: imageUrl || null, prizeDist: form.prizeDist,
       };
       if (editId) { await Api.updateTournament(editId, payload); setOkMsg('Tournament updated successfully'); }
       else { await Api.createTournament(payload); setOkMsg('Tournament created successfully'); }
-      setShowForm(false); setEditId(null); setForm(newTournamentForm()); await load();
+      setShowForm(false); setEditId(null); setKillEarnSubmodeOpen(false); setForm(newTournamentForm()); await load();
       setTimeout(() => setOkMsg(''), 2500);
     } catch (e: any) { setErr(apiError(e)); }
     finally { setBusy(false); }
@@ -780,6 +787,7 @@ export default function AdminTournaments() {
             setRoomBusy(false);
             setResultBusy(false);
             setRetryingApprovedRegistrations(false);
+            setKillEarnSubmodeOpen(false);
             setShowForm(!showForm);
             setEditId(null);
             setForm(newTournamentForm());
@@ -1124,22 +1132,66 @@ export default function AdminTournaments() {
           </View>
           <Text style={st.lbl}>GAME MODE</Text>
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-            {['Battle Royale', 'Clash Squad', 'Lone Wolf'].map((m) => (
+            {['Battle Royale', 'Battle Royale Kill & Earn', 'Clash Squad', 'Lone Wolf'].map((m) => (
               <Chip key={m} label={m} color={form.mode === m ? C.neon : C.sub} onPress={() => {
+                const options = getAdminTournamentFormatOptions(m);
                 setForm((f: any) => ({
                   ...f,
                   mode: m,
-                  banner: m === 'Battle Royale' ? 'br' : m === 'Clash Squad' ? 'cs' : 'lw',
+                  teamType: options.some((option) => option.value === f.teamType) ? f.teamType : options[0].value,
+                  banner: m === 'Battle Royale' || m === 'Battle Royale Kill & Earn'
+                    ? 'br'
+                    : m === 'Clash Squad' ? 'cs' : 'lw',
                 }));
+                setKillEarnSubmodeOpen(false);
               }} />
             ))}
           </View>
-          <Text style={st.lbl}>FORMAT</Text>
-          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-            {getAdminTournamentFormatOptions(form.mode).map(({ value, label }) => (
-              <Chip key={value} label={label} color={form.teamType === value ? C.purple : C.sub} onPress={() => set('teamType', value)} />
-            ))}
-          </View>
+          <Text style={st.lbl}>{form.mode === 'Battle Royale Kill & Earn' ? 'SUBMODE *' : 'FORMAT'}</Text>
+          {form.mode === 'Battle Royale Kill & Earn' ? (
+            <View style={st.submodePicker}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Submode ${getAdminTournamentFormatOptions(form.mode).find((option) => option.value === form.teamType)?.label ?? 'Solo'}. Choose submode`}
+                accessibilityState={{ expanded: killEarnSubmodeOpen }}
+                testID="admin-kill-earn-submode-dropdown"
+                onPress={() => setKillEarnSubmodeOpen((open) => !open)}
+                style={st.submodeDropdown}
+              >
+                <Text style={st.submodeDropdownText}>
+                  {getAdminTournamentFormatOptions(form.mode).find((option) => option.value === form.teamType)?.label ?? 'Solo'}
+                </Text>
+                <Text style={st.submodeDropdownArrow}>{killEarnSubmodeOpen ? '▲' : '▼'}</Text>
+              </Pressable>
+              {killEarnSubmodeOpen && (
+                <View style={st.submodeOptions}>
+                  {getAdminTournamentFormatOptions(form.mode).map(({ value, label }) => (
+                    <Pressable
+                      key={value}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: form.teamType === value }}
+                      testID={`admin-kill-earn-submode-${value.toLowerCase()}`}
+                      onPress={() => {
+                        set('teamType', value);
+                        setKillEarnSubmodeOpen(false);
+                      }}
+                      style={[st.submodeOption, form.teamType === value && st.submodeOptionSelected]}
+                    >
+                      <Text style={[st.submodeOptionText, form.teamType === value && st.submodeOptionTextSelected]}>
+                        {label.toUpperCase()}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </View>
+          ) : (
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+              {getAdminTournamentFormatOptions(form.mode).map(({ value, label }) => (
+                <Chip key={value} label={label} color={form.teamType === value ? C.purple : C.sub} onPress={() => set('teamType', value)} />
+              ))}
+            </View>
+          )}
           {form.mode !== 'Battle Royale' && (
             <>
               <Input
@@ -1163,6 +1215,19 @@ export default function AdminTournaments() {
           </View>
           {!!form.entryCoins && <Text style={st.inrNote}>Entry fee: {form.entryCoins} coins = {inr(Number(form.entryCoins))} INR</Text>}
           {!!form.prizePool && <Text style={st.inrNote}>Prize pool: {form.prizePool} coins = {inr(Number(form.prizePool))} INR</Text>}
+          {form.mode === 'Battle Royale Kill & Earn' && (
+            <>
+              <Text style={st.lbl}>PER-KILL REWARD</Text>
+              <Input
+                testID="admin-kill-earn-reward"
+                placeholder="Coins paid per kill *"
+                value={String(form.killRewardCoins ?? '0')}
+                onChangeText={(v) => set('killRewardCoins', v.replace(/\D/g, ''))}
+                keyboardType="number-pad"
+                maxLength={10}
+              />
+            </>
+          )}
           <Text style={st.lbl}>CANONICAL CAPACITY</Text>
           <Text style={st.capacity}>{getAdminTournamentCapacity(form.mode, form.teamType).label}</Text>
           <Text style={st.capacityNote}>Capacity follows the selected mode and format. Entry fees are charged per player when they join.</Text>
@@ -1265,7 +1330,15 @@ export default function AdminTournaments() {
                       kind="ghost"
                       testID={`edit-tournament-${t.id}`}
                       onPress={() => {
-                        setForm({ ...newTournamentForm(), ...t, entryCoins: String(t.entryCoins), prizePool: String(t.prizePool), totalSlots: String(t.totalSlots) });
+                        setForm({
+                          ...newTournamentForm(),
+                          ...t,
+                          entryCoins: String(t.entryCoins),
+                          prizePool: String(t.prizePool),
+                          killRewardCoins: String(t.killRewardCoins ?? 0),
+                          totalSlots: String(t.totalSlots),
+                        });
+                        setKillEarnSubmodeOpen(false);
                         setEditId(t.id);
                         setRoomBusy(false);
                         setResultBusy(false);
@@ -1701,6 +1774,37 @@ const st = StyleSheet.create({
     backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border, borderRadius: 10,
     paddingHorizontal: 12, paddingVertical: 11, marginBottom: 10,
   },
+  submodePicker: { marginBottom: 10 },
+  submodeDropdown: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 10,
+    backgroundColor: C.bg2,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  submodeDropdownText: { color: C.text, fontSize: 14, fontWeight: '900' },
+  submodeDropdownArrow: { color: C.neon, fontSize: 12, fontWeight: '900' },
+  submodeOptions: {
+    marginTop: 6,
+    padding: 5,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 10,
+    backgroundColor: C.card,
+  },
+  submodeOption: {
+    minHeight: 44,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    borderRadius: 7,
+  },
+  submodeOptionSelected: { backgroundColor: C.purple + '22' },
+  submodeOptionText: { color: C.sub, fontSize: 12, fontWeight: '800' },
+  submodeOptionTextSelected: { color: C.purple },
   generatedTitle: { color: C.text, fontSize: 15, fontWeight: '900', flexShrink: 1 },
   area: { backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border, borderRadius: 10, color: C.text, padding: 12, minHeight: 60, marginBottom: 10, fontSize: 14 },
   tournamentHeader: {

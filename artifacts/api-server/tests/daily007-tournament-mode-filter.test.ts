@@ -14,6 +14,7 @@ import { getTournamentLifecycleState } from "../../daily007/src/lib/tournamentLi
 const apiTournaments = [
   { id: "battle-solo", gameMode: "battle_royale", mode: "Battle Royale", teamType: "Solo" },
   { id: "battle-squad", gameMode: "battle_royale", mode: "Battle Royale", teamType: "SQUAD" },
+  { id: "kill-earn-duo", gameMode: "battle_royale_kill_earn", mode: "Battle Royale Kill & Earn", teamType: "Duo" },
   { id: "clash-solo", gameMode: "clash_squad", mode: "Clash Squad", teamType: "solo" },
   { id: "lone-duo", gameMode: "", mode: "Lone Wolf", teamType: "Duo" },
 ];
@@ -25,6 +26,7 @@ const lifecycleTournaments = [
   { id: "clash-upcoming", gameMode: "clash_squad", lifecycle: "upcoming" },
   { id: "clash-completed", gameMode: "clash_squad", lifecycle: "completed" },
   { id: "lone-ongoing", gameMode: "lone_wolf", lifecycle: "ongoing" },
+  { id: "kill-earn-upcoming", gameMode: "battle_royale_kill_earn", lifecycle: "upcoming" },
 ] as const;
 
 test("Home game-mode cards pass their matching mode into the tournament list", () => {
@@ -33,11 +35,12 @@ test("Home game-mode cards pass their matching mode into the tournament list", (
     { gameMode: "battle_royale", gameModeLabel: "Battle Royale" },
     { gameMode: "clash_squad", gameModeLabel: "Clash Squad" },
     { gameMode: "lone_wolf", gameModeLabel: "Lone Wolf" },
+    { gameMode: "battle_royale_kill_earn", gameModeLabel: "Battle Royale Kill & Earn" },
   ]);
 
   assert.deepEqual(
     routes.map((route) => filterTournamentsForRoute(apiTournaments, route).map((item) => item.id)),
-    [["battle-solo", "battle-squad"], ["clash-solo"], ["lone-duo"]],
+    [["battle-solo", "battle-squad"], ["clash-solo"], ["lone-duo"], ["kill-earn-duo"]],
   );
 });
 
@@ -58,6 +61,11 @@ test("switching lifecycle tabs keeps results and counts scoped to each Home game
       ongoing: ["lone-ongoing"],
       completed: [],
     },
+    battle_royale_kill_earn: {
+      upcoming: ["kill-earn-upcoming"],
+      ongoing: [],
+      completed: [],
+    },
   };
 
   for (const card of HOME_GAME_MODE_CARDS) {
@@ -74,6 +82,30 @@ test("switching lifecycle tabs keeps results and counts scoped to each Home game
       assert.equal(tabs[tab].length, expectedTabs[tab].length);
       assert.ok(tabs[tab].every((tournament) => tournament.gameMode === card.gameMode));
     }
+  }
+});
+
+test("Kill & Earn routes filter by the exact game mode and selected submode", () => {
+  const solo = { id: "kill-solo", gameMode: "battle_royale_kill_earn", teamType: "Solo" };
+  const duo = { id: "kill-duo", gameMode: "battle_royale_kill_earn", teamType: "Duo" };
+  const squad = { id: "kill-squad", gameMode: "battle_royale_kill_earn", teamType: "Squad" };
+  const tournaments = [
+    solo,
+    duo,
+    squad,
+    { id: "classic-solo", gameMode: "battle_royale", teamType: "Solo" },
+  ];
+
+  for (const [teamType, expectedId] of [
+    ["solo", "kill-solo"],
+    ["duo", "kill-duo"],
+    ["squad", "kill-squad"],
+  ] as const) {
+    assert.deepEqual(
+      filterTournamentsForRoute(tournaments, { gameMode: "battle_royale_kill_earn", teamType })
+        .map((tournament) => tournament.id),
+      [expectedId],
+    );
   }
 });
 
@@ -196,7 +228,7 @@ test("an empty mode-specific result is distinct from an API error", () => {
   const emptyMessage = tournamentListEmptyMessage(false, "Upcoming", "Clash Squad", "Solo");
   const errorMessage = tournamentListEmptyMessage(true, "Upcoming", "Clash Squad", "Solo");
 
-  assert.equal(emptyMessage, "No upcoming Solo Clash Squad tournaments are available right now.");
+  assert.equal(emptyMessage, "No upcoming tournaments are available.\nSelected format: Solo Clash Squad.");
   assert.equal(errorMessage, "Tournament data is unavailable right now. Pull to refresh and try again.");
   assert.notEqual(emptyMessage, errorMessage);
 });

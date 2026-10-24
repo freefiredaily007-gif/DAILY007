@@ -26,6 +26,7 @@ import type { TournamentLiveFormatCounts } from './tournamentLiveFormatCounts';
 
 export interface TournamentLiveCountsResponse {
   battle_royale: TournamentLiveFormatCounts;
+  battle_royale_kill_earn: TournamentLiveFormatCounts;
   clash_squad: TournamentLiveFormatCounts;
   lone_wolf: TournamentLiveFormatCounts;
 }

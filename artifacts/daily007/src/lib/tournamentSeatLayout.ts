@@ -1,5 +1,5 @@
 export type TournamentSeatLayout = {
-  gameMode: 'battle_royale' | 'clash_squad' | 'lone_wolf';
+  gameMode: 'battle_royale' | 'battle_royale_kill_earn' | 'clash_squad' | 'lone_wolf';
   teamType: 'solo' | 'duo' | 'trio' | 'squad';
   groupCount: number;
   slotsPerGroup: number;
@@ -22,10 +22,14 @@ export function getTournamentSeatLayout(tournament: {
 }): TournamentSeatLayout | null {
   const explicitGameMode = normalized(tournament.gameMode);
   const rawMode = explicitGameMode || normalized(tournament.mode);
+  const isKillAndEarn = rawMode === 'battle_royale_kill_earn' ||
+    rawMode === 'battle_royale_kill_&_earn' || rawMode === 'battle_royale_kill_and_earn';
   const gameMode = rawMode === 'br' || rawMode === 'battle_royale' || rawMode === 'battle_royale_mode' ||
     (!explicitGameMode && ['solo', 'duo', 'trio', 'squad'].includes(rawMode))
     ? 'battle_royale'
-    : rawMode === 'clash' || rawMode === 'cs' || rawMode === 'clash_squad'
+    : isKillAndEarn
+      ? 'battle_royale_kill_earn'
+      : rawMode === 'clash' || rawMode === 'cs' || rawMode === 'clash_squad'
       ? 'clash_squad'
       : rawMode === 'lw' || rawMode === 'lonewolf' || rawMode === 'lone_wolf'
         ? 'lone_wolf'
@@ -37,9 +41,9 @@ export function getTournamentSeatLayout(tournament: {
     : null;
   if (!gameMode || !teamType) return null;
 
-  if (gameMode === 'battle_royale' && teamType === 'trio') return null;
+  if ((gameMode === 'battle_royale' || gameMode === 'battle_royale_kill_earn') && teamType === 'trio') return null;
   const slotsPerGroup = teamType === 'solo' ? 1 : teamType === 'duo' ? 2 : teamType === 'trio' ? 3 : 4;
-  if (gameMode === 'battle_royale') {
+  if (gameMode === 'battle_royale' || gameMode === 'battle_royale_kill_earn') {
     const groupCount = teamType === 'solo' ? 48 : teamType === 'duo' ? 24 : 12;
     return {
       gameMode,

@@ -108,6 +108,7 @@ export const daily007MatchesTable = pgTable("daily007_v2_matches", {
   capacity: integer("capacity").notNull(),
   entryCoins: integer("entry_coins").notNull().default(0),
   prizePool: integer("prize_pool").notNull().default(0),
+  killRewardCoins: integer("kill_reward_coins").notNull().default(0),
   rules: text("rules").notNull().default(""),
   banner: text("banner").notNull().default("br"),
   imageUrl: text("image_url"),
@@ -123,24 +124,24 @@ export const daily007MatchesTable = pgTable("daily007_v2_matches", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   check("daily007_v2_matches_mode_valid", sql`${table.mode} IN ('solo', 'squad', 'clash')`),
-  check("daily007_v2_matches_game_mode_valid", sql`
+  check("daily007_v2_matches_game_mode_valid_v2", sql`
     (${table.gameMode} IS NULL AND ${table.teamType} IS NULL) OR
     (${table.gameMode} IS NOT NULL AND ${table.teamType} IS NOT NULL AND
-     ${table.gameMode} IN ('battle_royale', 'clash_squad', 'lone_wolf') AND
+     ${table.gameMode} IN ('battle_royale', 'battle_royale_kill_earn', 'clash_squad', 'lone_wolf') AND
      ${table.teamType} IN ('solo', 'duo', 'squad') AND
-     ((${table.gameMode} = 'battle_royale' AND
+     ((${table.gameMode} IN ('battle_royale', 'battle_royale_kill_earn') AND
         ((${table.teamType} = 'solo' AND ${table.mode} = 'solo') OR
          (${table.teamType} IN ('duo', 'squad') AND ${table.mode} = 'squad'))) OR
       (${table.gameMode} IN ('clash_squad', 'lone_wolf') AND ${table.mode} = 'clash')))
   `),
-  check("daily007_v2_matches_capacity_by_format_valid", sql`
+  check("daily007_v2_matches_capacity_by_format_valid_v2", sql`
     (${table.gameMode} IS NULL AND ${table.teamType} IS NULL AND (
       (${table.mode} = 'solo' AND ${table.capacity} = 48) OR
       (${table.mode} = 'squad' AND ${table.capacity} = 12) OR
       (${table.mode} = 'clash' AND ${table.capacity} = 2)
     )) OR
     (${table.gameMode} IS NOT NULL AND ${table.teamType} IS NOT NULL AND
-     ${table.gameMode} = 'battle_royale' AND
+     ${table.gameMode} IN ('battle_royale', 'battle_royale_kill_earn') AND
       ((${table.teamType} = 'solo' AND ${table.capacity} = 48) OR
        (${table.teamType} = 'duo' AND ${table.capacity} = 24) OR
        (${table.teamType} = 'squad' AND ${table.capacity} = 12))) OR
@@ -148,6 +149,7 @@ export const daily007MatchesTable = pgTable("daily007_v2_matches", {
      ${table.gameMode} IN ('clash_squad', 'lone_wolf') AND ${table.capacity} = 2)
   `),
   check("daily007_v2_matches_entry_nonnegative", sql`${table.entryCoins} >= 0`),
+  check("daily007_v2_matches_kill_reward_nonnegative", sql`${table.killRewardCoins} >= 0`),
   check("daily007_v2_matches_status_valid_v2", sql`${table.status} IN ('open', 'full', 'setup_needed', 'cancelled')`),
   check("daily007_v2_matches_full_consistent_v2", sql`
     ${table.status} = 'cancelled' OR

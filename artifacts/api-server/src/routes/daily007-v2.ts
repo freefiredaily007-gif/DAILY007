@@ -325,7 +325,8 @@ function isBattleRoyaleSquad(match: {
   mode: string; game_mode: string | null; team_type: string | null;
 }): boolean {
   const mode = legacyTournamentMode(match.mode, match.game_mode, match.team_type);
-  return mode.gameMode === "battle_royale" && mode.teamType === "squad";
+  return (mode.gameMode === "battle_royale" || mode.gameMode === "battle_royale_kill_earn") &&
+    mode.teamType === "squad";
 }
 
 router.post("/daily007/v2/auth/register", async (req, res): Promise<void> => {
@@ -1183,7 +1184,8 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
       const match = matchResult.rows[0];
       if (!match) throw Object.assign(new Error("Match not found."), { status: 404 });
       const modeConfig = legacyTournamentMode(match.mode, match.game_mode, match.team_type);
-      isBattleRoyaleSolo = modeConfig.gameMode === "battle_royale" && modeConfig.teamType === "solo";
+      isBattleRoyaleSolo = (modeConfig.gameMode === "battle_royale" ||
+        modeConfig.gameMode === "battle_royale_kill_earn") && modeConfig.teamType === "solo";
       if (!legacy && modeConfig.teamSize > 1) {
         throw Object.assign(new Error("Team formats use individual player slots. Choose your team and player slot before joining."), {
           status: 409,

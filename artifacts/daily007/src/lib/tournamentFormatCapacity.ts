@@ -1,4 +1,4 @@
-export type TournamentGameMode = 'battle_royale' | 'clash_squad' | 'lone_wolf';
+export type TournamentGameMode = 'battle_royale' | 'battle_royale_kill_earn' | 'clash_squad' | 'lone_wolf';
 export type TournamentTeamType = 'solo' | 'duo' | 'trio' | 'squad';
 
 export type TournamentFormatCapacity = {
@@ -13,7 +13,7 @@ export function getTournamentFormatCapacity(
   teamType: TournamentTeamType,
   playersPerTeam: number,
 ): TournamentFormatCapacity {
-  if (gameMode === 'battle_royale') {
+  if (gameMode === 'battle_royale' || gameMode === 'battle_royale_kill_earn') {
     if (teamType === 'solo') {
       return {
         playersPerTeam,

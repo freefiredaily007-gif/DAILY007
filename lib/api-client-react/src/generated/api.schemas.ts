@@ -45,6 +45,8 @@ export interface Daily007AdminTournament {
   completedAt: string | null;
   entryCoins: number;
   prizePool: number;
+  /** @minimum 0 */
+  killRewardCoins: number;
   totalSlots: number;
   totalPlayerSlots: number;
   rules: string;
@@ -329,6 +331,7 @@ export interface TournamentLiveFormatCounts {
 
 export interface TournamentLiveCountsResponse {
   battle_royale: TournamentLiveFormatCounts;
+  battle_royale_kill_earn: TournamentLiveFormatCounts;
   clash_squad: TournamentLiveFormatCounts;
   lone_wolf: TournamentLiveFormatCounts;
 }

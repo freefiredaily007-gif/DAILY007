@@ -641,6 +641,18 @@ export function MatchCard({
           </Text>
           <Text style={[mc.meta, largeText && mc.metaLarge]}>{displayedFilled}/{displayedTotal} {slotUnit}</Text>
         </View>
+        {t?.gameMode === 'battle_royale_kill_earn' && (
+          <Text style={{
+            color: C.gold,
+            fontSize: largeText ? 15 : 11,
+            fontWeight: '900',
+            letterSpacing: 0.7,
+            marginTop: 7,
+            textAlign: 'center',
+          }}>
+            🎯 {Number(t?.killRewardCoins ?? 0)} COINS PER KILL
+          </Text>
+        )}
         <View style={[mc.statRow, largeText && mc.statRowLarge]}>
           <View style={[mc.stat, largeText && mc.statLarge]}>
             <Text style={mc.statK}>ENTRY</Text>

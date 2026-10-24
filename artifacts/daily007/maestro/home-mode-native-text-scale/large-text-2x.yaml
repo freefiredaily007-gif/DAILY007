@@ -67,3 +67,22 @@ appId: host.exp.exponent
     text: "Filtered tournaments: Lone Wolf"
 - assertVisible:
     text: "Game mode filter: lone_wolf"
+- tapOn:
+    id: home-mode-destination-back
+
+- scrollUntilVisible:
+    element:
+      id: home-mode-battle-royale-kill-earn
+    direction: DOWN
+- assertVisible:
+    text: "ELIMINATION REWARDS"
+- assertVisible:
+    text: "BATTLE ROYALE KILL & EARN"
+- assertVisible:
+    text: "BROWSE TOURNAMENTS"
+- tapOn:
+    id: home-mode-battle-royale-kill-earn
+- assertVisible:
+    text: "Filtered tournaments: Battle Royale Kill & Earn"
+- assertVisible:
+    text: "Game mode filter: battle_royale_kill_earn"
