@@ -29,12 +29,19 @@ CREATE TABLE daily007_v2_matches (
   image_url text,
   enabled boolean NOT NULL DEFAULT true,
   starts_at timestamptz NOT NULL,
-  status text NOT NULL DEFAULT 'open',
+  status text NOT NULL DEFAULT 'open'
+    CHECK (status IN ('open', 'full', 'setup_needed', 'cancelled', 'completed')),
   is_full boolean NOT NULL DEFAULT false,
   room_id text,
   room_password text,
   room_time text NOT NULL DEFAULT '',
-  room_published boolean NOT NULL DEFAULT false
+  room_published boolean NOT NULL DEFAULT false,
+  CONSTRAINT daily007_v2_matches_full_consistent_v3 CHECK (
+    status = 'cancelled'
+    OR (status = 'completed' AND enabled = false)
+    OR (is_full = false AND status = 'open')
+    OR (is_full = true AND status IN ('full', 'setup_needed'))
+  )
 );
 
 CREATE TABLE daily007_v2_registrations (
@@ -126,6 +133,26 @@ CREATE TABLE daily007_v2_wallet_ledger (
   idempotency_key text UNIQUE,
   details jsonb,
   created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE daily007_v2_kill_earn_corrections (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_id text NOT NULL UNIQUE,
+  match_id uuid NOT NULL,
+  registration_id uuid NOT NULL,
+  user_id uuid NOT NULL REFERENCES daily007_v2_users(id) ON DELETE CASCADE,
+  previous_kills integer NOT NULL CHECK (previous_kills BETWEEN 0 AND 47),
+  corrected_kills integer NOT NULL CHECK (corrected_kills BETWEEN 0 AND 47),
+  reward_per_kill integer NOT NULL CHECK (reward_per_kill BETWEEN 0 AND 100),
+  coin_delta integer NOT NULL,
+  reason text NOT NULL CHECK (length(btrim(reason)) > 0),
+  admin_id uuid NOT NULL,
+  ledger_id uuid NOT NULL UNIQUE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (
+    coin_delta::numeric =
+      (corrected_kills::numeric - previous_kills::numeric) * reward_per_kill::numeric
+  )
 );
 
 CREATE TABLE daily007_v2_squad_teams (

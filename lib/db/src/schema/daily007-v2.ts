@@ -150,9 +150,10 @@ export const daily007MatchesTable = pgTable("daily007_v2_matches", {
   `),
   check("daily007_v2_matches_entry_nonnegative", sql`${table.entryCoins} >= 0`),
   check("daily007_v2_matches_kill_reward_nonnegative", sql`${table.killRewardCoins} >= 0`),
-  check("daily007_v2_matches_status_valid_v2", sql`${table.status} IN ('open', 'full', 'setup_needed', 'cancelled')`),
-  check("daily007_v2_matches_full_consistent_v2", sql`
+  check("daily007_v2_matches_status_valid_v3", sql`${table.status} IN ('open', 'full', 'setup_needed', 'cancelled', 'completed')`),
+  check("daily007_v2_matches_full_consistent_v3", sql`
     ${table.status} = 'cancelled' OR
+    (${table.status} = 'completed' AND ${table.enabled} = false) OR
     (${table.isFull} = false AND ${table.status} = 'open') OR
     (${table.isFull} = true AND ${table.status} IN ('full', 'setup_needed'))
   `),
