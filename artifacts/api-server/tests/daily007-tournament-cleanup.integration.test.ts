@@ -236,6 +236,175 @@ test("unresolved matches older than 72 hours remain available for admin results 
   }
 });
 
+test("admins can cancel unresolved matches older than 72 hours and cannot publish results afterward", async () => {
+  const adminId = randomUUID();
+  const playerId = randomUUID();
+  const matchId = randomUUID();
+  const registrationId = randomUUID();
+  const entryLedgerId = randomUUID();
+  const userIds = [adminId, playerId];
+  const adminToken = makeToken(adminId, 0);
+  assert.ok(adminToken);
+
+  try {
+    await pool.query(
+      `INSERT INTO daily007_v2_users
+         (id, name, email, password_salt, password_hash, role, wallet_coins)
+       VALUES ($1, 'Tournament Admin', $2, '', '', 'tournament_admin', 0),
+              ($3, 'Cancellation Player', $4, '', '', 'user', 90)`,
+      [
+        adminId,
+        `cancel-admin-${adminId}@example.test`,
+        playerId,
+        `cancel-player-${playerId}@example.test`,
+      ],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_matches
+         (id, title, mode, game_mode, team_type, capacity, entry_coins, prize_pool,
+          enabled, starts_at, status)
+       VALUES ($1, 'Old unresolved cancellation match', 'solo', 'battle_royale', 'solo',
+               48, 10, 100, true, now() - interval '4 days', 'open')`,
+      [matchId],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_registrations
+         (id, match_id, captain_user_id, captain_name, captain_game_name,
+          captain_game_uid, entry_coins_paid, status)
+       VALUES ($1, $2, $3, 'Cancellation Player', 'Cancellation Player',
+               'old-cancel-player', 10, 'approved')`,
+      [registrationId, matchId, playerId],
+    );
+    await pool.query(
+      `INSERT INTO daily007_v2_wallet_ledger
+         (id, user_id, amount, balance_after, reason, match_id, registration_id)
+       VALUES ($1, $2, -10, 90, 'tournament_entry', $3, $4)`,
+      [entryLedgerId, playerId, matchId, registrationId],
+    );
+
+    await withServer(async (origin) => {
+      const cancellationResponse = await fetch(`${origin}/admin/tournaments/${matchId}/lifecycle`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ status: "cancelled" }),
+      });
+      assert.equal(cancellationResponse.status, 200, "admins can cancel an unresolved match older than 72 hours");
+      assert.deepEqual(await cancellationResponse.json(), {
+        success: true,
+        data: {
+          id: matchId,
+          status: "cancelled",
+          registrationsRefunded: 1,
+          accountsRefunded: 1,
+          coinsRefunded: 10,
+        },
+      });
+
+      const usersAfterCancellation = await pool.query(
+        "SELECT * FROM daily007_v2_users WHERE id = ANY($1::uuid[]) ORDER BY id",
+        [userIds],
+      );
+      const walletAfterCancellation = await pool.query(
+        "SELECT * FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[]) ORDER BY id",
+        [userIds],
+      );
+      const matchAfterCancellation = await pool.query(
+        "SELECT * FROM daily007_v2_matches WHERE id = $1",
+        [matchId],
+      );
+      const awardsAfterCancellation = await pool.query(
+        "SELECT * FROM daily007_v2_result_awards WHERE match_id = $1 ORDER BY id",
+        [matchId],
+      );
+      assert.equal(usersAfterCancellation.rows.find((user) => user.id === playerId)?.wallet_coins, 100);
+      assert.equal(
+        walletAfterCancellation.rows.filter((entry) => entry.reason === "tournament_cancel_refund").length,
+        1,
+        "cancellation applies exactly the expected entry-fee refund",
+      );
+      assert.equal(matchAfterCancellation.rows[0]?.status, "cancelled");
+
+      const availableResultsResponse = await fetch(
+        `${origin}/admin/results?includeUnfinalized=true`,
+        { headers: { authorization: `Bearer ${adminToken}` } },
+      );
+      assert.equal(availableResultsResponse.status, 200);
+      const availableResults = await availableResultsResponse.json() as {
+        success: boolean;
+        data: Array<{ tournamentId: string }>;
+      };
+      assert.equal(availableResults.success, true);
+      assert.equal(
+        availableResults.data.some((result) => result.tournamentId === matchId),
+        false,
+        "cancelled matches are no longer listed for result entry",
+      );
+
+      const publishResponse = await fetch(`${origin}/admin/results`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          tournamentId: matchId,
+          registrationId,
+          rank: 1,
+          kills: 5,
+        }),
+      });
+      assert.equal(publishResponse.status, 409, "result publication is rejected after cancellation");
+      assert.match(await publishResponse.text(), /cancelled/i);
+
+      const usersAfterRejectedPublication = await pool.query(
+        "SELECT * FROM daily007_v2_users WHERE id = ANY($1::uuid[]) ORDER BY id",
+        [userIds],
+      );
+      const walletAfterRejectedPublication = await pool.query(
+        "SELECT * FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[]) ORDER BY id",
+        [userIds],
+      );
+      const matchAfterRejectedPublication = await pool.query(
+        "SELECT * FROM daily007_v2_matches WHERE id = $1",
+        [matchId],
+      );
+      const awardsAfterRejectedPublication = await pool.query(
+        "SELECT * FROM daily007_v2_result_awards WHERE match_id = $1 ORDER BY id",
+        [matchId],
+      );
+      assert.deepEqual(
+        usersAfterRejectedPublication.rows,
+        usersAfterCancellation.rows,
+        "rejected result publication does not change accounts or wallet balances",
+      );
+      assert.deepEqual(
+        walletAfterRejectedPublication.rows,
+        walletAfterCancellation.rows,
+        "rejected result publication does not add or change wallet records",
+      );
+      assert.deepEqual(
+        matchAfterRejectedPublication.rows,
+        matchAfterCancellation.rows,
+        "rejected result publication leaves the cancelled match unchanged",
+      );
+      assert.deepEqual(
+        awardsAfterRejectedPublication.rows,
+        awardsAfterCancellation.rows,
+        "rejected result publication does not create a result award",
+      );
+    });
+  } finally {
+    await pool.query("DELETE FROM daily007_v2_wallet_ledger WHERE user_id = ANY($1::uuid[])", [userIds]);
+    await pool.query("DELETE FROM daily007_v2_result_awards WHERE match_id = $1", [matchId]);
+    await pool.query("DELETE FROM daily007_v2_matches WHERE id = $1", [matchId]);
+    await pool.query("DELETE FROM daily007_v2_user_stats WHERE user_id = ANY($1::uuid[])", [userIds]);
+    await pool.query("DELETE FROM daily007_v2_users WHERE id = ANY($1::uuid[])", [userIds]);
+  }
+});
+
 test("admins can delete upcoming and ongoing tournaments without refunds or wallet-history changes", async () => {
   const adminId = randomUUID();
   const playerId = randomUUID();
