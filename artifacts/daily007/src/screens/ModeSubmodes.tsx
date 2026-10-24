@@ -148,7 +148,9 @@ export default function ModeSubmodes() {
                       <Text style={[
                         styles.liveBadgeText,
                         mutedLiveCount && styles.liveBadgeTextMuted,
-                      ]}>{liveLabel}</Text>
+                      ]} testID={`format-live-count-${gameMode}-${format.type}`}>
+                        {liveLabel}
+                      </Text>
                     </View>
                   </View>
                   <Text style={styles.formatPlayers}>{capacity.playersPerTeam} {capacity.playersPerTeam === 1 ? 'player' : 'players'} per team</Text>

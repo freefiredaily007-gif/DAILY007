@@ -69,6 +69,7 @@ test('counts only enabled, upcoming tournaments with remaining player seats per 
 
   assert.deepEqual(counts, {
     battle_royale: 1,
+    battle_royale_kill_earn: 0,
     clash_squad: 1,
     lone_wolf: 0,
   });

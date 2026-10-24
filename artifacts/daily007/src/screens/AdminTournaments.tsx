@@ -1161,18 +1161,24 @@ export default function AdminTournaments() {
           <Text style={st.lbl}>GAME MODE</Text>
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
             {['Battle Royale', 'Battle Royale Kill & Earn', 'Clash Squad', 'Lone Wolf'].map((m) => (
-              <Chip key={m} label={m} color={form.mode === m ? C.neon : C.sub} onPress={() => {
-                const options = getAdminTournamentFormatOptions(m);
-                setForm((f: any) => ({
-                  ...f,
-                  mode: m,
-                  teamType: options.some((option) => option.value === f.teamType) ? f.teamType : options[0].value,
-                  banner: m === 'Battle Royale' || m === 'Battle Royale Kill & Earn'
-                    ? 'br'
-                    : m === 'Clash Squad' ? 'cs' : 'lw',
-                }));
-                setKillEarnSubmodeOpen(false);
-              }} />
+              <Chip
+                key={m}
+                label={m}
+                testID={m === 'Battle Royale Kill & Earn' ? 'admin-tournament-mode-kill-earn' : undefined}
+                color={form.mode === m ? C.neon : C.sub}
+                onPress={() => {
+                  const options = getAdminTournamentFormatOptions(m);
+                  setForm((f: any) => ({
+                    ...f,
+                    mode: m,
+                    teamType: options.some((option) => option.value === f.teamType) ? f.teamType : options[0].value,
+                    banner: m === 'Battle Royale' || m === 'Battle Royale Kill & Earn'
+                      ? 'br'
+                      : m === 'Clash Squad' ? 'cs' : 'lw',
+                  }));
+                  setKillEarnSubmodeOpen(false);
+                }}
+              />
             ))}
           </View>
           <Text style={st.lbl}>{form.mode === 'Battle Royale Kill & Earn' ? 'SUBMODE *' : 'FORMAT'}</Text>
@@ -1233,13 +1239,34 @@ export default function AdminTournaments() {
               <Text style={st.capacityNote}>Leave blank to use the default Solo, Duo, or Squad artwork.</Text>
             </>
           )}
-          <Input placeholder="Date (YYYY-MM-DD, IST) *" value={form.date} onChangeText={(v) => set('date', v)} />
+          <Input
+            testID="admin-tournament-date"
+            placeholder="Date (YYYY-MM-DD, IST) *"
+            value={form.date}
+            onChangeText={(v) => set('date', v)}
+          />
           <Text style={st.lbl}>TIME (IST · 12-HOUR)</Text>
           <TimePicker variant="admin" value={form.time} onChange={(v) => set('time', v)} />
           <Text style={st.lbl}>ENTRY FEE & PRIZE ({COIN_RATE_TEXT})</Text>
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            <View style={{ flex: 1 }}><Input placeholder="Entry coins *" value={form.entryCoins} onChangeText={(v) => set('entryCoins', v)} keyboardType="number-pad" /></View>
-            <View style={{ flex: 1 }}><Input placeholder="Prize pool" value={form.prizePool} onChangeText={(v) => set('prizePool', v)} keyboardType="number-pad" /></View>
+            <View style={{ flex: 1 }}>
+              <Input
+                testID="admin-tournament-entry-coins"
+                placeholder="Entry coins *"
+                value={form.entryCoins}
+                onChangeText={(v) => set('entryCoins', v)}
+                keyboardType="number-pad"
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Input
+                testID="admin-tournament-prize-pool"
+                placeholder="Prize pool"
+                value={form.prizePool}
+                onChangeText={(v) => set('prizePool', v)}
+                keyboardType="number-pad"
+              />
+            </View>
           </View>
           {!!form.entryCoins && <Text style={st.inrNote}>Entry fee: {form.entryCoins} coins = {inr(Number(form.entryCoins))} INR</Text>}
           {!!form.prizePool && <Text style={st.inrNote}>Prize pool: {form.prizePool} coins = {inr(Number(form.prizePool))} INR</Text>}

@@ -1,0 +1,206 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/kill-earn-admin-flow-test
+- extendedWaitUntil:
+    visible:
+      id: kill-earn-admin-flow-banner
+    timeout: 20000
+- assertVisible: "Unrecognized API requests blocked: 0"
+- assertVisible: "Fixture state: Solo 0 · Duo 0 · Squad 0"
+
+# Create Solo, edit it, then check the Solo-only player list and live count.
+- tapOn:
+    id: admin-tournament-create-toggle
+- tapOn:
+    id: admin-tournament-mode-kill-earn
+- tapOn:
+    id: admin-kill-earn-submode-dropdown
+- tapOn:
+    id: admin-kill-earn-submode-solo
+- tapOn:
+    id: admin-tournament-entry-coins
+- inputText: "10"
+- tapOn:
+    id: admin-kill-earn-reward
+- inputText: "5"
+- hideKeyboard
+- tapOn:
+    id: admin-tournament-create-submit
+- extendedWaitUntil:
+    visible: "Created Solo · 5 coins per kill"
+    timeout: 10000
+- assertVisible: "Fixture state: Solo 1 · Duo 0 · Squad 0"
+- tapOn:
+    id: kill-earn-admin-flow-player
+- tapOn:
+    id: home-format-battle_royale_kill_earn
+- tapOn:
+    id: format-battle_royale_kill_earn-solo
+- assertVisible:
+    id: format-live-count-battle_royale_kill_earn-solo
+    text: "LIVE 1"
+- assertVisible: "Battle Royale Kill & Earn Solo"
+- assertNotVisible: "Battle Royale Kill & Earn Duo"
+- assertNotVisible: "Battle Royale Kill & Earn Squad"
+- assertVisible: "Unrecognized API requests blocked: 0"
+- tapOn:
+    id: kill-earn-admin-flow-admin
+- tapOn:
+    id: edit-tournament-kill-earn-solo
+- tapOn:
+    id: admin-kill-earn-reward
+- eraseText: 3
+- inputText: "6"
+- hideKeyboard
+- tapOn:
+    id: admin-tournament-create-submit
+- extendedWaitUntil:
+    visible: "Updated Solo · 6 coins per kill"
+    timeout: 10000
+- assertVisible: "Fixture state: Solo 1 · Duo 0 · Squad 0"
+- tapOn:
+    id: kill-earn-admin-flow-player
+- tapOn:
+    id: home-format-battle-royale-kill-earn
+- tapOn:
+    id: format-battle_royale_kill_earn-solo
+- assertVisible:
+    id: format-live-count-battle_royale_kill_earn-solo
+    text: "LIVE 1"
+- assertVisible: "Battle Royale Kill & Earn Solo"
+- assertNotVisible: "Battle Royale Kill & Earn Duo"
+- assertNotVisible: "Battle Royale Kill & Earn Squad"
+- assertVisible: "Unrecognized API requests blocked: 0"
+
+# Create Duo, edit it, then check the Duo-only player list and live count.
+- tapOn:
+    id: kill-earn-admin-flow-admin
+- tapOn:
+    id: admin-tournament-create-toggle
+- tapOn:
+    id: admin-tournament-mode-kill-earn
+- tapOn:
+    id: admin-kill-earn-submode-dropdown
+- tapOn:
+    id: admin-kill-earn-submode-duo
+- tapOn:
+    id: admin-tournament-entry-coins
+- inputText: "10"
+- tapOn:
+    id: admin-kill-earn-reward
+- inputText: "5"
+- hideKeyboard
+- tapOn:
+    id: admin-tournament-create-submit
+- extendedWaitUntil:
+    visible: "Created Duo · 5 coins per kill"
+    timeout: 10000
+- assertVisible: "Fixture state: Solo 1 · Duo 1 · Squad 0"
+- tapOn:
+    id: kill-earn-admin-flow-player
+- tapOn:
+    id: home-format-battle-royale-kill-earn
+- tapOn:
+    id: format-battle_royale_kill_earn-duo
+- assertVisible:
+    id: format-live-count-battle_royale_kill_earn-duo
+    text: "LIVE 1"
+- assertVisible: "Battle Royale Kill & Earn Duo"
+- assertNotVisible: "Battle Royale Kill & Earn Solo"
+- assertNotVisible: "Battle Royale Kill & Earn Squad"
+- assertVisible: "Unrecognized API requests blocked: 0"
+- tapOn:
+    id: kill-earn-admin-flow-admin
+- tapOn:
+    id: edit-tournament-kill-earn-duo
+- tapOn:
+    id: admin-kill-earn-reward
+- eraseText: 3
+- inputText: "7"
+- hideKeyboard
+- tapOn:
+    id: admin-tournament-create-submit
+- extendedWaitUntil:
+    visible: "Updated Duo · 7 coins per kill"
+    timeout: 10000
+- assertVisible: "Fixture state: Solo 1 · Duo 1 · Squad 0"
+- tapOn:
+    id: kill-earn-admin-flow-player
+- tapOn:
+    id: home-format-battle-royale-kill-earn
+- tapOn:
+    id: format-battle_royale_kill_earn-duo
+- assertVisible:
+    id: format-live-count-battle_royale_kill_earn-duo
+    text: "LIVE 1"
+- assertVisible: "Battle Royale Kill & Earn Duo"
+- assertNotVisible: "Battle Royale Kill & Earn Solo"
+- assertNotVisible: "Battle Royale Kill & Earn Squad"
+- assertVisible: "Unrecognized API requests blocked: 0"
+
+# Create Squad, edit it, then check the Squad-only player list and live count.
+- tapOn:
+    id: kill-earn-admin-flow-admin
+- tapOn:
+    id: admin-tournament-create-toggle
+- tapOn:
+    id: admin-tournament-mode-kill-earn
+- tapOn:
+    id: admin-kill-earn-submode-dropdown
+- tapOn:
+    id: admin-kill-earn-submode-squad
+- tapOn:
+    id: admin-tournament-entry-coins
+- inputText: "10"
+- tapOn:
+    id: admin-kill-earn-reward
+- inputText: "5"
+- hideKeyboard
+- tapOn:
+    id: admin-tournament-create-submit
+- extendedWaitUntil:
+    visible: "Created Squad · 5 coins per kill"
+    timeout: 10000
+- assertVisible: "Fixture state: Solo 1 · Duo 1 · Squad 1"
+- tapOn:
+    id: kill-earn-admin-flow-player
+- tapOn:
+    id: home-format-battle-royale-kill-earn
+- tapOn:
+    id: format-battle_royale_kill_earn-squad
+- assertVisible:
+    id: format-live-count-battle_royale_kill_earn-squad
+    text: "LIVE 1"
+- assertVisible: "Battle Royale Kill & Earn Squad"
+- assertNotVisible: "Battle Royale Kill & Earn Solo"
+- assertNotVisible: "Battle Royale Kill & Earn Duo"
+- assertVisible: "Unrecognized API requests blocked: 0"
+- tapOn:
+    id: kill-earn-admin-flow-admin
+- tapOn:
+    id: edit-tournament-kill-earn-squad
+- tapOn:
+    id: admin-kill-earn-reward
+- eraseText: 3
+- inputText: "8"
+- hideKeyboard
+- tapOn:
+    id: admin-tournament-create-submit
+- extendedWaitUntil:
+    visible: "Updated Squad · 8 coins per kill"
+    timeout: 10000
+- assertVisible: "Fixture state: Solo 1 · Duo 1 · Squad 1"
+- tapOn:
+    id: kill-earn-admin-flow-player
+- tapOn:
+    id: home-format-battle-royale-kill-earn
+- tapOn:
+    id: format-battle_royale_kill_earn-squad
+- assertVisible:
+    id: format-live-count-battle_royale_kill_earn-squad
+    text: "LIVE 1"
+- assertVisible: "Battle Royale Kill & Earn Squad"
+- assertNotVisible: "Battle Royale Kill & Earn Solo"
+- assertNotVisible: "Battle Royale Kill & Earn Duo"
+- assertVisible: "Unrecognized API requests blocked: 0"
