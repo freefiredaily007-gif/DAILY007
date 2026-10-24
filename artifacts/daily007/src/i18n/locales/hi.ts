@@ -270,8 +270,6 @@ const hi: Record<string, string> = {
   "Opens sharing options for your referral code and invite link.": "रेफ़रल कोड और आमंत्रण लिंक साझा करने के विकल्प खोलता है।",
   "SUBSCRIBE ON YOUTUBE": "YOUTUBE पर सब्सक्राइब करें",
   "Subscribe to YouTube & Earn": "YouTube सब्सक्राइब करें और कमाएँ",
-  "Subscribe to the Daily007 channel, then submit your claim. An administrator will verify it before crediting your wallet.": "Daily007 चैनल सब्सक्राइब करें, फिर दावा भेजें। वॉलेट में कॉइन जोड़ने से पहले एडमिन इसकी जाँच करेगा।",
-  "Subscribe on YouTube, then return to Daily007 to submit for review.": "YouTube पर सब्सक्राइब करें, फिर जाँच के लिए Daily007 पर लौटें।",
   "Submit YouTube subscription for administrator review": "एडमिन की जाँच के लिए YouTube सब्सक्रिप्शन भेजें",
   "Open the Daily007 YouTube channel": "Daily007 YouTube चैनल खोलें",
   "This task is temporarily unavailable.": "यह टास्क अभी उपलब्ध नहीं है।",

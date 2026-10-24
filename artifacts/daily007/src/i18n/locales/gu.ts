@@ -270,8 +270,6 @@ const gu: Record<string, string> = {
   "Opens sharing options for your referral code and invite link.": "તમારા રેફરલ કોડ અને આમંત્રણ લિંક શેર કરવાના વિકલ્પો ખોલે છે.",
   "SUBSCRIBE ON YOUTUBE": "YOUTUBE પર સબ્સ્ક્રાઇબ કરો",
   "Subscribe to YouTube & Earn": "YouTube સબ્સ્ક્રાઇબ કરો અને કમાઓ",
-  "Subscribe to the Daily007 channel, then submit your claim. An administrator will verify it before crediting your wallet.": "Daily007 ચેનલ સબ્સ્ક્રાઇબ કરો, પછી દાવો મોકલો. વૉલેટમાં સિક્કા ઉમેરતાં પહેલાં એડમિન તેની તપાસ કરશે.",
-  "Subscribe on YouTube, then return to Daily007 to submit for review.": "YouTube પર સબ્સ્ક્રાઇબ કરો, પછી તપાસ માટે Daily007 પર પાછા આવો.",
   "Submit YouTube subscription for administrator review": "એડમિનની તપાસ માટે YouTube સબ્સ્ક્રિપ્શન મોકલો",
   "Open the Daily007 YouTube channel": "Daily007 YouTube ચેનલ ખોલો",
   "This task is temporarily unavailable.": "આ કાર્ય હમણાં ઉપલબ્ધ નથી.",

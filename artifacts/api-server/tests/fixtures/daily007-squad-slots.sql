@@ -15,7 +15,7 @@ CREATE TABLE daily007_v2_users (
 );
 
 CREATE TABLE daily007_v2_matches (
-  id uuid PRIMARY KEY,
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   title text NOT NULL,
   mode text NOT NULL,
   game_mode text,

@@ -268,8 +268,6 @@ const en = {
   "Opens sharing options for your referral code and invite link.": "Opens sharing options for your referral code and invite link.",
   "SUBSCRIBE ON YOUTUBE": "SUBSCRIBE ON YOUTUBE",
   "Subscribe to YouTube & Earn": "Subscribe to YouTube & Earn",
-  "Subscribe to the Daily007 channel, then submit your claim. An administrator will verify it before crediting your wallet.": "Subscribe to the Daily007 channel, then submit your claim. An administrator will verify it before crediting your wallet.",
-  "Subscribe on YouTube, then return to Daily007 to submit for review.": "Subscribe on YouTube, then return to Daily007 to submit for review.",
   "Submit YouTube subscription for administrator review": "Submit YouTube subscription for administrator review",
   "Open the Daily007 YouTube channel": "Open the Daily007 YouTube channel",
   "This task is temporarily unavailable.": "This task is temporarily unavailable.",

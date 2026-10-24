@@ -315,9 +315,6 @@ export default function Earn() {
             Subscribe to YouTube &amp; Earn {youtubeTask?.rewardCoins ?? 5} Coins
           </Text>
         </View>
-        <Text style={s.youtubeCopy}>
-          Subscribe to the Daily007 channel, then submit your claim. An administrator will verify it before crediting your wallet.
-        </Text>
         {youtubeTaskQuery.isPending && !youtubeTask ? (
           <View style={s.taskLoading}>
             <ActivityIndicator color={C.gold} />
@@ -391,9 +388,6 @@ export default function Earn() {
                   </Text>
                 </LinearGradient>
               </Pressable>
-              {!returnedFromYoutube ? (
-                <Text style={s.taskHint}>Subscribe on YouTube, then return to Daily007 to submit for review.</Text>
-              ) : null}
             </>
           ) : (
             <Text style={s.taskHint}>This task is temporarily unavailable.</Text>
