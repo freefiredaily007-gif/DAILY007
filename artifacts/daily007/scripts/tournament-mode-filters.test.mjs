@@ -11,6 +11,7 @@ import {
 import {
   HOME_GAME_MODE_CARDS,
   countOpenHomeTournamentsByFormat,
+  getHomeTournamentPlayerCapacity,
   homeModeRouteParams,
   isHomeTournamentOpenForRegistration,
   submodeRouteParams,
@@ -494,6 +495,48 @@ test('format live counts stay separate by mode and exclude closed, expired, full
   assert.match(apiTournamentSource, /registered\.filled_player_slots, 0\) < eligible\.capacity \* eligible\.team_size/);
   assert.match(apiTournamentSource, /m\.starts_at > clock_timestamp\(\) \+ interval '5 hours 30 minutes' AS registration_open/);
   assert.match(apiTournamentSource, /registrationOpen: row\.registration_open/);
+});
+
+test('upcoming match cards use the same player-capacity calculation as format filtering', () => {
+  const matches = [
+    {
+      gameMode: 'clash_squad', teamType: 'solo', teamSize: 1,
+      totalSlots: 2, filledSlots: 1, totalPlayerSlots: 2, filledPlayerSlots: 1,
+    },
+    {
+      gameMode: 'clash_squad', teamType: 'duo', teamSize: 2,
+      totalSlots: 2, filledSlots: 2, totalPlayerSlots: 4, filledPlayerSlots: 3,
+    },
+    {
+      gameMode: 'clash_squad', teamType: 'squad', teamSize: 4,
+      totalSlots: 2, filledSlots: 2, totalPlayerSlots: 8, filledPlayerSlots: 7,
+    },
+    {
+      gameMode: 'battle_royale', teamType: 'duo', teamSize: 2,
+      totalSlots: 24, filledSlots: 24, totalPlayerSlots: 48, filledPlayerSlots: 23,
+    },
+    {
+      gameMode: 'battle_royale', teamType: 'squad', teamSize: 4,
+      totalSlots: 12, filledSlots: 12, totalPlayerSlots: 48, filledPlayerSlots: 24,
+    },
+    {
+      gameMode: 'lone_wolf', teamType: 'solo', teamSize: 1,
+      totalSlots: 2, filledSlots: 1, totalPlayerSlots: 2, filledPlayerSlots: 1,
+    },
+  ];
+
+  assert.deepEqual(
+    matches.map((match) => {
+      const capacity = getHomeTournamentPlayerCapacity(match);
+      return [capacity.filledPlayers, capacity.totalPlayers];
+    }),
+    [[1, 2], [3, 4], [7, 8], [23, 48], [24, 48], [1, 2]],
+  );
+  assert.match(homeSource, /getHomeTournamentPlayerCapacity\(t\)/);
+  assert.match(homeSource, /translateExactText\('PLAYERS'\)/);
+  assert.match(homeSource, /translateExactText\('SPOTS LEFT'\)/);
+  assert.match(homeSource, /home-upcoming-player-progress-/);
+  assert.match(homeSource, /home-upcoming-spots-left-/);
 });
 
 test('Battle Royale format counts stay separate and show only open Solo, Duo, and Squad tournaments', () => {

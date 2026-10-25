@@ -22,8 +22,10 @@ import {
   startHomeTournamentRefreshPolling,
 } from '../lib/tournamentLifecycle';
 import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
-import { getTournamentTeamSlotSummary } from '../lib/tournamentTeamSlots';
-import { countOpenHomeTournamentsByMode } from '../lib/tournamentFilters';
+import {
+  countOpenHomeTournamentsByMode,
+  getHomeTournamentPlayerCapacity,
+} from '../lib/tournamentFilters';
 import HomeGameModeCards from './HomeGameModeCards';
 import { WhatsAppIcon, InstagramIcon, YouTubeIcon } from '../components/SocialIcons';
 import logoImg from '../assets/logo.jpg';
@@ -37,26 +39,21 @@ function fmtDate(d?: string) {
   return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }).toUpperCase();
 }
 function statusOf(t: any, now: number) {
-  const mode = String(t.mode ?? t.gameMode ?? '').toLowerCase();
-  const individualSquad = String(t.teamType || '').toLowerCase() === 'squad' &&
-    (mode.includes('battle royale') || mode === 'battle_royale');
-  const filled = Number(individualSquad
-    ? t.filledPlayerSlots ?? Number(t.filledSlots ?? t.filled ?? 0) * 4
-    : t.filledSlots ?? t.filled ?? 0);
-  const total = Number(individualSquad
-    ? t.totalPlayerSlots ?? Number(t.totalSlots ?? 12) * 4
-    : t.totalSlots ?? (String(t.mode || '').toLowerCase().includes('clash') ? 2 : String(t.teamType || '').toLowerCase() === 'squad' ? 12 : 48));
+  const capacity = getHomeTournamentPlayerCapacity(t);
+  const filled = Number.isSafeInteger(capacity.filledPlayers) && capacity.filledPlayers >= 0
+    ? capacity.filledPlayers
+    : 0;
+  const total = Number.isSafeInteger(capacity.totalPlayers) && capacity.totalPlayers > 0
+    ? capacity.totalPlayers
+    : 0;
   const status = String(t.status ?? '').toLowerCase();
   const lifecycle = getTournamentLifecycleState(t, now);
   if (lifecycle === 'ongoing') return { key: 'ONGOING', color: C.red };
   if (lifecycle === 'completed' || lifecycle === 'closed') return { key: 'COMPLETED', color: C.dim };
-  if (status === 'setup_needed' || ((status === 'full' || total > 0) && filled >= total)) return { key: 'FULL', color: C.orange };
+  if (status === 'setup_needed' || (total > 0 ? filled >= total : status === 'full')) {
+    return { key: 'FULL', color: C.orange };
+  }
   return { key: 'UPCOMING', color: C.green };
-}
-function tournamentModeFallback(t: any): number {
-  if (String(t?.mode || '').toLowerCase().includes('clash')) return 2;
-  if (String(t?.teamType || '').toLowerCase() === 'squad') return 12;
-  return 48;
 }
 
 function isKillEarnTournament(t: any): boolean {
@@ -502,16 +499,17 @@ export default function Home() {
             contentContainerStyle={{ paddingHorizontal: 0 }}
             decelerationRate="fast">
         {upcomingItems.slice(0, 8).map((t, index) => {
-              const isIndividualSquad = String(t.teamType ?? '').toLowerCase() === 'squad' &&
-                (String(t.mode ?? t.gameMode ?? '').toLowerCase().includes('battle royale') ||
-                  String(t.mode ?? t.gameMode ?? '').toLowerCase() === 'battle_royale');
-              const teamSlotSummary = getTournamentTeamSlotSummary(t);
-              const filled = isIndividualSquad
-                ? t.filledPlayerSlots ?? Number(t.filledSlots ?? t.filled ?? 0) * 4
-                : t.filledSlots ?? t.filled ?? 0;
-              const total = isIndividualSquad
-                ? t.totalPlayerSlots ?? Number(t.totalSlots ?? tournamentModeFallback(t)) * 4
-                : t.totalSlots ?? tournamentModeFallback(t);
+              const capacity = getHomeTournamentPlayerCapacity(t);
+              const filled = Number.isSafeInteger(capacity.filledPlayers) && capacity.filledPlayers >= 0
+                ? capacity.filledPlayers
+                : 0;
+              const total = Number.isSafeInteger(capacity.totalPlayers) && capacity.totalPlayers > 0
+                ? capacity.totalPlayers
+                : 0;
+              const spotsLeft = total > 0 ? Math.max(0, total - filled) : 0;
+              const fillPercent = total > 0
+                ? Math.min(100, Math.max(0, (filled / total) * 100))
+                : 0;
               const stt = statusOf(t, clockNow);
               const ongoing = stt.key === 'ONGOING';
               const formatPresentation = getTournamentFormatPresentation(t);
@@ -527,9 +525,7 @@ export default function Home() {
               const tournamentModeLabel = String(t.mode || t.gameMode || 'CLASH SQUAD')
                 .replace(/[_-]+/g, ' ')
                 .toUpperCase();
-              const capacityFull = stt.key === 'FULL' ||
-                ['full', 'setup_needed'].includes(String(t.status ?? '').toLowerCase()) ||
-                (Number(total) > 0 && Number(filled) >= Number(total));
+              const capacityFull = stt.key === 'FULL' || (total > 0 && filled >= total);
               const joined = t.joined === true;
               const ctaLabel = joined
                 ? capacityFull ? 'JOINED · SLOTS FULL' : 'JOINED'
@@ -633,21 +629,40 @@ export default function Home() {
                   <Text style={isKillEarn ? s.mStatLKillEarn : s.mStatL}>PRIZE POOL</Text>
                   <Text style={[s.mStatV, isKillEarn && s.mStatVKillEarn, { color: C.green }]}>🪙 {t.prizePool ?? 0}</Text>
                 </View>
-                <View style={[s.mStat, isKillEarn && s.mStatKillEarn]}>
-                  <Text style={isKillEarn ? s.mStatLKillEarn : s.mStatL}>{isIndividualSquad ? 'PLAYER SLOTS' : 'SLOTS'}</Text>
-                  <Text style={[s.mStatV, isKillEarn && s.mStatVKillEarn]}>{filled}/{total}</Text>
+                <View
+                  testID={`home-upcoming-player-capacity-${t.id}`}
+                  style={[s.mStat, s.mStatCapacity, isKillEarn && s.mStatKillEarn]}
+                >
+                  <Text style={[isKillEarn ? s.mStatLKillEarn : s.mStatL, s.mStatCapacityLabel]}>
+                    {translateExactText('PLAYERS')}
+                  </Text>
+                  <Text style={[s.mStatV, s.mStatCapacityValue, isKillEarn && s.mStatVKillEarn]}>
+                    {filled}/{total}
+                  </Text>
                 </View>
               </View>
-              <View style={s.slotBar}>
-                <View style={[s.slotFill, { width: `${Math.min(100, (filled / Math.max(1, total)) * 100)}%` }]} />
+              <View
+                testID={`home-upcoming-player-progress-${t.id}`}
+                style={s.slotBar}
+                accessibilityRole="progressbar"
+                accessibilityLabel={`${filled}/${total} ${translateExactText('PLAYERS')}`}
+                accessibilityValue={total > 0 ? { min: 0, max: total, now: Math.min(filled, total) } : undefined}
+              >
+                <View
+                  style={[
+                    s.slotFill,
+                    { width: `${fillPercent}%`, backgroundColor: spotsLeft <= 1 ? C.gold : C.green },
+                  ]}
+                />
               </View>
-              {isIndividualSquad && (
-                <Text
-                  testID={`home-upcoming-team-slots-${t.id}`}
-                  style={s.teamSlotSummary}
-                >
-                  {teamSlotSummary.label}
-                </Text>
+              {spotsLeft > 0 && (
+                <View style={s.slotAvailabilityRow}>
+                  <View testID={`home-upcoming-spots-left-${t.id}`} style={s.spotsLeftBadge}>
+                    <Text style={s.spotsLeftText}>
+                      {spotsLeft} {translateExactText('SPOTS LEFT')}
+                    </Text>
+                  </View>
+                </View>
               )}
               <View
                 pointerEvents="none"
@@ -818,14 +833,23 @@ const s = StyleSheet.create({
   mStats: { flexDirection: 'row' },
   mStatsKillEarn: { alignItems: 'stretch' },
   mStat: { flex: 1, alignItems: 'center' },
+  mStatCapacity: { minWidth: 0 },
+  mStatCapacityLabel: { color: C.gold },
+  mStatCapacityValue: { fontSize: 15, letterSpacing: 0.1 },
   mStatKillEarn: { minWidth: 0, paddingHorizontal: 1 },
   mStatL: { color: C.dim, fontSize: 9, letterSpacing: 1.5, fontWeight: '800' },
   mStatLKillEarn: { color: C.dim, fontSize: 8, letterSpacing: 0.6, fontWeight: '800', textAlign: 'center' },
   mStatV: { color: C.text, fontWeight: '900', fontSize: 14, marginTop: 3 },
   mStatVKillEarn: { fontSize: 12, letterSpacing: -0.4 },
-  slotBar: { height: 4, backgroundColor: '#1a2136', borderRadius: 2, marginTop: 10, overflow: 'hidden' },
+  slotBar: { height: 5, backgroundColor: '#1a2136', borderRadius: 3, marginTop: 9, overflow: 'hidden' },
   slotFill: { height: 4, backgroundColor: C.neon, borderRadius: 2 },
-  teamSlotSummary: { color: C.sub, fontSize: 10, fontWeight: '700', textAlign: 'center', marginTop: 6 },
+  slotAvailabilityRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 6 },
+  spotsLeftBadge: {
+    minHeight: 23, justifyContent: 'center', paddingHorizontal: 9,
+    borderWidth: 1, borderColor: C.green + '66', borderRadius: 12,
+    backgroundColor: C.green + '16',
+  },
+  spotsLeftText: { color: C.green, fontSize: 9, fontWeight: '900', letterSpacing: 0.8 },
   socialBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginBottom: 12,
     borderRadius: 16, borderWidth: 1.2, paddingVertical: 12, paddingHorizontal: 14,

@@ -25,6 +25,11 @@ export type HomeRegistrationTournament = TournamentModeItem & {
   registration_open?: unknown;
 };
 
+export type HomeTournamentPlayerCapacity = {
+  filledPlayers: number;
+  totalPlayers: number;
+};
+
 export type TournamentTeamFormat = 'solo' | 'duo' | 'trio' | 'squad';
 export type HomeOpenFormatCounts = Record<TournamentTeamFormat, number>;
 
@@ -89,6 +94,25 @@ export function tournamentTabsForRoute<T extends TournamentModeItem>(
   return tabs;
 }
 
+export function getHomeTournamentPlayerCapacity(
+  tournament: HomeRegistrationTournament,
+): HomeTournamentPlayerCapacity {
+  const rawTeamSize = Number(tournament.teamSize ?? 1);
+  const teamSize = Number.isSafeInteger(rawTeamSize) && rawTeamSize > 0 ? rawTeamSize : 1;
+  const rawTeamSlots = Number(tournament.totalSlots);
+  const totalPlayers = Number(
+    tournament.totalPlayerSlots ??
+      (Number.isSafeInteger(rawTeamSlots) && rawTeamSlots > 0 ? rawTeamSlots * teamSize : NaN),
+  );
+  const rawFilledSlots = Number(tournament.filledSlots ?? 0);
+  const filledPlayers = Number(
+    tournament.filledPlayerSlots ??
+      (Number.isSafeInteger(rawFilledSlots) && rawFilledSlots >= 0 ? rawFilledSlots * teamSize : NaN),
+  );
+
+  return { filledPlayers, totalPlayers };
+}
+
 export function isHomeTournamentOpenForRegistration(
   tournament: HomeRegistrationTournament,
   now = Date.now(),
@@ -104,24 +128,13 @@ export function isHomeTournamentOpenForRegistration(
     return false;
   }
 
-  const rawTeamSize = Number(tournament.teamSize ?? 1);
-  const teamSize = Number.isSafeInteger(rawTeamSize) && rawTeamSize > 0 ? rawTeamSize : 1;
-  const rawTeamSlots = Number(tournament.totalSlots);
-  const totalPlayerSlots = Number(
-    tournament.totalPlayerSlots ??
-      (Number.isSafeInteger(rawTeamSlots) && rawTeamSlots > 0 ? rawTeamSlots * teamSize : NaN),
-  );
-  const rawFilledSlots = Number(tournament.filledSlots ?? 0);
-  const filledPlayerSlots = Number(
-    tournament.filledPlayerSlots ??
-      (Number.isSafeInteger(rawFilledSlots) && rawFilledSlots >= 0 ? rawFilledSlots * teamSize : NaN),
-  );
+  const { filledPlayers, totalPlayers } = getHomeTournamentPlayerCapacity(tournament);
 
-  return Number.isSafeInteger(totalPlayerSlots) &&
-    totalPlayerSlots > 0 &&
-    Number.isSafeInteger(filledPlayerSlots) &&
-    filledPlayerSlots >= 0 &&
-    filledPlayerSlots < totalPlayerSlots;
+  return Number.isSafeInteger(totalPlayers) &&
+    totalPlayers > 0 &&
+    Number.isSafeInteger(filledPlayers) &&
+    filledPlayers >= 0 &&
+    filledPlayers < totalPlayers;
 }
 
 export function countOpenHomeTournamentsByFormat(

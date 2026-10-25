@@ -105,6 +105,7 @@ const hi: Record<string, string> = {
   "TEAM": "टीम",
   "PLAYER": "प्लेयर",
   "PLAYERS": "प्लेयर",
+  "SPOTS LEFT": "जगह बाकी",
   "CAPACITY": "क्षमता",
   "ENTRY": "प्रवेश",
   "PRIZE POOL": "इनाम राशि",

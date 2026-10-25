@@ -105,6 +105,7 @@ const gu: Record<string, string> = {
   "TEAM": "ટીમ",
   "PLAYER": "પ્લેયર",
   "PLAYERS": "પ્લેયર",
+  "SPOTS LEFT": "સ્થાનો બાકી",
   "CAPACITY": "ક્ષમતા",
   "ENTRY": "પ્રવેશ",
   "PRIZE POOL": "ઇનામ રકમ",

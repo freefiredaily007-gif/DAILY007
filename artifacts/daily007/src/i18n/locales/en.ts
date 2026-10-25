@@ -105,6 +105,7 @@ const en = {
   "TEAM": "TEAM",
   "PLAYER": "PLAYER",
   "PLAYERS": "PLAYERS",
+  "SPOTS LEFT": "SPOTS LEFT",
   "CAPACITY": "CAPACITY",
   "ENTRY": "ENTRY",
   "PRIZE POOL": "PRIZE POOL",
