@@ -17,7 +17,7 @@ import {
 import { isFullMatchRejection } from '../lib/tournamentJoinRecovery';
 import { requestTeamEditCancel } from '../lib/teamEditCancel';
 import { getTournamentSeatLayout } from '../lib/tournamentSeatLayout';
-import { isTournamentCapacityFull } from '../lib/tournamentCapacity';
+import { getTournamentFilledPlayerCount, isTournamentCapacityFull } from '../lib/tournamentCapacity';
 
 type Member = { name: string; uid: string };
 type TeamEditSnapshot = {
@@ -84,11 +84,19 @@ export default function JoinForm({ tournament: t, user, registration, seatGroupN
   const slotUnit = seatLayout?.groupKind === 'player'
     ? 'player'
     : String(t.slotUnit || (gameMode.toLowerCase() === 'battle royale' && teamSize === 1 ? 'player' : 'team'));
-  const totalSlots = Number(t.totalSlots ?? (slotUnit === 'player' ? 48 : gameMode.toLowerCase() === 'battle royale' ? (teamType.toLowerCase() === 'duo' ? 24 : 12) : 2));
+  const totalSlots = Number(seatLayout?.groupCount ?? t.totalSlots ?? (slotUnit === 'player' ? 48 : gameMode.toLowerCase() === 'battle royale' ? (teamType.toLowerCase() === 'duo' ? 24 : 12) : 2));
   const filledSlots = Number(t.filledSlots ?? t.filled ?? 0);
   const remainingSlots = Math.max(0, Number(t.availableSlots ?? totalSlots - filledSlots));
-  const filledPlayers = Number(t.filledPlayerSlots ?? filledSlots * teamSize);
-  const totalPlayers = Number(t.totalPlayerSlots ?? totalSlots * teamSize);
+  const individualPlayerSlots = seatLayout?.groupKind === 'player';
+  const filledPlayers = getTournamentFilledPlayerCount({
+    filledSlots,
+    teamSize,
+    filledPlayerSlots: t.filledPlayerSlots,
+    individualPlayerSlots,
+  });
+  const totalPlayers = Number(seatLayout
+    ? seatLayout.groupCount * seatLayout.slotsPerGroup
+    : t.totalPlayerSlots ?? totalSlots * teamSize);
   const status = String(t.status || '').toLowerCase();
   const closed = t.enabled === false || ['completed', 'cancelled', 'live', 'ongoing', 'closed'].includes(status);
   const full = isTournamentCapacityFull({

@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
-import { isTournamentCapacityFull } from '../src/lib/tournamentCapacity.ts';
+import {
+  getTournamentFilledPlayerCount,
+  isTournamentCapacityFull,
+} from '../src/lib/tournamentCapacity.ts';
 
 const [detailSource, joinFormSource, modeSlotsSource] = await Promise.all([
   readFile(path.resolve(process.cwd(), 'src/screens/TDetail.tsx'), 'utf8'),
@@ -49,6 +52,23 @@ test('single-player tournaments still use their actual player-slot capacity', ()
   }), true);
 });
 
+test('a Lone Wolf Solo open seat is not counted as a full team when metadata is stale', () => {
+  const filledPlayers = getTournamentFilledPlayerCount({
+    filledSlots: 1,
+    teamSize: 4,
+    filledPlayerSlots: 4,
+    individualPlayerSlots: true,
+  });
+  assert.equal(filledPlayers, 1);
+  assert.equal(isTournamentCapacityFull({
+    filledPlayers,
+    totalPlayers: 2,
+    filledSlots: 1,
+    totalSlots: 2,
+    status: 'full',
+  }), false);
+});
+
 test('status remains the fallback only when no player-capacity count is available', () => {
   assert.equal(isTournamentCapacityFull({
     filledPlayers: 0,
@@ -61,8 +81,10 @@ test('status remains the fallback only when no player-capacity count is availabl
 
 test('tournament details, join form, and slot buttons share the corrected capacity gate', () => {
   assert.match(detailSource, /const full = isTournamentCapacityFull\(/);
+  assert.match(detailSource, /getTournamentFilledPlayerCount\(/);
   assert.match(detailSource, /canSelect=\{[\s\S]*?!full[\s\S]*?onJoinSlot/);
   assert.match(joinFormSource, /const full = isTournamentCapacityFull\(/);
+  assert.match(joinFormSource, /getTournamentFilledPlayerCount\(/);
   assert.match(joinFormSource, /const unavailable = full \|\| closed/);
   assert.match(modeSlotsSource, /disabled: occupied \|\| !canSelect/);
 });

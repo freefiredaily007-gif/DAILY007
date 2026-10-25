@@ -1484,7 +1484,13 @@ router.post(["/daily007/v2/matches/:id/register", "/tournaments/:id/join"], auth
           code: REGISTRATION_CONFLICT_CODES.tournamentDisabled,
         });
       }
-      if (match.status !== "open") {
+      // For one-player-per-seat formats, "full"/"setup_needed" can be stale
+      // after older team-count logic. The locked registration count and exact
+      // seat check below are authoritative; lifecycle-closed states still stop
+      // registration, and team formats keep their existing status gate.
+      const staleSoloCapacityStatus = modeConfig.teamSize === 1 &&
+        ["full", "setup_needed"].includes(match.status);
+      if (match.status !== "open" && !staleSoloCapacityStatus) {
         throw Object.assign(new Error("This match is already full and is not accepting registrations."), {
           status: 409,
           code: REGISTRATION_CONFLICT_CODES.matchFull,

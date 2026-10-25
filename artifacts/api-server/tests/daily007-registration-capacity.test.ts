@@ -104,6 +104,33 @@ test("exact seat-group selection is persisted and an occupied group cannot be ch
   });
 });
 
+test("a solo open seat remains joinable when the stored full status is stale", async () => {
+  registrationCapacityTestDb.reset();
+  registrationCapacityTestDb.match.status = "full";
+  registrationCapacityTestDb.match.is_full = true;
+
+  await withServer(async (origin) => {
+    const result = await sendRegistration(
+      origin,
+      SECOND_PLAYER_ID,
+      "FF-LONE-WOLF-PLAYER-2",
+      undefined,
+      TEST_MATCH_ID,
+      2,
+    );
+    assert.equal(result.status, 201);
+    assert.equal(result.body.seatGroupNumber, 2);
+    assert.equal(result.body.registeredCount, 2);
+    assert.equal(result.body.isFull, true);
+    assert.equal(registrationCapacityTestDb.match.status, "full");
+    assert.equal(registrationCapacityTestDb.users.get(SECOND_PLAYER_ID)?.wallet_coins, 93);
+    assert.equal(
+      registrationCapacityTestDb.ledger.filter((entry) => entry.user_id === SECOND_PLAYER_ID).length,
+      1,
+    );
+  });
+});
+
 test("an omitted seat group is assigned automatically and invalid requested groups are rejected", async () => {
   registrationCapacityTestDb.reset();
   registrationCapacityTestDb.match.capacity = 4;

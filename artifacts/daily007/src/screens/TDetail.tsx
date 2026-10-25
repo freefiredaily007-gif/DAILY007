@@ -36,7 +36,7 @@ import {
 import { getTournamentTeamSlotSummary } from '../lib/tournamentTeamSlots';
 import { getTournamentSeatLayout } from '../lib/tournamentSeatLayout';
 import { getTournamentSeatRefreshInterval } from '../lib/tournamentSeatRefresh';
-import { isTournamentCapacityFull } from '../lib/tournamentCapacity';
+import { getTournamentFilledPlayerCount, isTournamentCapacityFull } from '../lib/tournamentCapacity';
 import { translateExactText } from '../i18n';
 
 const claimRoomDetailsAvailabilityAnnouncement =
@@ -794,7 +794,12 @@ export default function TDetail() {
   const totalSlots = Number(seatLayout?.groupCount ?? t.totalSlots ?? (mode.includes('clash') ? 2 : teamType === 'squad' ? 12 : 48));
   const filledSlots = Number(t.filledSlots ?? t.filled ?? 0);
   const teamSlotSummary = getTournamentTeamSlotSummary(t);
-  const filledPlayers = Number(t.filledPlayerSlots ?? filledSlots * Number(t.teamSize ?? 1));
+  const filledPlayers = getTournamentFilledPlayerCount({
+    filledSlots,
+    teamSize: Number(t.teamSize ?? 1),
+    filledPlayerSlots: t.filledPlayerSlots,
+    individualPlayerSlots,
+  });
   const totalPlayers = Number(seatLayout
     ? seatLayout.groupCount * seatLayout.slotsPerGroup
     : t.totalPlayerSlots ?? totalSlots * Number(t.teamSize ?? 1));
