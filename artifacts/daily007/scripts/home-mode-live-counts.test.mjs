@@ -83,3 +83,16 @@ test('Home shows the live count only after its database-backed tournament refres
   assert.match(homeModeCardsSource, /LIVE \{liveCount\}/);
   assert.doesNotMatch(homeModeCardsSource, /LIVE \{liveCount\}[^<]*TOURNAMENTS/);
 });
+
+test('all Home game-mode LIVE counts use the prominent neon pill styling', () => {
+  assert.match(
+    homeModeCardsSource,
+    /modeLiveBadge:\s*\{[\s\S]*?minHeight: 36[\s\S]*?paddingHorizontal: 14[\s\S]*?paddingVertical: 6[\s\S]*?borderWidth: 1\.5[\s\S]*?borderColor: C\.green[\s\S]*?glow\(C\.green, 10\)/,
+  );
+  assert.match(homeModeCardsSource, /modeLiveDot:\s*\{\s*width: 9,\s*height: 9/);
+  assert.match(
+    homeModeCardsSource,
+    /modeLiveText:\s*\{\s*color: C\.green,\s*fontSize: 16,\s*fontWeight: '800'/,
+  );
+  assert.match(homeModeCardsSource, /modes\.map\(\(mode\) =>/);
+});

@@ -132,11 +132,11 @@ const s = StyleSheet.create({
   modeTitleRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', columnGap: 7, rowGap: 4, marginTop: 4 },
   modeTitle: { color: C.text, fontWeight: '900', fontSize: 17, letterSpacing: 0.45, lineHeight: 20, flexShrink: 1 },
   modeLiveBadge: {
-    minHeight: 18, paddingHorizontal: 6, borderRadius: 999, borderWidth: 1,
-    borderColor: C.green + '88', backgroundColor: C.green + '16',
+    minHeight: 36, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 999, borderWidth: 1.5,
+    borderColor: C.green, backgroundColor: C.green + '16',
     flexDirection: 'row', alignItems: 'center', columnGap: 4,
-    ...glow(C.green, 5),
+    ...glow(C.green, 10),
   },
-  modeLiveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.green },
-  modeLiveText: { color: C.green, fontSize: 8, fontWeight: '900', letterSpacing: 0.5 },
+  modeLiveDot: { width: 9, height: 9, borderRadius: 4.5, backgroundColor: C.green },
+  modeLiveText: { color: C.green, fontSize: 16, fontWeight: '800', letterSpacing: 0.4 },
 });
