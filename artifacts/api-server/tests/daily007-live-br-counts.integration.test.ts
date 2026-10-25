@@ -6,6 +6,7 @@ import test, { after } from "node:test";
 import { pool } from "@workspace/db";
 import {
   countOpenHomeTournamentsByFormat,
+  isHomeTournamentOpenForRegistration,
   type HomeRegistrationTournament,
 } from "../../daily007/src/lib/tournamentFilters";
 import { makeToken } from "../src/lib/daily007-session-token";
@@ -280,6 +281,18 @@ test("live format counts stay aligned with the isolated PostgreSQL tournament-li
         }
       }
 
+      const loneWolfSolo = baseMatches.get("lone_wolf:solo");
+      assert.ok(loneWolfSolo);
+      const soloPlayer = await createUser();
+      await pool.query(
+        `INSERT INTO daily007_v2_registrations
+           (match_id, captain_user_id, captain_name, captain_game_name, captain_game_uid,
+            team_name, assigned_group_number, entry_coins_paid, status)
+         VALUES ($1, $2, 'Lone Wolf Solo Player', 'Lone Wolf Solo Player',
+                 'lone-wolf-solo-uid', '', 1, 0, 'approved')`,
+        [loneWolfSolo.id, soloPlayer.id],
+      );
+
       const initial = await liveCountSnapshot(origin);
       assert.deepEqual(initial.counts, { solo: 1, duo: 1, trio: 0, squad: 1 });
       assert.deepEqual(initial.aggregateCounts, {
@@ -298,6 +311,13 @@ test("live format counts stay aligned with the isolated PostgreSQL tournament-li
         assert.equal(apiRow.registrationOpen, true);
         assert.equal(apiRow.killRewardCoins, gameMode === "battle_royale_kill_earn" ? 7 : 0);
       }
+      const loneWolfSoloRow = initial.rows.find((row) => row.id === loneWolfSolo.id);
+      assert.ok(loneWolfSoloRow);
+      assert.equal(loneWolfSoloRow.filledSlots, 1);
+      assert.equal(loneWolfSoloRow.filledPlayerSlots, 1);
+      assert.equal(loneWolfSoloRow.totalPlayerSlots, 2);
+      assert.equal(isHomeTournamentOpenForRegistration(loneWolfSoloRow), true);
+      assert.equal(initial.aggregateCounts.lone_wolf.solo, 1);
 
       const killEarnDuo = baseMatches.get("battle_royale_kill_earn:duo");
       assert.ok(killEarnDuo);

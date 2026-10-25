@@ -353,7 +353,8 @@ async function getMatches(id?: string, enabledOnly = false, includeCancelled = f
                ELSE count(r.id) FILTER (WHERE r.status IN ('approved', 'pending'))::integer *
                     CASE WHEN m.team_type = 'duo' THEN 2
                          WHEN m.team_type = 'trio' THEN 3
-                         WHEN m.team_type = 'squad' OR m.mode IN ('squad', 'clash') THEN 4
+                          WHEN m.team_type = 'squad' OR
+                               (m.game_mode IS NULL AND m.mode IN ('squad', 'clash')) THEN 4
                          ELSE 1 END
              END AS registered_player_count
        FROM daily007_v2_matches m
