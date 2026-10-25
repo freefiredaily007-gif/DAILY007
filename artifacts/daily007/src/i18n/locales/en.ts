@@ -249,6 +249,8 @@ const en = {
   "Invite friends and track referral rewards": "Invite friends and track referral rewards",
   "Complete Tasks • Invite Friends • Earn Rewards": "Complete Tasks • Invite Friends • Earn Rewards",
   "INVITE & EARN": "INVITE & EARN",
+  "SUBSCRIBE YOUTUBE & EARN": "SUBSCRIBE YOUTUBE & EARN",
+  "FOLLOW INSTAGRAM & EARN": "FOLLOW INSTAGRAM & EARN",
   "10 coins for your friend at signup": "10 coins for your friend at signup",
   "You earn 5 coins once their recharge of at least 50 coins is approved by an administrator.": "You earn 5 coins once their recharge of at least 50 coins is approved by an administrator.",
   "REFERRAL CODE": "REFERRAL CODE",

@@ -4,9 +4,11 @@ import {
   ActivityIndicator,
   AccessibilityInfo,
   Linking,
+  Modal,
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   Share,
   StyleSheet,
   View,
@@ -34,6 +36,7 @@ import {
 import { showLocalizedAlert } from '../i18n/alerts';
 import { translateExactText } from '../i18n';
 import { KeyboardAwareScrollViewCompat } from '../../components/KeyboardAwareScrollViewCompat';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const rechargeStatusLabel: Record<string, string> = {
   rewarded: 'Approved recharge · reward credited',
@@ -45,6 +48,8 @@ const rechargeStatusLabel: Record<string, string> = {
 
 export default function Earn() {
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
+  const [activeTask, setActiveTask] = useState<'invite' | 'youtube' | 'instagram' | null>(null);
   const [copied, setCopied] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [actionError, setActionError] = useState('');
@@ -67,6 +72,9 @@ export default function Earn() {
   const referrals = dashboard?.referrals ?? [];
   const youtubeTask = youtubeTaskQuery.data;
   const instagramTask = instagramTaskQuery.data;
+  const youtubeRewardCoins = youtubeTask?.rewardCoins ?? 5;
+  const instagramRewardCoins = instagramTask?.rewardCoins ?? 3;
+  const closeTaskDetails = () => setActiveTask(null);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
@@ -219,454 +227,576 @@ export default function Earn() {
   };
 
   return (
-    <KeyboardAwareScrollViewCompat
-      style={s.root}
-      contentContainerStyle={s.content}
-      keyboardShouldPersistTaps="handled"
-      keyboardDismissMode="on-drag"
-      bottomOffset={60}
-      refreshControl={
-        <RefreshControl
-          refreshing={referralsQuery.isRefetching || youtubeTaskQuery.isRefetching || instagramTaskQuery.isRefetching}
-          onRefresh={() => {
-            void Promise.all([referralsQuery.refetch(), youtubeTaskQuery.refetch(), instagramTaskQuery.refetch()]);
-          }}
-          tintColor={C.gold}
-        />
-      }
-    >
-      <View style={s.header}>
-        <View style={s.headerCoin}>
-          <FontAwesome5 name="coins" size={20} color={C.bg} />
+    <View style={s.root}>
+      <KeyboardAwareScrollViewCompat
+        style={s.root}
+        contentContainerStyle={s.content}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        bottomOffset={60}
+        refreshControl={
+          <RefreshControl
+            refreshing={referralsQuery.isRefetching || youtubeTaskQuery.isRefetching || instagramTaskQuery.isRefetching}
+            onRefresh={() => {
+              void Promise.all([referralsQuery.refetch(), youtubeTaskQuery.refetch(), instagramTaskQuery.refetch()]);
+            }}
+            tintColor={C.gold}
+          />
+        }
+      >
+        <View style={s.header}>
+          <View style={s.headerCoin}>
+            <FontAwesome5 name="coins" size={20} color={C.bg} />
+          </View>
+          <View style={s.headerCopy}>
+            <Text style={s.title}>EARN COINS</Text>
+            <Text style={s.subtitle}>Complete Tasks • Invite Friends • Earn Rewards</Text>
+          </View>
         </View>
-        <View style={s.headerCopy}>
-          <Text style={s.title}>EARN COINS</Text>
-          <Text style={s.subtitle}>Complete Tasks • Invite Friends • Earn Rewards</Text>
-        </View>
-      </View>
 
-      <View style={s.ruleCard}>
-        <View style={s.ruleTop}>
-          <View style={s.ruleIcon}>
-            <Feather name="gift" size={20} color={C.gold} />
-          </View>
-          <View style={s.ruleContent}>
-            <Text style={s.ruleTitle}>10 coins for your friend at signup</Text>
-            <Text style={s.ruleText}>
-              You earn 5 coins once their recharge of at least 50 coins is approved by an administrator.
-            </Text>
-          </View>
-          <View style={s.ruleBadge}>
-            <Text style={s.ruleBadgeValue}>10</Text>
-            <Text style={s.ruleBadgeLabel}>COINS</Text>
-          </View>
-        </View>
-        <View style={s.ruleDivider} />
-        <View style={s.rewardReasonRow}>
-          <FontAwesome5 name="coins" size={13} color={C.gold} />
-          <Text style={s.rewardReason}>5 coins for you after an approved 50+ coin recharge</Text>
-        </View>
-      </View>
+        <View style={s.taskList}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open Invite and Earn details"
+            accessibilityHint="Shows your referral code, invite link, sharing options, and referral activity."
+            testID="earn-open-invite"
+            onPress={() => setActiveTask('invite')}
+            style={({ pressed }) => [s.mainTaskCard, s.inviteMainTaskCard, pressed && s.mainTaskCardPressed]}
+          >
+            <View style={[s.mainTaskIcon, s.inviteMainTaskIcon]}>
+              <Feather name="gift" size={22} color={C.gold} />
+            </View>
+            <Text style={s.mainTaskTitle}>INVITE &amp; EARN</Text>
+            <View style={s.taskRewardBadge}>
+              <Text style={s.taskRewardValue}>+5</Text>
+              <Text style={s.taskRewardLabel}>COINS</Text>
+            </View>
+            <Feather name="chevron-right" size={20} color={C.gold} />
+          </Pressable>
 
-      {referralsQuery.isPending && !dashboard ? (
-        <View style={s.loading}>
-          <ActivityIndicator color={C.gold} />
-          <Text style={s.muted}>Loading your referral dashboard…</Text>
-        </View>
-      ) : null}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open YouTube task details"
+            accessibilityHint="Shows the YouTube subscription action and claim status."
+            testID="earn-open-youtube"
+            onPress={() => setActiveTask('youtube')}
+            style={({ pressed }) => [s.mainTaskCard, s.youtubeMainTaskCard, pressed && s.mainTaskCardPressed]}
+          >
+            <View style={[s.mainTaskIcon, s.youtubeMainTaskIcon]}>
+              <Feather name="youtube" size={22} color={C.red} />
+            </View>
+            <Text style={s.mainTaskTitle}>SUBSCRIBE YOUTUBE &amp; EARN</Text>
+            <View style={s.taskRewardBadge}>
+              <Text style={s.taskRewardValue}>+{youtubeRewardCoins}</Text>
+              <Text style={s.taskRewardLabel}>COINS</Text>
+            </View>
+            <Feather name="chevron-right" size={20} color={C.red} />
+          </Pressable>
 
-      {!!referralsQuery.error && (
-        <Text style={s.error}>{`Referral data unavailable: ${apiError(referralsQuery.error)}`}</Text>
-      )}
-      {!!actionError && (
-        <Text accessibilityRole="text" accessibilityLiveRegion="polite" style={s.error}>
-          {actionError}
-        </Text>
-      )}
-      {!!youtubeTaskQuery.error && (
-        <Text style={s.error}>{`YouTube task unavailable: ${apiError(youtubeTaskQuery.error)}`}</Text>
-      )}
-      {!!instagramTaskQuery.error && (
-        <Text style={s.error}>
-          {t('Instagram task unavailable: {{error}}', { error: apiError(instagramTaskQuery.error) })}
-        </Text>
-      )}
-      {!!taskError && <Text style={s.error}>{taskError}</Text>}
-
-      <View style={s.youtubeCard}>
-        <View style={s.youtubeHeading}>
-          <View style={[s.taskIconShell, s.youtubeIconShell]}>
-            <Feather name="youtube" size={21} color={C.red} />
-          </View>
-          <Text style={s.youtubeTitle}>
-            Subscribe to YouTube &amp; Earn {youtubeTask?.rewardCoins ?? 5} Coins
-          </Text>
-        </View>
-        {youtubeTaskQuery.isPending && !youtubeTask ? (
-          <View style={s.taskLoading}>
-            <ActivityIndicator color={C.gold} />
-            <Text style={s.muted}>Loading YouTube task…</Text>
-          </View>
-        ) : null}
-        {youtubeTask?.completed ? (
-          <View style={s.taskStatus}>
-            <Feather name="check-circle" size={16} color={C.green} />
-            <View style={s.taskStatusText}>
-              <Text style={s.taskStatusTitle}>TASK COMPLETED · {youtubeTask.claim?.rewardCoins ?? youtubeTask.rewardCoins} COINS CREDITED</Text>
-              <Text selectable style={s.detailText}>Transaction ID: {youtubeTask.claim?.transactionId ?? 'Recorded'}</Text>
-            </View>
-          </View>
-        ) : youtubeTask?.claim?.status === 'pending' ? (
-          <View style={s.taskStatus}>
-            <Feather name="clock" size={16} color={C.gold} />
-            <View style={s.taskStatusText}>
-              <Text style={[s.taskStatusTitle, { color: C.gold }]}>CLAIM SUBMITTED · AWAITING REVIEW</Text>
-              <Text style={s.detailText}>{youtubeTask.claim.rewardCoins} coins will be credited if approved.</Text>
-            </View>
-          </View>
-        ) : youtubeTask?.claim?.status === 'rejected' ? (
-          <View style={s.taskRejected}>
-            <Text style={s.taskStatusTitle}>CLAIM NOT APPROVED</Text>
-            <Text style={s.detailText}>{youtubeTask.claim.reviewReason || 'Please subscribe to the channel and submit again.'}</Text>
-          </View>
-        ) : null}
-        {youtubeTask && !youtubeTask.completed && youtubeTask.claim?.status !== 'pending' ? (
-          youtubeTask.enabled ? (
-            <>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Open the Daily007 YouTube channel"
-                testID="youtube-task-open-channel"
-                onPress={openYoutubeChannel}
-                style={({ pressed }) => [s.youtubeButton, pressed && s.buttonPressed]}
-              >
-                <LinearGradient
-                  colors={[C.red, `${C.red}CC`]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={s.taskButtonGradient}
-                >
-                  <Feather name="youtube" size={17} color={C.text} />
-                  <Text style={s.youtubeButtonText}>SUBSCRIBE ON YOUTUBE</Text>
-                </LinearGradient>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Submit YouTube subscription for administrator review"
-                testID="youtube-task-submit-claim"
-                disabled={!returnedFromYoutube || submitYoutubeClaim.isPending}
-                onPress={submitYoutubeTask}
-                style={[
-                  s.claimButton,
-                  (!returnedFromYoutube || submitYoutubeClaim.isPending) && s.claimButtonDisabled,
-                ]}
-              >
-                <LinearGradient
-                  colors={[C.gold, `${C.gold}CC`]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={s.claimButtonGradient}
-                >
-                  {submitYoutubeClaim.isPending
-                    ? <ActivityIndicator color={C.bg} />
-                    : <Feather name="send" size={15} color={C.bg} />}
-                  <Text style={s.claimButtonText}>
-                    {submitYoutubeClaim.isPending ? 'SUBMITTING…' : 'I SUBSCRIBED · SUBMIT FOR REVIEW'}
-                  </Text>
-                </LinearGradient>
-              </Pressable>
-            </>
-          ) : (
-            <Text style={s.taskHint}>This task is temporarily unavailable.</Text>
-          )
-        ) : null}
-      </View>
-
-      <View style={s.instagramCard}>
-        <View style={s.youtubeHeading}>
-          <View style={[s.taskIconShell, s.instagramIconShell]}>
-            <Feather name="instagram" size={21} color={C.purple} />
-          </View>
-          <Text style={s.youtubeTitle}>
-            {t('Follow on Instagram & Earn {{count}} Coins', {
-              count: instagramTask?.rewardCoins ?? 3,
-            })}
-          </Text>
-        </View>
-        {instagramTaskQuery.isPending && !instagramTask ? (
-          <View style={s.taskLoading}>
-            <ActivityIndicator color={C.gold} />
-            <Text style={s.muted}>Loading Instagram task…</Text>
-          </View>
-        ) : null}
-        {!!instagramTaskError && (
-          <Text accessibilityRole="text" accessibilityLiveRegion="polite" style={s.error}>
-            {instagramTaskError}
-          </Text>
-        )}
-        {instagramTask?.completed ? (
-          <View style={s.taskStatus}>
-            <Feather name="check-circle" size={16} color={C.green} />
-            <View style={s.taskStatusText}>
-              <Text style={s.taskStatusTitle}>
-                {t('TASK COMPLETED · {{count}} COINS CREDITED', {
-                  count: instagramTask.claim?.rewardCoins ?? instagramTask.rewardCoins,
-                })}
-              </Text>
-              <Text selectable style={s.detailText}>
-                {t('Transaction ID: {{id}}', {
-                  id: instagramTask.claim?.transactionId ?? t('Recorded'),
-                })}
-              </Text>
-            </View>
-          </View>
-        ) : instagramTask?.claim?.status === 'pending' ? (
-          <View style={s.taskStatus}>
-            <Feather name="clock" size={16} color={C.gold} />
-            <View style={s.taskStatusText}>
-              <Text style={[s.taskStatusTitle, { color: C.gold }]}>CLAIM SUBMITTED · AWAITING REVIEW</Text>
-              <Text style={s.detailText}>
-                {instagramTask.claim.rewardCoins} coins will be credited if approved.
-              </Text>
-            </View>
-          </View>
-        ) : instagramTask?.claim?.status === 'rejected' ? (
-          <View style={s.taskRejected}>
-            <Text style={s.taskStatusTitle}>CLAIM NOT APPROVED</Text>
-            <Text style={s.detailText}>
-              {instagramTask.claim.reviewReason || t('Please follow the account and submit a new claim.')}
-            </Text>
-          </View>
-        ) : null}
-        {instagramTask && !instagramTask.completed && instagramTask.claim?.status !== 'pending' ? (
-          instagramTask.enabled ? (
-            <>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t('Open the official Daily007 Instagram account')}
-                testID="instagram-task-open-account"
-                onPress={openInstagramAccount}
-                style={({ pressed }) => [s.instagramButton, pressed && s.buttonPressed]}
-              >
-                <LinearGradient
-                  colors={[C.purple, C.red]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={s.taskButtonGradient}
-                >
-                  <Feather name="instagram" size={17} color={C.text} />
-                  <Text style={s.youtubeButtonText}>FOLLOW ON INSTAGRAM</Text>
-                </LinearGradient>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t('Submit Instagram follow claim for administrator review')}
-                testID="instagram-task-submit-claim"
-                disabled={!returnedFromInstagram || submitInstagramClaim.isPending}
-                onPress={submitInstagramTask}
-                style={[
-                  s.claimButton,
-                  (!returnedFromInstagram || submitInstagramClaim.isPending) && s.claimButtonDisabled,
-                ]}
-              >
-                <LinearGradient
-                  colors={[C.gold, `${C.gold}CC`]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={s.claimButtonGradient}
-                >
-                  {submitInstagramClaim.isPending
-                    ? <ActivityIndicator color={C.bg} />
-                    : <Feather name="send" size={15} color={C.bg} />}
-                  <Text style={s.claimButtonText}>
-                    {submitInstagramClaim.isPending ? 'SUBMITTING…' : 'SUBMIT FOLLOW CLAIM FOR REVIEW'}
-                  </Text>
-                </LinearGradient>
-              </Pressable>
-              {!returnedFromInstagram ? (
-                <Text style={s.taskHint}>
-                  {t('Follow the account, return to Daily007, then submit your claim for review.')}
-                </Text>
-              ) : null}
-            </>
-          ) : (
-            <Text style={s.taskHint}>This task is temporarily unavailable.</Text>
-          )
-        ) : null}
-      </View>
-
-      {!!dashboard && (
-        <>
-          <View style={s.codeCard}>
-            <View style={s.inviteCardHeader}>
-              <View style={s.inviteIconShell}>
-                <Feather name="send" size={17} color={C.gold} />
-              </View>
-              <Text style={s.inviteTitle}>INVITE &amp; EARN</Text>
-            </View>
-            <Text style={s.sectionLabel}>{t('REFERRAL CODE')}</Text>
-            <View style={s.codeRow}>
-              <Text selectable style={s.code}>{dashboard.code}</Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={copied ? 'Referral code copied' : 'Copy referral code'}
-                testID="referral-copy-code"
-                onPress={copyCode}
-                style={s.iconButton}
-              >
-                <Feather name={copied ? 'check' : 'copy'} size={18} color={C.gold} />
-              </Pressable>
-            </View>
-            <Text style={[s.sectionLabel, { marginTop: 16 }]}>{t('INVITE LINK')}</Text>
-            <View style={s.linkRow}>
-              <Pressable
-                accessibilityRole="link"
-                accessibilityLabel="Open Daily007 referral signup link"
-                testID="referral-open-link"
-                onPress={openReferralLink}
-                style={s.linkButton}
-              >
-                <Text selectable style={s.linkText}>{dashboard.referralLink}</Text>
-                <Feather name="external-link" size={16} color={C.gold} />
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={linkCopied ? 'Referral link copied' : 'Copy referral link'}
-                testID="referral-copy-link"
-                onPress={copyReferralLink}
-                style={s.iconButton}
-              >
-                <Feather name={linkCopied ? 'check' : 'copy'} size={18} color={C.gold} />
-              </Pressable>
-            </View>
-            {__DEV__ ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={
-                  simulateReferralLinkCopyFailure
-                    ? 'Stop simulating invite link copy failures'
-                    : 'Simulate invite link copy failure'
-                }
-                testID="referral-simulate-link-copy-failure"
-                onPress={() => setSimulateReferralLinkCopyFailure((current) => !current)}
-                style={s.devTestButton}
-              >
-                <Text accessible={false} style={s.devTestButtonText}>
-                  {simulateReferralLinkCopyFailure
-                    ? 'DEV TEST: invite link copy failure ON'
-                    : 'DEV TEST: simulate invite link copy failure'}
-                </Text>
-              </Pressable>
-            ) : null}
-            {__DEV__ ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={
-                  simulateReferralBrowserOpenFailure
-                    ? 'Stop simulating invite browser failures'
-                    : 'Simulate invite browser failure'
-                }
-                accessibilityHint="Development-only: make Open Invite fail so you can test the copy and share recovery message."
-                testID="referral-simulate-browser-open-failure"
-                onPress={() => setSimulateReferralBrowserOpenFailure((current) => !current)}
-                style={s.devTestButton}
-              >
-                <Text accessible={false} style={s.devTestButtonText}>
-                  {simulateReferralBrowserOpenFailure
-                    ? 'DEV TEST: browser failure ON'
-                    : 'DEV TEST: simulate browser failure'}
-                </Text>
-              </Pressable>
-            ) : null}
-            {__DEV__ ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={
-                  simulateReferralCodeCopyFailure
-                    ? 'Stop simulating referral code copy failures'
-                    : 'Simulate referral code copy failure'
-                }
-                testID="referral-simulate-code-copy-failure"
-                onPress={() => setSimulateReferralCodeCopyFailure((current) => !current)}
-                style={s.devTestButton}
-              >
-                <Text accessible={false} style={s.devTestButtonText}>
-                  {simulateReferralCodeCopyFailure
-                    ? 'DEV TEST: referral code copy failure ON'
-                    : 'DEV TEST: simulate referral code copy failure'}
-                </Text>
-              </Pressable>
-            ) : null}
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Share invite link"
-              accessibilityHint="Opens sharing options for your referral code and invite link."
-              testID="referral-share-invite"
-              onPress={shareInvite}
-              style={({ pressed }) => [s.shareButton, pressed && s.buttonPressed]}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open Instagram task details"
+            accessibilityHint="Shows the Instagram follow action and claim status."
+            testID="earn-open-instagram"
+            onPress={() => setActiveTask('instagram')}
+            style={({ pressed }) => [s.mainTaskCard, s.instagramMainTaskCard, pressed && s.mainTaskCardPressed]}
+          >
+            <LinearGradient
+              colors={[C.purple, C.red]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={s.mainTaskIcon}
             >
-              <LinearGradient
-                colors={[C.gold, `${C.gold}CC`]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={s.shareButtonGradient}
-              >
-                <Feather name="share-2" size={16} color={C.bg} />
-                <Text style={s.shareButtonText}>SHARE INVITE LINK</Text>
-              </LinearGradient>
-            </Pressable>
-          </View>
-
-          <View style={s.statsGrid}>
-            <Stat icon="users" label="PEOPLE INVITED" value={dashboard.totalPeopleReferred} />
-            <Stat icon="check-circle" label="SUCCESSFUL" value={dashboard.successfulReferrals} />
-            <Stat icon="clock" label="PENDING" value={dashboard.pendingReferrals} />
-            <Stat icon="award" label="COINS EARNED" value={dashboard.totalReferralCoinsEarned} />
-          </View>
-
-          <Text style={s.sectionHeading}>MY REFERRALS ({dashboard.totalPeopleReferred})</Text>
-          {referrals.length === 0 ? (
-            <View style={s.emptyCard}>
-              <Feather name="users" size={22} color={C.dim} />
-              <Text style={s.emptyTitle}>No referrals yet</Text>
-              <Text style={s.muted}>Share your code or invite link. New players get 10 coins when they sign up with it.</Text>
+              <Feather name="instagram" size={22} color={C.text} />
+            </LinearGradient>
+            <Text style={s.mainTaskTitle}>FOLLOW INSTAGRAM &amp; EARN</Text>
+            <View style={s.taskRewardBadge}>
+              <Text style={s.taskRewardValue}>+{instagramRewardCoins}</Text>
+              <Text style={s.taskRewardLabel}>COINS</Text>
             </View>
-          ) : (
-            referrals.map((referral) => {
-              const rewarded = referral.referrerRewardStatus === 'credited';
-              const rechargeStatus = rechargeStatusLabel[referral.firstRechargeStatus] ?? 'Recharge status unavailable';
-              return (
-                <View key={referral.id} style={s.referralCard}>
-                  <View style={s.referralHeader}>
-                    <View style={s.referralIdentity}>
-                      <Text style={s.referralName}>{referral.referredName}</Text>
-                      <Text selectable style={s.referralId}>ID {referral.referredUserId}</Text>
+            <Feather name="chevron-right" size={20} color={C.purple} />
+          </Pressable>
+        </View>
+      </KeyboardAwareScrollViewCompat>
+
+      <Modal
+        visible={activeTask !== null}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={closeTaskDetails}
+      >
+        <View style={s.modalRoot}>
+          <Pressable
+            testID="earn-task-modal-scrim"
+            accessibilityRole="button"
+            accessibilityLabel="Close task details"
+            onPress={closeTaskDetails}
+            style={s.modalScrim}
+          />
+          <View style={[s.sheetPanel, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+            <View style={s.sheetHandle} />
+            <View style={s.sheetHeader}>
+              <View
+                style={[
+                  s.sheetIcon,
+                  activeTask === 'invite' && s.inviteMainTaskIcon,
+                  activeTask === 'youtube' && s.youtubeMainTaskIcon,
+                  activeTask === 'instagram' && s.instagramIcon,
+                ]}
+              >
+                {activeTask === 'invite' ? (
+                  <Feather name="gift" size={20} color={C.gold} />
+                ) : activeTask === 'youtube' ? (
+                  <Feather name="youtube" size={20} color={C.red} />
+                ) : (
+                  <Feather name="instagram" size={20} color={C.text} />
+                )}
+              </View>
+              <View style={s.sheetTitleWrap}>
+                <Text style={s.sheetTitle}>
+                  {activeTask === 'invite'
+                    ? 'INVITE & EARN'
+                    : activeTask === 'youtube'
+                      ? 'SUBSCRIBE YOUTUBE & EARN'
+                      : 'FOLLOW INSTAGRAM & EARN'}
+                </Text>
+              </View>
+              <View style={s.sheetRewardBadge}>
+                <Text style={s.sheetRewardValue}>
+                  +{activeTask === 'invite' ? 5 : activeTask === 'youtube' ? youtubeRewardCoins : instagramRewardCoins}
+                </Text>
+                <Text style={s.sheetRewardLabel}>COINS</Text>
+              </View>
+              <Pressable
+                testID="earn-task-modal-close"
+                accessibilityRole="button"
+                accessibilityLabel="Close task details"
+                onPress={closeTaskDetails}
+                style={s.sheetClose}
+              >
+                <Feather name="x" size={20} color={C.sub} />
+              </Pressable>
+            </View>
+
+            <ScrollView
+              style={s.sheetScroll}
+              contentContainerStyle={s.sheetContent}
+              showsVerticalScrollIndicator
+              keyboardShouldPersistTaps="handled"
+            >
+              {activeTask === 'invite' ? (
+                <>
+                  {referralsQuery.isPending && !dashboard ? (
+                    <View style={s.loading}>
+                      <ActivityIndicator color={C.gold} />
+                      <Text style={s.muted}>Loading your referral dashboard…</Text>
                     </View>
-                    <View style={[s.statusPill, rewarded ? s.statusSuccess : s.statusPending]}>
-                      <Feather name={rewarded ? 'check-circle' : 'clock'} size={13} color={rewarded ? C.green : C.gold} />
-                      <Text style={[s.statusText, { color: rewarded ? C.green : C.gold }]}>
-                        {rewarded ? 'REWARDED' : 'PENDING'}
-                      </Text>
+                  ) : null}
+                  {!!referralsQuery.error && (
+                    <Text style={s.error}>{`Referral data unavailable: ${apiError(referralsQuery.error)}`}</Text>
+                  )}
+                  {!!actionError && (
+                    <Text accessibilityRole="text" accessibilityLiveRegion="polite" style={s.error}>
+                      {actionError}
+                    </Text>
+                  )}
+                  <View style={s.ruleCard}>
+                    <View style={s.ruleTop}>
+                      <View style={s.ruleIcon}>
+                        <Feather name="gift" size={20} color={C.gold} />
+                      </View>
+                      <View style={s.ruleContent}>
+                        <Text style={s.ruleTitle}>10 coins for your friend at signup</Text>
+                        <Text style={s.ruleText}>
+                          You earn 5 coins once their recharge of at least 50 coins is approved by an administrator.
+                        </Text>
+                      </View>
+                      <View style={s.ruleBadge}>
+                        <Text style={s.ruleBadgeValue}>10</Text>
+                        <Text style={s.ruleBadgeLabel}>COINS</Text>
+                      </View>
+                    </View>
+                    <View style={s.ruleDivider} />
+                    <View style={s.rewardReasonRow}>
+                      <FontAwesome5 name="coins" size={13} color={C.gold} />
+                      <Text style={s.rewardReason}>5 coins for you after an approved 50+ coin recharge</Text>
                     </View>
                   </View>
-                  <Text style={s.detailText}>Signup: {referral.signupStatus === 'complete' ? 'Complete' : referral.signupStatus}</Text>
-                  <Text style={s.detailText}>
-                    Signup bonus: {referral.signupBonusStatus === 'credited' ? '10 coins credited' : 'Not credited'}
-                  </Text>
-                  <Text style={s.detailText}>First qualifying recharge: {rechargeStatus}</Text>
-                  <Text style={s.detailText}>
-                    Your 5-coin reward: {rewarded ? 'Credited' : 'Pending approved recharge of 50+ coins'}
-                  </Text>
-                  {referral.qualifyingPaymentId ? (
-                    <Text selectable style={s.paymentId}>Recharge transaction ID: {referral.qualifyingPaymentId}</Text>
-                  ) : null}
-                </View>
-              );
-            })
-          )}
-        </>
-      )}
-    </KeyboardAwareScrollViewCompat>
+                  {!!dashboard && (
+                    <>
+                      <View style={s.codeCard}>
+                        <View style={s.inviteCardHeader}>
+                          <View style={s.inviteIconShell}>
+                            <Feather name="send" size={17} color={C.gold} />
+                          </View>
+                          <Text style={s.inviteTitle}>INVITE &amp; EARN</Text>
+                        </View>
+                        <Text style={s.sectionLabel}>{t('REFERRAL CODE')}</Text>
+                        <View style={s.codeRow}>
+                          <Text selectable style={s.code}>{dashboard.code}</Text>
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={copied ? 'Referral code copied' : 'Copy referral code'}
+                            testID="referral-copy-code"
+                            onPress={copyCode}
+                            style={s.iconButton}
+                          >
+                            <Feather name={copied ? 'check' : 'copy'} size={18} color={C.gold} />
+                          </Pressable>
+                        </View>
+                        <Text style={[s.sectionLabel, { marginTop: 16 }]}>{t('INVITE LINK')}</Text>
+                        <View style={s.linkRow}>
+                          <Pressable
+                            accessibilityRole="link"
+                            accessibilityLabel="Open Daily007 referral signup link"
+                            testID="referral-open-link"
+                            onPress={openReferralLink}
+                            style={s.linkButton}
+                          >
+                            <Text selectable style={s.linkText}>{dashboard.referralLink}</Text>
+                            <Feather name="external-link" size={16} color={C.gold} />
+                          </Pressable>
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={linkCopied ? 'Referral link copied' : 'Copy referral link'}
+                            testID="referral-copy-link"
+                            onPress={copyReferralLink}
+                            style={s.iconButton}
+                          >
+                            <Feather name={linkCopied ? 'check' : 'copy'} size={18} color={C.gold} />
+                          </Pressable>
+                        </View>
+                        {__DEV__ ? (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={
+                              simulateReferralLinkCopyFailure
+                                ? 'Stop simulating invite link copy failures'
+                                : 'Simulate invite link copy failure'
+                            }
+                            testID="referral-simulate-link-copy-failure"
+                            onPress={() => setSimulateReferralLinkCopyFailure((current) => !current)}
+                            style={s.devTestButton}
+                          >
+                            <Text accessible={false} style={s.devTestButtonText}>
+                              {simulateReferralLinkCopyFailure
+                                ? 'DEV TEST: invite link copy failure ON'
+                                : 'DEV TEST: simulate invite link copy failure'}
+                            </Text>
+                          </Pressable>
+                        ) : null}
+                        {__DEV__ ? (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={
+                              simulateReferralBrowserOpenFailure
+                                ? 'Stop simulating invite browser failures'
+                                : 'Simulate invite browser failure'
+                            }
+                            accessibilityHint="Development-only: make Open Invite fail so you can test the copy and share recovery message."
+                            testID="referral-simulate-browser-open-failure"
+                            onPress={() => setSimulateReferralBrowserOpenFailure((current) => !current)}
+                            style={s.devTestButton}
+                          >
+                            <Text accessible={false} style={s.devTestButtonText}>
+                              {simulateReferralBrowserOpenFailure
+                                ? 'DEV TEST: browser failure ON'
+                                : 'DEV TEST: simulate browser failure'}
+                            </Text>
+                          </Pressable>
+                        ) : null}
+                        {__DEV__ ? (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={
+                              simulateReferralCodeCopyFailure
+                                ? 'Stop simulating referral code copy failures'
+                                : 'Simulate referral code copy failure'
+                            }
+                            testID="referral-simulate-code-copy-failure"
+                            onPress={() => setSimulateReferralCodeCopyFailure((current) => !current)}
+                            style={s.devTestButton}
+                          >
+                            <Text accessible={false} style={s.devTestButtonText}>
+                              {simulateReferralCodeCopyFailure
+                                ? 'DEV TEST: referral code copy failure ON'
+                                : 'DEV TEST: simulate referral code copy failure'}
+                            </Text>
+                          </Pressable>
+                        ) : null}
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Share invite link"
+                          accessibilityHint="Opens sharing options for your referral code and invite link."
+                          testID="referral-share-invite"
+                          onPress={shareInvite}
+                          style={({ pressed }) => [s.shareButton, pressed && s.buttonPressed]}
+                        >
+                          <LinearGradient
+                            colors={[C.gold, `${C.gold}CC`]}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 0 }}
+                            style={s.shareButtonGradient}
+                          >
+                            <Feather name="share-2" size={16} color={C.bg} />
+                            <Text style={s.shareButtonText}>SHARE INVITE LINK</Text>
+                          </LinearGradient>
+                        </Pressable>
+                      </View>
+                      <View style={s.statsGrid}>
+                        <Stat icon="users" label="PEOPLE INVITED" value={dashboard.totalPeopleReferred} />
+                        <Stat icon="check-circle" label="SUCCESSFUL" value={dashboard.successfulReferrals} />
+                        <Stat icon="clock" label="PENDING" value={dashboard.pendingReferrals} />
+                        <Stat icon="award" label="COINS EARNED" value={dashboard.totalReferralCoinsEarned} />
+                      </View>
+                      <Text style={s.sectionHeading}>MY REFERRALS ({dashboard.totalPeopleReferred})</Text>
+                      {referrals.length === 0 ? (
+                        <View style={s.emptyCard}>
+                          <Feather name="users" size={22} color={C.dim} />
+                          <Text style={s.emptyTitle}>No referrals yet</Text>
+                          <Text style={s.muted}>
+                            Share your code or invite link. New players get 10 coins when they sign up with it.
+                          </Text>
+                        </View>
+                      ) : (
+                        referrals.map((referral) => {
+                          const rewarded = referral.referrerRewardStatus === 'credited';
+                          const rechargeStatus = rechargeStatusLabel[referral.firstRechargeStatus] ?? 'Recharge status unavailable';
+                          return (
+                            <View key={referral.id} style={s.referralCard}>
+                              <View style={s.referralHeader}>
+                                <View style={s.referralIdentity}>
+                                  <Text style={s.referralName}>{referral.referredName}</Text>
+                                  <Text selectable style={s.referralId}>ID {referral.referredUserId}</Text>
+                                </View>
+                                <View style={[s.statusPill, rewarded ? s.statusSuccess : s.statusPending]}>
+                                  <Feather name={rewarded ? 'check-circle' : 'clock'} size={13} color={rewarded ? C.green : C.gold} />
+                                  <Text style={[s.statusText, { color: rewarded ? C.green : C.gold }]}>
+                                    {rewarded ? 'REWARDED' : 'PENDING'}
+                                  </Text>
+                                </View>
+                              </View>
+                              <Text style={s.detailText}>Signup: {referral.signupStatus === 'complete' ? 'Complete' : referral.signupStatus}</Text>
+                              <Text style={s.detailText}>
+                                Signup bonus: {referral.signupBonusStatus === 'credited' ? '10 coins credited' : 'Not credited'}
+                              </Text>
+                              <Text style={s.detailText}>First qualifying recharge: {rechargeStatus}</Text>
+                              <Text style={s.detailText}>
+                                Your 5-coin reward: {rewarded ? 'Credited' : 'Pending approved recharge of 50+ coins'}
+                              </Text>
+                              {referral.qualifyingPaymentId ? (
+                                <Text selectable style={s.paymentId}>Recharge transaction ID: {referral.qualifyingPaymentId}</Text>
+                              ) : null}
+                            </View>
+                          );
+                        })
+                      )}
+                    </>
+                  )}
+                </>
+              ) : null}
+
+              {activeTask === 'youtube' ? (
+                <>
+                  {!!youtubeTaskQuery.error && (
+                    <Text style={s.error}>{`YouTube task unavailable: ${apiError(youtubeTaskQuery.error)}`}</Text>
+                  )}
+                  {!!taskError && <Text style={s.error}>{taskError}</Text>}
+                  <View style={s.youtubeCard}>
+                    {youtubeTaskQuery.isPending && !youtubeTask ? (
+                      <View style={s.taskLoading}>
+                        <ActivityIndicator color={C.gold} />
+                        <Text style={s.muted}>Loading YouTube task…</Text>
+                      </View>
+                    ) : null}
+                    {youtubeTask?.completed ? (
+                      <View style={s.taskStatus}>
+                        <Feather name="check-circle" size={16} color={C.green} />
+                        <View style={s.taskStatusText}>
+                          <Text style={s.taskStatusTitle}>TASK COMPLETED · {youtubeTask.claim?.rewardCoins ?? youtubeTask.rewardCoins} COINS CREDITED</Text>
+                          <Text selectable style={s.detailText}>Transaction ID: {youtubeTask.claim?.transactionId ?? 'Recorded'}</Text>
+                        </View>
+                      </View>
+                    ) : youtubeTask?.claim?.status === 'pending' ? (
+                      <View style={s.taskStatus}>
+                        <Feather name="clock" size={16} color={C.gold} />
+                        <View style={s.taskStatusText}>
+                          <Text style={[s.taskStatusTitle, { color: C.gold }]}>CLAIM SUBMITTED · AWAITING REVIEW</Text>
+                          <Text style={s.detailText}>{youtubeTask.claim.rewardCoins} coins will be credited if approved.</Text>
+                        </View>
+                      </View>
+                    ) : youtubeTask?.claim?.status === 'rejected' ? (
+                      <View style={s.taskRejected}>
+                        <Text style={s.taskStatusTitle}>CLAIM NOT APPROVED</Text>
+                        <Text style={s.detailText}>{youtubeTask.claim.reviewReason || 'Please subscribe to the channel and submit again.'}</Text>
+                      </View>
+                    ) : null}
+                    {youtubeTask && !youtubeTask.completed && youtubeTask.claim?.status !== 'pending' ? (
+                      youtubeTask.enabled ? (
+                        <>
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Open the Daily007 YouTube channel"
+                            testID="youtube-task-open-channel"
+                            onPress={openYoutubeChannel}
+                            style={({ pressed }) => [s.youtubeButton, pressed && s.buttonPressed]}
+                          >
+                            <LinearGradient
+                              colors={[C.red, `${C.red}CC`]}
+                              start={{ x: 0, y: 0 }}
+                              end={{ x: 1, y: 0 }}
+                              style={s.taskButtonGradient}
+                            >
+                              <Feather name="youtube" size={17} color={C.text} />
+                              <Text style={s.youtubeButtonText}>SUBSCRIBE ON YOUTUBE</Text>
+                            </LinearGradient>
+                          </Pressable>
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Submit YouTube subscription for administrator review"
+                            testID="youtube-task-submit-claim"
+                            disabled={!returnedFromYoutube || submitYoutubeClaim.isPending}
+                            onPress={submitYoutubeTask}
+                            style={[
+                              s.claimButton,
+                              (!returnedFromYoutube || submitYoutubeClaim.isPending) && s.claimButtonDisabled,
+                            ]}
+                          >
+                            <LinearGradient
+                              colors={[C.gold, `${C.gold}CC`]}
+                              start={{ x: 0, y: 0 }}
+                              end={{ x: 1, y: 0 }}
+                              style={s.claimButtonGradient}
+                            >
+                              {submitYoutubeClaim.isPending
+                                ? <ActivityIndicator color={C.bg} />
+                                : <Feather name="send" size={15} color={C.bg} />}
+                              <Text style={s.claimButtonText}>
+                                {submitYoutubeClaim.isPending ? 'SUBMITTING…' : 'I SUBSCRIBED · SUBMIT FOR REVIEW'}
+                              </Text>
+                            </LinearGradient>
+                          </Pressable>
+                        </>
+                      ) : (
+                        <Text style={s.taskHint}>This task is temporarily unavailable.</Text>
+                      )
+                    ) : null}
+                  </View>
+                </>
+              ) : null}
+
+              {activeTask === 'instagram' ? (
+                <>
+                  {!!instagramTaskQuery.error && (
+                    <Text style={s.error}>
+                      {t('Instagram task unavailable: {{error}}', { error: apiError(instagramTaskQuery.error) })}
+                    </Text>
+                  )}
+                  <View style={s.instagramCard}>
+                    {instagramTaskQuery.isPending && !instagramTask ? (
+                      <View style={s.taskLoading}>
+                        <ActivityIndicator color={C.gold} />
+                        <Text style={s.muted}>Loading Instagram task…</Text>
+                      </View>
+                    ) : null}
+                    {!!instagramTaskError && (
+                      <Text accessibilityRole="text" accessibilityLiveRegion="polite" style={s.error}>
+                        {instagramTaskError}
+                      </Text>
+                    )}
+                    {instagramTask?.completed ? (
+                      <View style={s.taskStatus}>
+                        <Feather name="check-circle" size={16} color={C.green} />
+                        <View style={s.taskStatusText}>
+                          <Text style={s.taskStatusTitle}>
+                            {t('TASK COMPLETED · {{count}} COINS CREDITED', {
+                              count: instagramTask.claim?.rewardCoins ?? instagramTask.rewardCoins,
+                            })}
+                          </Text>
+                          <Text selectable style={s.detailText}>
+                            {t('Transaction ID: {{id}}', {
+                              id: instagramTask.claim?.transactionId ?? t('Recorded'),
+                            })}
+                          </Text>
+                        </View>
+                      </View>
+                    ) : instagramTask?.claim?.status === 'pending' ? (
+                      <View style={s.taskStatus}>
+                        <Feather name="clock" size={16} color={C.gold} />
+                        <View style={s.taskStatusText}>
+                          <Text style={[s.taskStatusTitle, { color: C.gold }]}>CLAIM SUBMITTED · AWAITING REVIEW</Text>
+                          <Text style={s.detailText}>
+                            {instagramTask.claim.rewardCoins} coins will be credited if approved.
+                          </Text>
+                        </View>
+                      </View>
+                    ) : instagramTask?.claim?.status === 'rejected' ? (
+                      <View style={s.taskRejected}>
+                        <Text style={s.taskStatusTitle}>CLAIM NOT APPROVED</Text>
+                        <Text style={s.detailText}>
+                          {instagramTask.claim.reviewReason || t('Please follow the account and submit a new claim.')}
+                        </Text>
+                      </View>
+                    ) : null}
+                    {instagramTask && !instagramTask.completed && instagramTask.claim?.status !== 'pending' ? (
+                      instagramTask.enabled ? (
+                        <>
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={t('Open the official Daily007 Instagram account')}
+                            testID="instagram-task-open-account"
+                            onPress={openInstagramAccount}
+                            style={({ pressed }) => [s.instagramButton, pressed && s.buttonPressed]}
+                          >
+                            <LinearGradient
+                              colors={[C.purple, C.red]}
+                              start={{ x: 0, y: 0 }}
+                              end={{ x: 1, y: 0 }}
+                              style={s.taskButtonGradient}
+                            >
+                              <Feather name="instagram" size={17} color={C.text} />
+                              <Text style={s.youtubeButtonText}>FOLLOW ON INSTAGRAM</Text>
+                            </LinearGradient>
+                          </Pressable>
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={t('Submit Instagram follow claim for administrator review')}
+                            testID="instagram-task-submit-claim"
+                            disabled={!returnedFromInstagram || submitInstagramClaim.isPending}
+                            onPress={submitInstagramTask}
+                            style={[
+                              s.claimButton,
+                              (!returnedFromInstagram || submitInstagramClaim.isPending) && s.claimButtonDisabled,
+                            ]}
+                          >
+                            <LinearGradient
+                              colors={[C.gold, `${C.gold}CC`]}
+                              start={{ x: 0, y: 0 }}
+                              end={{ x: 1, y: 0 }}
+                              style={s.claimButtonGradient}
+                            >
+                              {submitInstagramClaim.isPending
+                                ? <ActivityIndicator color={C.bg} />
+                                : <Feather name="send" size={15} color={C.bg} />}
+                              <Text style={s.claimButtonText}>
+                                {submitInstagramClaim.isPending ? 'SUBMITTING…' : 'SUBMIT FOLLOW CLAIM FOR REVIEW'}
+                              </Text>
+                            </LinearGradient>
+                          </Pressable>
+                        </>
+                      ) : (
+                        <Text style={s.taskHint}>This task is temporarily unavailable.</Text>
+                      )
+                    ) : null}
+                  </View>
+                </>
+              ) : null}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
@@ -695,6 +825,47 @@ function Stat({
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   content: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 122 },
+  taskList: { gap: 12 },
+  mainTaskCard: {
+    minHeight: 84,
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 12,
+    backgroundColor: C.card,
+    borderRadius: 18,
+    borderWidth: 1,
+  },
+  inviteMainTaskCard: { borderColor: `${C.gold}66` },
+  youtubeMainTaskCard: { borderColor: `${C.red}66` },
+  instagramMainTaskCard: { borderColor: `${C.purple}66` },
+  mainTaskCardPressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
+  mainTaskIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  inviteMainTaskIcon: { backgroundColor: `${C.gold}18`, borderWidth: 1, borderColor: `${C.gold}55` },
+  youtubeMainTaskIcon: { backgroundColor: `${C.red}18`, borderWidth: 1, borderColor: `${C.red}55` },
+  instagramIcon: { borderWidth: 1, borderColor: `${C.purple}66` },
+  mainTaskTitle: { flex: 1, minWidth: 0, color: C.text, fontSize: 13, lineHeight: 18, fontWeight: '900', letterSpacing: 0.45 },
+  taskRewardBadge: {
+    minWidth: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 7,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: `${C.gold}20`,
+    borderWidth: 1,
+    borderColor: `${C.gold}66`,
+  },
+  taskRewardValue: { color: C.gold, fontSize: 13, lineHeight: 16, fontWeight: '900' },
+  taskRewardLabel: { color: C.gold, fontSize: 8, lineHeight: 10, fontWeight: '900', letterSpacing: 0.5 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
   headerCoin: {
     width: 48,
@@ -970,4 +1141,34 @@ const s = StyleSheet.create({
   statusText: { fontSize: 9, fontWeight: '900', letterSpacing: 0.5 },
   detailText: { color: C.sub, fontSize: 11, lineHeight: 16, marginTop: 4 },
   paymentId: { color: C.gold, fontSize: 9, lineHeight: 14, marginTop: 7 },
+  modalRoot: { flex: 1, justifyContent: 'flex-end' },
+  modalScrim: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.68)' },
+  sheetPanel: {
+    width: '100%',
+    height: '88%',
+    maxHeight: '92%',
+    flexShrink: 1,
+    paddingTop: 10,
+    paddingHorizontal: 16,
+    backgroundColor: C.bg,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1,
+    borderColor: C.border,
+    shadowColor: C.purple,
+    shadowOpacity: 0.24,
+    shadowRadius: 16,
+    elevation: 14,
+  },
+  sheetHandle: { width: 42, height: 4, borderRadius: 2, backgroundColor: C.dim, alignSelf: 'center', marginBottom: 12 },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.border },
+  sheetIcon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  sheetTitleWrap: { flex: 1, minWidth: 0 },
+  sheetTitle: { color: C.text, fontSize: 14, lineHeight: 19, fontWeight: '900', letterSpacing: 0.7 },
+  sheetRewardBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 7, paddingVertical: 6, borderRadius: 999, backgroundColor: `${C.gold}20`, borderWidth: 1, borderColor: `${C.gold}66` },
+  sheetRewardValue: { color: C.gold, fontSize: 11, fontWeight: '900' },
+  sheetRewardLabel: { color: C.gold, fontSize: 8, fontWeight: '900', letterSpacing: 0.3 },
+  sheetClose: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 14, backgroundColor: C.card, borderWidth: 1, borderColor: C.border },
+  sheetScroll: { flex: 1 },
+  sheetContent: { paddingTop: 14, paddingBottom: 22 },
 });

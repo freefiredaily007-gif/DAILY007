@@ -16,7 +16,8 @@ test('player Instagram task submits without username or proof fields', () => {
   assert.match(earnScreen, /data: \{\}/);
   assert.match(earnScreen, /testID="instagram-task-open-account"/);
   assert.match(earnScreen, /testID="instagram-task-submit-claim"/);
-  assert.match(earnScreen, /submit your claim for review/i);
+  assert.doesNotMatch(earnScreen, /follow the account,\s*return to Daily007/i);
+  assert.doesNotMatch(earnScreen, /submit your claim for review/i);
 });
 
 test('admin Instagram review uses the player Daily007 account identity only', () => {

@@ -112,7 +112,8 @@
     "test:form-resume": "node --test scripts/form-resume.test.mjs",
     "test:android-form-resume": "node scripts/run-android-form-resume.mjs",
     "test:i18n": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test scripts/language-preference.test.mjs",
-    "test:instagram-account-only": "node --test scripts/instagram-account-only.test.mjs"
+    "test:instagram-account-only": "node --test scripts/instagram-account-only.test.mjs",
+    "test:earn-task-cards": "node --test scripts/earn-task-cards.test.mjs"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
