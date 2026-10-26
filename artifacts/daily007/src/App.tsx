@@ -32,6 +32,7 @@ import MyMatches from './screens/MyMatches';
 import Wallet from './screens/Wallet';
 import Profile from './screens/Profile';
 import Leaderboard from './screens/Leaderboard';
+import KnockoutDetails from './screens/KnockoutDetails';
 import LeaderboardDetails from './screens/LeaderboardDetails';
 import Notifications from './screens/Notifications';
 import EditProfile from './screens/EditProfile';
@@ -652,6 +653,7 @@ function DailyAppContent({
                 <Stack.Screen name="Tournaments" component={Tournaments} options={{ title: t('MATCHES') }} />
                 <Stack.Screen name="MyMatches" component={MyMatches} options={{ title: t('MY MATCHES') }} />
                 <Stack.Screen name="TDetail" component={TDetail} options={{ title: t('TOURNAMENT') }} />
+                <Stack.Screen name="KnockoutDetails" component={KnockoutDetails} options={{ title: t('KNOCKOUT TOURNAMENT') }} />
                 <Stack.Screen name="JoinForm" component={JoinFormRoute} options={{ title: t('REGISTER'), presentation: 'modal' }} />
                 <Stack.Screen name="LeaderboardDetails" component={LeaderboardDetails} options={{ title: t('Leaderboard') }} />
                 <Stack.Screen name="Leaderboard" component={Leaderboard} options={{ title: t('LEADERBOARD') }} />

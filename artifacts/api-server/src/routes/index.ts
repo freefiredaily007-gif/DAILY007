@@ -4,6 +4,7 @@ import daily007V2Router from "./daily007-v2";
 import daily007CompatCoreRouter from "./daily007-compat-core";
 import daily007CompatExtraRouter from "./daily007-compat-extra";
 import daily007LeaderboardRouter from "./daily007-leaderboards";
+import daily007KnockoutRouter from "./daily007-knockout";
 import daily007GoogleAuthRouter from "./daily007-google-auth";
 import daily007AccountRecoveryRouter from "./daily007-account-recovery";
 
@@ -14,6 +15,7 @@ router.use(daily007V2Router);
 router.use(daily007CompatCoreRouter);
 router.use(daily007CompatExtraRouter);
 router.use(daily007LeaderboardRouter);
+router.use(daily007KnockoutRouter);
 router.use(daily007GoogleAuthRouter);
 router.use(daily007AccountRecoveryRouter);
 

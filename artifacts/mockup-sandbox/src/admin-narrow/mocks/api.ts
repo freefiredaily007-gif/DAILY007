@@ -1377,3 +1377,4 @@ export function apiError(error: unknown) {
 
 export const errMessage = apiError;
 export const api = Api;
+export const currentUser = Api.me;

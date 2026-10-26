@@ -1,4 +1,5 @@
 - [Legacy native navigation in Expo Router](legacy-navigation.md) — keep a migrated navigation tree isolated; Router's mixed-navigation bundler guard must be opted out deliberately.
+- [Daily007 Knockout architecture](daily007-knockout.md) — continue the staged tournament on the existing match, registration, and wallet flows; do not create a parallel ledger.
 - [Daily007 fresh-start cutover](daily007-backend-cutover.md) — old unpublished accounts/coins need not migrate, but every visible feature must work on Replit before switching.
 - [Daily007 Google auth concurrency tests](daily007-google-auth-concurrency.md) — synchronize same-identity requests at the transaction lock; Promise.all alone may produce sequential DB entry.
 - [Daily007 Android Google rapid taps](daily007-google-rapid-taps.md) — Android 16 device taps confirmed one provider picker, cancellation retry, and a single completed sign-in.

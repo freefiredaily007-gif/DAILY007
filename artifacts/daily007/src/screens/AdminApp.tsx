@@ -18,6 +18,7 @@ import AdminSettings from './AdminSettings';
 import AdminEarnTasks from './AdminEarnTasks';
 import AdminVideos from './AdminVideos';
 import AdminLeaderboards from './AdminLeaderboards';
+import AdminKnockout from './AdminKnockout';
 import logoImg from '../assets/logo.jpg';
 import { adminNavigationForRole, canNavigateAdminScreen } from '../lib/roleNavigation';
 
@@ -30,6 +31,7 @@ const NAV: {
   { key: 'dashboard', label: 'Dashboard', icon: 'grid' },
   { key: 'leaderboards', label: 'Leaderboards', accessibilityLabel: 'Leaderboard rewards', icon: 'award' },
   { key: 'tournaments', label: 'Tournaments', icon: 'award' },
+  { key: 'knockout', label: 'Knockout', icon: 'flag' },
   { key: 'killEarn', label: 'Kill & Earn', icon: 'zap' },
   { key: 'registrations', label: 'Registrations', icon: 'file-text' },
   { key: 'payments', label: 'Payments', icon: 'credit-card' },
@@ -68,7 +70,7 @@ export default function AdminApp({ onLogout: onLogoutProp }: { onLogout?: () => 
   };
   const Screen: any = {
     dashboard: AdminDashboard, leaderboards: AdminLeaderboards, tournaments: AdminTournaments,
-    killEarn: AdminKillEarnRewards, registrations: AdminRegs,
+    killEarn: AdminKillEarnRewards, registrations: AdminRegs, knockout: AdminKnockout,
     payments: AdminPayments, wallet: AdminWallet, earnTasks: AdminEarnTasks, videos: AdminVideos,
     users: AdminUsers, notifications: AdminNotifications, settings: AdminSettings,
   }[activeScreen] || AdminDashboard;

@@ -50,6 +50,45 @@ export function useDaily007AdminListTournaments() {
   };
 }
 
+const knockoutDefaults = {
+  title: "Knockout Squad Tournament",
+  squadCount: 12,
+  playersPerSquad: 4,
+  stageCount: 3,
+  entryCoins: 10,
+  prizePool: 1000,
+  pointsPerKill: 1,
+  round1Eliminated: 2,
+  round2Eliminated: 2,
+  totalPlayers: 48,
+  squadEntryCoins: 40,
+  stages: [
+    { name: "Round 1", squads: 12, eliminated: 2, advance: 10 },
+    { name: "Round 2", squads: 10, eliminated: 2, advance: 8 },
+    { name: "Final", squads: 8, eliminated: 0, advance: 8 },
+  ],
+};
+
+export function useDaily007ListPublicKnockoutEvents() {
+  return noQuery({ events: [], defaults: knockoutDefaults });
+}
+
+export function useDaily007GetKnockoutLeaderboard() {
+  return noQuery({ standings: [], awaitingResults: true });
+}
+
+export function useDaily007AdminListKnockoutEvents() {
+  return noQuery({ events: [] });
+}
+
+export function useDaily007AdminCreateKnockoutEvent() {
+  return noMutation();
+}
+
+export function useDaily007AdminUpdateKnockoutEvent() {
+  return noMutation();
+}
+
 export const getDaily007V2AdminUserWalletHistoryQueryKey = () => ["isolated-preview", "wallet-history"];
 export function useDaily007V2AdminUserWalletHistory() {
   return noQuery({ items: [], nextCursor: null });
@@ -774,6 +813,10 @@ export function useDaily007AdminUpdateVideo() {
 }
 
 export function useDaily007AdminDeleteUser() {
+  return noMutation();
+}
+
+export function useDaily007AdminDeleteTournamentWithoutRefund() {
   return noMutation();
 }
 

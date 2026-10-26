@@ -131,7 +131,9 @@ function createHomeLoadHarness(api) {
     resumeRefreshPendingRef: { current: false },
     homePollInFlightRef: { current: false },
     refreshHomeIfIdleRef: { current: () => {} },
+    knockoutRefreshRef: { current: async () => ({ data: { events: [], defaults: {} } }) },
     mergeHomeTournamentItems,
+    setKnockoutInfo: () => {},
     setItems: (update) => {
       state.items = typeof update === "function" ? update(state.items) : update;
     },

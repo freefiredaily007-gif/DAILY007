@@ -306,7 +306,10 @@ async function getMatches(id?: string, enabledOnly = false, includeCancelled = f
   if (id) {
     values.push(id);
     clauses.push(`m.id = $${values.length}`);
-  } else if (!includeCancelled) clauses.push("m.status <> 'cancelled'");
+  } else {
+    clauses.push("COALESCE(m.game_mode, '') <> 'knockout_squad'");
+    if (!includeCancelled) clauses.push("m.status <> 'cancelled'");
+  }
   if (enabledOnly) clauses.push("m.enabled = true");
   const result = await pool.query<MatchRow>(
     `SELECT m.id, m.title, m.mode, m.game_mode, m.team_type, m.capacity, m.entry_coins, m.prize_pool,

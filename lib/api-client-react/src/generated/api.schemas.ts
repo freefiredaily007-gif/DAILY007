@@ -22,6 +22,143 @@
  *
  * OpenAPI spec version: 0.1.0
  */
+export interface Daily007KnockoutSettingsBody {
+  /**
+     * @minLength 3
+     * @maxLength 80
+     */
+  title: string;
+  startsAt: string;
+  /**
+     * @minimum 4
+     * @maximum 12
+     */
+  squadCount: number;
+  playersPerSquad: 4;
+  stageCount: 3;
+  /**
+     * @minimum 0
+     * @maximum 2147483647
+     */
+  entryCoins: number;
+  /**
+     * @minimum 0
+     * @maximum 2147483647
+     */
+  prizePool: number;
+  /**
+     * @minimum 1
+     * @maximum 1000
+     */
+  pointsPerKill: number;
+  /** @minimum 1 */
+  round1Eliminated: number;
+  /** @minimum 1 */
+  round2Eliminated: number;
+  published: boolean;
+}
+
+export type Daily007KnockoutStageName = typeof Daily007KnockoutStageName[keyof typeof Daily007KnockoutStageName];
+
+
+export const Daily007KnockoutStageName = {
+  Round_1: 'Round 1',
+  Round_2: 'Round 2',
+  Final: 'Final',
+} as const;
+
+export interface Daily007KnockoutStage {
+  name: Daily007KnockoutStageName;
+  /** @minimum 2 */
+  squads: number;
+  /** @minimum 0 */
+  eliminated: number;
+  /** @minimum 2 */
+  advance: number;
+}
+
+export type Daily007KnockoutEventStatus = typeof Daily007KnockoutEventStatus[keyof typeof Daily007KnockoutEventStatus];
+
+
+export const Daily007KnockoutEventStatus = {
+  draft: 'draft',
+  upcoming: 'upcoming',
+  ongoing: 'ongoing',
+  full: 'full',
+  cancelled: 'cancelled',
+  completed: 'completed',
+} as const;
+
+export interface Daily007KnockoutEvent {
+  matchId: string;
+  title: string;
+  startsAt: string;
+  entryCoins: number;
+  squadEntryCoins: number;
+  prizePool: number;
+  squadCount: number;
+  playersPerSquad: number;
+  totalPlayers: number;
+  stageCount: number;
+  pointsPerKill: number;
+  round1Eliminated: number;
+  round2Eliminated: number;
+  stages: Daily007KnockoutStage[];
+  registeredSquads: number;
+  registeredPlayers: number;
+  status: Daily007KnockoutEventStatus;
+  published: boolean;
+  registrationOpen: boolean;
+}
+
+export interface Daily007KnockoutDefaultSettings {
+  title: string;
+  squadCount: number;
+  playersPerSquad: number;
+  stageCount: number;
+  entryCoins: number;
+  prizePool: number;
+  pointsPerKill: number;
+  round1Eliminated: number;
+  round2Eliminated: number;
+  totalPlayers: number;
+  squadEntryCoins: number;
+  stages: Daily007KnockoutStage[];
+}
+
+export interface Daily007KnockoutEventsResponse {
+  defaults: Daily007KnockoutDefaultSettings;
+  events: Daily007KnockoutEvent[];
+}
+
+export interface Daily007AdminKnockoutEventsResponse {
+  events: Daily007KnockoutEvent[];
+}
+
+export interface Daily007AdminKnockoutEventResponse {
+  event: Daily007KnockoutEvent;
+}
+
+export interface Daily007KnockoutLeaderboardPlayer {
+  playerName: string;
+  slotNumber: number;
+}
+
+export interface Daily007KnockoutLeaderboardSquad {
+  teamNumber: number;
+  teamName: string;
+  registeredPlayers: number;
+  players: Daily007KnockoutLeaderboardPlayer[];
+  resultStatus: string;
+}
+
+export interface Daily007KnockoutLeaderboardResponse {
+  matchId: string;
+  stage: string;
+  standings: Daily007KnockoutLeaderboardSquad[];
+  message: string;
+}
+
 export type Daily007AdminTournamentSlotUnit = typeof Daily007AdminTournamentSlotUnit[keyof typeof Daily007AdminTournamentSlotUnit];
 
 

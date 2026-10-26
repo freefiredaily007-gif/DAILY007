@@ -30,7 +30,15 @@ import HomeGameModeCards from './HomeGameModeCards';
 import { WhatsAppIcon, InstagramIcon, YouTubeIcon } from '../components/SocialIcons';
 import logoImg from '../assets/logo.jpg';
 import HomeLeaderboards from './HomeLeaderboards';
+import KnockoutHomeCard from './KnockoutHomeCard';
 import { translateExactText } from '../i18n';
+import { Feather } from '@expo/vector-icons';
+import {
+  useDaily007ListPublicKnockoutEvents,
+  type Daily007KnockoutEvent,
+  type Daily007KnockoutDefaultSettings,
+  type Daily007KnockoutEventsResponse,
+} from '@workspace/api-client-react';
 
 function fmtDate(d?: string) {
   if (!d) return '';
@@ -100,6 +108,24 @@ export function mergeHomeTournamentItems(
 
 const HOME_CAROUSEL_CARD_MAX_WIDTH = 340;
 const HOME_CAROUSEL_HORIZONTAL_GUTTER = 16;
+const HOME_KNOCKOUT_DEFAULTS: Daily007KnockoutDefaultSettings = {
+  title: 'Knockout Squad Tournament',
+  squadCount: 12,
+  playersPerSquad: 4,
+  stageCount: 3,
+  entryCoins: 10,
+  prizePool: 1000,
+  pointsPerKill: 1,
+  round1Eliminated: 2,
+  round2Eliminated: 2,
+  totalPlayers: 48,
+  squadEntryCoins: 40,
+  stages: [
+    { name: 'Round 1', squads: 12, eliminated: 2, advance: 10 },
+    { name: 'Round 2', squads: 10, eliminated: 2, advance: 8 },
+    { name: 'Final', squads: 8, eliminated: 0, advance: 8 },
+  ],
+};
 
 export default function Home() {
   const { width, fontScale } = useWindowDimensions();
@@ -111,7 +137,13 @@ export default function Home() {
   );
   const carouselPageSize = width;
   const { user } = useApp();
+  const publicKnockoutQuery = useDaily007ListPublicKnockoutEvents({
+    query: { queryKey: ["daily007", "knockout", "public"], enabled: false, staleTime: 0, gcTime: 0 },
+  });
+  const knockoutRefreshRef = useRef(publicKnockoutQuery.refetch);
+  knockoutRefreshRef.current = publicKnockoutQuery.refetch;
   const [items, setItems] = useState<any[]>([]);
+  const [knockoutInfo, setKnockoutInfo] = useState<Daily007KnockoutEventsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [lastSuccessfulRefreshAt, setLastSuccessfulRefreshAt] = useState<number | null>(null);
@@ -135,6 +167,8 @@ export default function Home() {
   const nav: any = useNavigation();
   const goTab = (k: string) => nav.navigate(k === 'wallet' ? 'Wallet' : k === 'profile' ? 'Profile' : k === 'mymatches' ? 'MyMatches' : k === 'tournaments' ? 'Tournaments' : 'Home');
   const openTournamentDetail = (id: string) => nav.getParent().push('TDetail', { id });
+  const openKnockoutSection = (matchId: string | null, section: 'leaderboard' | 'rules') =>
+    nav.getParent()?.push('KnockoutDetails', { matchId, section });
   React.useEffect(() => {
     let active = true;
     const subscription = AccessibilityInfo.addEventListener('screenReaderChanged', (enabled) => {
@@ -154,11 +188,15 @@ export default function Home() {
       const requestId = loadRequestGuardRef.current.start();
       activeRequestsRef.current += 1;
       try {
-        const [tournamentsResult, registrationsResult] = await Promise.allSettled([
+        const [tournamentsResult, registrationsResult, knockoutResult] = await Promise.allSettled([
           api.tournaments('?enabled=true'),
           api.myRegistrations(),
+          knockoutRefreshRef.current(),
         ]);
         if (!loadRequestGuardRef.current.isCurrent(requestId)) return;
+        if (knockoutResult.status === 'fulfilled' && knockoutResult.value.data) {
+          setKnockoutInfo(knockoutResult.value.data);
+        }
         if (tournamentsResult.status === 'rejected') throw tournamentsResult.reason;
         if (registrationsResult.status === 'rejected') throw registrationsResult.reason;
         const r = tournamentsResult.value;
@@ -689,6 +727,20 @@ export default function Home() {
         </>
       )}
 
+      {/* ===== KNOCKOUT SQUAD TOURNAMENT ===== */}
+      <KnockoutHomeCard
+        event={
+          knockoutInfo?.events.find((event) => event.registrationOpen) ??
+          knockoutInfo?.events.find((event) => event.status === 'ongoing') ??
+          knockoutInfo?.events[0] ??
+          null
+        }
+        defaults={knockoutInfo?.defaults ?? HOME_KNOCKOUT_DEFAULTS}
+        loading={loading && knockoutInfo === null}
+        error={publicKnockoutQuery.isError}
+        onJoin={openTournamentDetail}
+        onOpen={openKnockoutSection}
+      />
       {/* ===== GAME MODES ===== */}
       <SectionTitle accent={C.orange}>GAME MODES</SectionTitle>
       <HomeGameModeCards

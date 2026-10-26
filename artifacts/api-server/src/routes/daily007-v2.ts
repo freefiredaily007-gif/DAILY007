@@ -566,6 +566,7 @@ router.get("/daily007/v2/matches", async (_req, res): Promise<void> => {
             count(r.id) FILTER (WHERE r.status IN ('approved', 'pending'))::integer AS "registeredCount"
        FROM daily007_v2_matches m
        LEFT JOIN daily007_v2_registrations r ON r.match_id = m.id
+      WHERE COALESCE(m.game_mode, '') <> 'knockout_squad'
       GROUP BY m.id
       ORDER BY m.starts_at ASC`,
   );

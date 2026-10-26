@@ -47,6 +47,8 @@ import type {
   Daily007AdminDeleteTournamentWithoutRefund200,
   Daily007AdminGetRechargeProofUrl200,
   Daily007AdminInstagramFollowClaims,
+  Daily007AdminKnockoutEventResponse,
+  Daily007AdminKnockoutEventsResponse,
   Daily007AdminLeaderboardApprovalsResponse,
   Daily007AdminLeaderboardRewardsResponse,
   Daily007AdminSettingsBody,
@@ -71,6 +73,9 @@ import type {
   Daily007InstagramFollowClaim,
   Daily007InstagramFollowClaimBody,
   Daily007InstagramFollowTaskStatus,
+  Daily007KnockoutEventsResponse,
+  Daily007KnockoutLeaderboardResponse,
+  Daily007KnockoutSettingsBody,
   Daily007LanguagePreference,
   Daily007LanguagePreferenceSaveResult,
   Daily007LanguagePreferenceUpdate,
@@ -1786,6 +1791,414 @@ export const useDaily007V2CreateMatch = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDaily007V2CreateMatchMutationOptions(options));
+    }
+
+export const getDaily007ListPublicKnockoutEventsUrl = () => {
+
+
+
+
+  return `/api/daily007/v2/knockout/events`
+}
+
+/**
+ * @summary List published Knockout Squad tournaments and default settings
+ */
+export const daily007ListPublicKnockoutEvents = async ( options?: Parameters<typeof customFetch>[1]): Promise<Daily007KnockoutEventsResponse> => {
+
+  return customFetch<Daily007KnockoutEventsResponse>(getDaily007ListPublicKnockoutEventsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007ListPublicKnockoutEventsQueryKey = () => {
+    return [
+    `/api/daily007/v2/knockout/events`
+    ] as const;
+    }
+
+
+export const getDaily007ListPublicKnockoutEventsQueryOptions = <TData = Awaited<ReturnType<typeof daily007ListPublicKnockoutEvents>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007ListPublicKnockoutEvents>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDaily007ListPublicKnockoutEventsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007ListPublicKnockoutEvents>>> = ({ signal }) => daily007ListPublicKnockoutEvents({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof daily007ListPublicKnockoutEvents>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type Daily007ListPublicKnockoutEventsQueryResult = NonNullable<Awaited<ReturnType<typeof daily007ListPublicKnockoutEvents>>>
+export type Daily007ListPublicKnockoutEventsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List published Knockout Squad tournaments and default settings
+ */
+
+export function useDaily007ListPublicKnockoutEvents<TData = Awaited<ReturnType<typeof daily007ListPublicKnockoutEvents>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007ListPublicKnockoutEvents>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDaily007ListPublicKnockoutEventsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDaily007GetKnockoutLeaderboardUrl = (id: string,) => {
+
+
+
+
+  return `/api/daily007/v2/knockout/events/${id}/leaderboard`
+}
+
+/**
+ * @summary List current Knockout squads before stage results are published
+ */
+export const daily007GetKnockoutLeaderboard = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<Daily007KnockoutLeaderboardResponse> => {
+
+  return customFetch<Daily007KnockoutLeaderboardResponse>(getDaily007GetKnockoutLeaderboardUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007GetKnockoutLeaderboardQueryKey = (id: string,) => {
+    return [
+    `/api/daily007/v2/knockout/events/${id}/leaderboard`
+    ] as const;
+    }
+
+
+export const getDaily007GetKnockoutLeaderboardQueryOptions = <TData = Awaited<ReturnType<typeof daily007GetKnockoutLeaderboard>>, TError = ErrorType<void>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007GetKnockoutLeaderboard>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDaily007GetKnockoutLeaderboardQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007GetKnockoutLeaderboard>>> = ({ signal }) => daily007GetKnockoutLeaderboard(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof daily007GetKnockoutLeaderboard>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type Daily007GetKnockoutLeaderboardQueryResult = NonNullable<Awaited<ReturnType<typeof daily007GetKnockoutLeaderboard>>>
+export type Daily007GetKnockoutLeaderboardQueryError = ErrorType<void>
+
+
+/**
+ * @summary List current Knockout squads before stage results are published
+ */
+
+export function useDaily007GetKnockoutLeaderboard<TData = Awaited<ReturnType<typeof daily007GetKnockoutLeaderboard>>, TError = ErrorType<void>>(
+ id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007GetKnockoutLeaderboard>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDaily007GetKnockoutLeaderboardQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDaily007AdminListKnockoutEventsUrl = () => {
+
+
+
+
+  return `/api/daily007/v2/admin/knockout/events`
+}
+
+/**
+ * @summary List all Knockout events including drafts
+ */
+export const daily007AdminListKnockoutEvents = async ( options?: Parameters<typeof customFetch>[1]): Promise<Daily007AdminKnockoutEventsResponse> => {
+
+  return customFetch<Daily007AdminKnockoutEventsResponse>(getDaily007AdminListKnockoutEventsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminListKnockoutEventsQueryKey = () => {
+    return [
+    `/api/daily007/v2/admin/knockout/events`
+    ] as const;
+    }
+
+
+export const getDaily007AdminListKnockoutEventsQueryOptions = <TData = Awaited<ReturnType<typeof daily007AdminListKnockoutEvents>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminListKnockoutEvents>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDaily007AdminListKnockoutEventsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007AdminListKnockoutEvents>>> = ({ signal }) => daily007AdminListKnockoutEvents({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof daily007AdminListKnockoutEvents>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type Daily007AdminListKnockoutEventsQueryResult = NonNullable<Awaited<ReturnType<typeof daily007AdminListKnockoutEvents>>>
+export type Daily007AdminListKnockoutEventsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List all Knockout events including drafts
+ */
+
+export function useDaily007AdminListKnockoutEvents<TData = Awaited<ReturnType<typeof daily007AdminListKnockoutEvents>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminListKnockoutEvents>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDaily007AdminListKnockoutEventsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDaily007AdminCreateKnockoutEventUrl = () => {
+
+
+
+
+  return `/api/daily007/v2/admin/knockout/events`
+}
+
+/**
+ * @summary Create a persistent Knockout Squad tournament using the existing squad registration and wallet flow
+ */
+export const daily007AdminCreateKnockoutEvent = async (daily007KnockoutSettingsBody: Daily007KnockoutSettingsBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007AdminKnockoutEventResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Daily007AdminKnockoutEventResponse>(getDaily007AdminCreateKnockoutEventUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(daily007KnockoutSettingsBody)
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminCreateKnockoutEventMutationKey = () => ['daily007AdminCreateKnockoutEvent'] as const;
+
+export const getDaily007AdminCreateKnockoutEventMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminCreateKnockoutEvent>>, TError,Daily007AdminCreateKnockoutEventMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007AdminCreateKnockoutEvent>>, TError,Daily007AdminCreateKnockoutEventMutationVariables, TContext> => {
+
+const mutationKey = getDaily007AdminCreateKnockoutEventMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007AdminCreateKnockoutEvent>>, Daily007AdminCreateKnockoutEventMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  daily007AdminCreateKnockoutEvent(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007AdminCreateKnockoutEventMutationResult = NonNullable<Awaited<ReturnType<typeof daily007AdminCreateKnockoutEvent>>>
+    export type Daily007AdminCreateKnockoutEventMutationBody = BodyType<Daily007KnockoutSettingsBody>
+    export type Daily007AdminCreateKnockoutEventMutationError = ErrorType<void>
+    export type Daily007AdminCreateKnockoutEventMutationVariables = {data: BodyType<Daily007KnockoutSettingsBody>}
+
+    /**
+ * @summary Create a persistent Knockout Squad tournament using the existing squad registration and wallet flow
+ */
+export const useDaily007AdminCreateKnockoutEvent = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminCreateKnockoutEvent>>, TError,Daily007AdminCreateKnockoutEventMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007AdminCreateKnockoutEvent>>,
+        TError,
+        Daily007AdminCreateKnockoutEventMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007AdminCreateKnockoutEventMutationOptions(options));
+    }
+
+export const getDaily007AdminUpdateKnockoutEventUrl = (id: string,) => {
+
+
+
+
+  return `/api/daily007/v2/admin/knockout/events/${id}`
+}
+
+/**
+ * @summary Update a Knockout event before players register or change its publication state
+ */
+export const daily007AdminUpdateKnockoutEvent = async (id: string,
+    daily007KnockoutSettingsBody: Daily007KnockoutSettingsBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007AdminKnockoutEventResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Daily007AdminKnockoutEventResponse>(getDaily007AdminUpdateKnockoutEventUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(daily007KnockoutSettingsBody)
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminUpdateKnockoutEventMutationKey = () => ['daily007AdminUpdateKnockoutEvent'] as const;
+
+export const getDaily007AdminUpdateKnockoutEventMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminUpdateKnockoutEvent>>, TError,Daily007AdminUpdateKnockoutEventMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007AdminUpdateKnockoutEvent>>, TError,Daily007AdminUpdateKnockoutEventMutationVariables, TContext> => {
+
+const mutationKey = getDaily007AdminUpdateKnockoutEventMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007AdminUpdateKnockoutEvent>>, Daily007AdminUpdateKnockoutEventMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  daily007AdminUpdateKnockoutEvent(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007AdminUpdateKnockoutEventMutationResult = NonNullable<Awaited<ReturnType<typeof daily007AdminUpdateKnockoutEvent>>>
+    export type Daily007AdminUpdateKnockoutEventMutationBody = BodyType<Daily007KnockoutSettingsBody>
+    export type Daily007AdminUpdateKnockoutEventMutationError = ErrorType<void>
+    export type Daily007AdminUpdateKnockoutEventMutationVariables = {id: string;data: BodyType<Daily007KnockoutSettingsBody>}
+
+    /**
+ * @summary Update a Knockout event before players register or change its publication state
+ */
+export const useDaily007AdminUpdateKnockoutEvent = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminUpdateKnockoutEvent>>, TError,Daily007AdminUpdateKnockoutEventMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007AdminUpdateKnockoutEvent>>,
+        TError,
+        Daily007AdminUpdateKnockoutEventMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007AdminUpdateKnockoutEventMutationOptions(options));
     }
 
 export const getDaily007V2ConfigureMatchUrl = (id: string,) => {

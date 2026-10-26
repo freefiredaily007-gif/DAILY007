@@ -644,6 +644,287 @@ export const Daily007V2CreateMatchResponse = zod.void()
 
 
 /**
+ * @summary List published Knockout Squad tournaments and default settings
+ */
+export const daily007ListPublicKnockoutEventsResponseDefaultsStagesItemSquadsMin = 2;
+
+export const daily007ListPublicKnockoutEventsResponseDefaultsStagesItemEliminatedMin = 0;
+
+export const daily007ListPublicKnockoutEventsResponseDefaultsStagesItemAdvanceMin = 2;
+
+export const daily007ListPublicKnockoutEventsResponseEventsItemStagesItemSquadsMin = 2;
+
+export const daily007ListPublicKnockoutEventsResponseEventsItemStagesItemEliminatedMin = 0;
+
+export const daily007ListPublicKnockoutEventsResponseEventsItemStagesItemAdvanceMin = 2;
+
+
+
+export const Daily007ListPublicKnockoutEventsResponse = zod.object({
+  "defaults": zod.object({
+  "title": zod.string(),
+  "squadCount": zod.number().int(),
+  "playersPerSquad": zod.number().int(),
+  "stageCount": zod.number().int(),
+  "entryCoins": zod.number().int(),
+  "prizePool": zod.number().int(),
+  "pointsPerKill": zod.number().int(),
+  "round1Eliminated": zod.number().int(),
+  "round2Eliminated": zod.number().int(),
+  "totalPlayers": zod.number().int(),
+  "squadEntryCoins": zod.number().int(),
+  "stages": zod.array(zod.object({
+  "name": zod.enum(['Round 1', 'Round 2', 'Final']),
+  "squads": zod.number().int().min(daily007ListPublicKnockoutEventsResponseDefaultsStagesItemSquadsMin),
+  "eliminated": zod.number().int().min(daily007ListPublicKnockoutEventsResponseDefaultsStagesItemEliminatedMin),
+  "advance": zod.number().int().min(daily007ListPublicKnockoutEventsResponseDefaultsStagesItemAdvanceMin)
+}))
+}),
+  "events": zod.array(zod.object({
+  "matchId": zod.string().uuid(),
+  "title": zod.string(),
+  "startsAt": zod.coerce.date(),
+  "entryCoins": zod.number().int(),
+  "squadEntryCoins": zod.number().int(),
+  "prizePool": zod.number().int(),
+  "squadCount": zod.number().int(),
+  "playersPerSquad": zod.number().int(),
+  "totalPlayers": zod.number().int(),
+  "stageCount": zod.number().int(),
+  "pointsPerKill": zod.number().int(),
+  "round1Eliminated": zod.number().int(),
+  "round2Eliminated": zod.number().int(),
+  "stages": zod.array(zod.object({
+  "name": zod.enum(['Round 1', 'Round 2', 'Final']),
+  "squads": zod.number().int().min(daily007ListPublicKnockoutEventsResponseEventsItemStagesItemSquadsMin),
+  "eliminated": zod.number().int().min(daily007ListPublicKnockoutEventsResponseEventsItemStagesItemEliminatedMin),
+  "advance": zod.number().int().min(daily007ListPublicKnockoutEventsResponseEventsItemStagesItemAdvanceMin)
+})),
+  "registeredSquads": zod.number().int(),
+  "registeredPlayers": zod.number().int(),
+  "status": zod.enum(['draft', 'upcoming', 'ongoing', 'full', 'cancelled', 'completed']),
+  "published": zod.boolean(),
+  "registrationOpen": zod.boolean()
+}))
+})
+
+
+/**
+ * @summary List current Knockout squads before stage results are published
+ */
+export const Daily007GetKnockoutLeaderboardParams = zod.object({
+  "id": zod.coerce.string().uuid()
+})
+
+export const Daily007GetKnockoutLeaderboardResponse = zod.object({
+  "matchId": zod.string().uuid(),
+  "stage": zod.string(),
+  "standings": zod.array(zod.object({
+  "teamNumber": zod.number().int(),
+  "teamName": zod.string(),
+  "registeredPlayers": zod.number().int(),
+  "players": zod.array(zod.object({
+  "playerName": zod.string(),
+  "slotNumber": zod.number().int()
+})),
+  "resultStatus": zod.string()
+})),
+  "message": zod.string()
+})
+
+
+/**
+ * @summary List all Knockout events including drafts
+ */
+export const daily007AdminListKnockoutEventsResponseEventsItemStagesItemSquadsMin = 2;
+
+export const daily007AdminListKnockoutEventsResponseEventsItemStagesItemEliminatedMin = 0;
+
+export const daily007AdminListKnockoutEventsResponseEventsItemStagesItemAdvanceMin = 2;
+
+
+
+export const Daily007AdminListKnockoutEventsResponse = zod.object({
+  "events": zod.array(zod.object({
+  "matchId": zod.string().uuid(),
+  "title": zod.string(),
+  "startsAt": zod.coerce.date(),
+  "entryCoins": zod.number().int(),
+  "squadEntryCoins": zod.number().int(),
+  "prizePool": zod.number().int(),
+  "squadCount": zod.number().int(),
+  "playersPerSquad": zod.number().int(),
+  "totalPlayers": zod.number().int(),
+  "stageCount": zod.number().int(),
+  "pointsPerKill": zod.number().int(),
+  "round1Eliminated": zod.number().int(),
+  "round2Eliminated": zod.number().int(),
+  "stages": zod.array(zod.object({
+  "name": zod.enum(['Round 1', 'Round 2', 'Final']),
+  "squads": zod.number().int().min(daily007AdminListKnockoutEventsResponseEventsItemStagesItemSquadsMin),
+  "eliminated": zod.number().int().min(daily007AdminListKnockoutEventsResponseEventsItemStagesItemEliminatedMin),
+  "advance": zod.number().int().min(daily007AdminListKnockoutEventsResponseEventsItemStagesItemAdvanceMin)
+})),
+  "registeredSquads": zod.number().int(),
+  "registeredPlayers": zod.number().int(),
+  "status": zod.enum(['draft', 'upcoming', 'ongoing', 'full', 'cancelled', 'completed']),
+  "published": zod.boolean(),
+  "registrationOpen": zod.boolean()
+}))
+})
+
+
+/**
+ * @summary Create a persistent Knockout Squad tournament using the existing squad registration and wallet flow
+ */
+export const daily007AdminCreateKnockoutEventBodyTitleMin = 3;
+export const daily007AdminCreateKnockoutEventBodyTitleMax = 80;
+
+export const daily007AdminCreateKnockoutEventBodySquadCountMin = 4;
+export const daily007AdminCreateKnockoutEventBodySquadCountMax = 12;
+
+export const daily007AdminCreateKnockoutEventBodyEntryCoinsMin = 0;
+export const daily007AdminCreateKnockoutEventBodyEntryCoinsMax = 2147483647;
+
+export const daily007AdminCreateKnockoutEventBodyPrizePoolMin = 0;
+export const daily007AdminCreateKnockoutEventBodyPrizePoolMax = 2147483647;
+
+export const daily007AdminCreateKnockoutEventBodyPointsPerKillMax = 1000;
+
+
+
+
+
+export const Daily007AdminCreateKnockoutEventBody = zod.object({
+  "title": zod.string().min(daily007AdminCreateKnockoutEventBodyTitleMin).max(daily007AdminCreateKnockoutEventBodyTitleMax),
+  "startsAt": zod.coerce.date(),
+  "squadCount": zod.number().int().min(daily007AdminCreateKnockoutEventBodySquadCountMin).max(daily007AdminCreateKnockoutEventBodySquadCountMax),
+  "playersPerSquad": zod.literal(4),
+  "stageCount": zod.literal(3),
+  "entryCoins": zod.number().int().min(daily007AdminCreateKnockoutEventBodyEntryCoinsMin).max(daily007AdminCreateKnockoutEventBodyEntryCoinsMax),
+  "prizePool": zod.number().int().min(daily007AdminCreateKnockoutEventBodyPrizePoolMin).max(daily007AdminCreateKnockoutEventBodyPrizePoolMax),
+  "pointsPerKill": zod.number().int().min(1).max(daily007AdminCreateKnockoutEventBodyPointsPerKillMax),
+  "round1Eliminated": zod.number().int().min(1),
+  "round2Eliminated": zod.number().int().min(1),
+  "published": zod.boolean()
+})
+
+export const daily007AdminCreateKnockoutEventResponseEventStagesItemSquadsMin = 2;
+
+export const daily007AdminCreateKnockoutEventResponseEventStagesItemEliminatedMin = 0;
+
+export const daily007AdminCreateKnockoutEventResponseEventStagesItemAdvanceMin = 2;
+
+
+
+export const Daily007AdminCreateKnockoutEventResponse = zod.object({
+  "event": zod.object({
+  "matchId": zod.string().uuid(),
+  "title": zod.string(),
+  "startsAt": zod.coerce.date(),
+  "entryCoins": zod.number().int(),
+  "squadEntryCoins": zod.number().int(),
+  "prizePool": zod.number().int(),
+  "squadCount": zod.number().int(),
+  "playersPerSquad": zod.number().int(),
+  "totalPlayers": zod.number().int(),
+  "stageCount": zod.number().int(),
+  "pointsPerKill": zod.number().int(),
+  "round1Eliminated": zod.number().int(),
+  "round2Eliminated": zod.number().int(),
+  "stages": zod.array(zod.object({
+  "name": zod.enum(['Round 1', 'Round 2', 'Final']),
+  "squads": zod.number().int().min(daily007AdminCreateKnockoutEventResponseEventStagesItemSquadsMin),
+  "eliminated": zod.number().int().min(daily007AdminCreateKnockoutEventResponseEventStagesItemEliminatedMin),
+  "advance": zod.number().int().min(daily007AdminCreateKnockoutEventResponseEventStagesItemAdvanceMin)
+})),
+  "registeredSquads": zod.number().int(),
+  "registeredPlayers": zod.number().int(),
+  "status": zod.enum(['draft', 'upcoming', 'ongoing', 'full', 'cancelled', 'completed']),
+  "published": zod.boolean(),
+  "registrationOpen": zod.boolean()
+})
+})
+
+
+/**
+ * @summary Update a Knockout event before players register or change its publication state
+ */
+export const Daily007AdminUpdateKnockoutEventParams = zod.object({
+  "id": zod.coerce.string().uuid()
+})
+
+export const daily007AdminUpdateKnockoutEventBodyTitleMin = 3;
+export const daily007AdminUpdateKnockoutEventBodyTitleMax = 80;
+
+export const daily007AdminUpdateKnockoutEventBodySquadCountMin = 4;
+export const daily007AdminUpdateKnockoutEventBodySquadCountMax = 12;
+
+export const daily007AdminUpdateKnockoutEventBodyEntryCoinsMin = 0;
+export const daily007AdminUpdateKnockoutEventBodyEntryCoinsMax = 2147483647;
+
+export const daily007AdminUpdateKnockoutEventBodyPrizePoolMin = 0;
+export const daily007AdminUpdateKnockoutEventBodyPrizePoolMax = 2147483647;
+
+export const daily007AdminUpdateKnockoutEventBodyPointsPerKillMax = 1000;
+
+
+
+
+
+export const Daily007AdminUpdateKnockoutEventBody = zod.object({
+  "title": zod.string().min(daily007AdminUpdateKnockoutEventBodyTitleMin).max(daily007AdminUpdateKnockoutEventBodyTitleMax),
+  "startsAt": zod.coerce.date(),
+  "squadCount": zod.number().int().min(daily007AdminUpdateKnockoutEventBodySquadCountMin).max(daily007AdminUpdateKnockoutEventBodySquadCountMax),
+  "playersPerSquad": zod.literal(4),
+  "stageCount": zod.literal(3),
+  "entryCoins": zod.number().int().min(daily007AdminUpdateKnockoutEventBodyEntryCoinsMin).max(daily007AdminUpdateKnockoutEventBodyEntryCoinsMax),
+  "prizePool": zod.number().int().min(daily007AdminUpdateKnockoutEventBodyPrizePoolMin).max(daily007AdminUpdateKnockoutEventBodyPrizePoolMax),
+  "pointsPerKill": zod.number().int().min(1).max(daily007AdminUpdateKnockoutEventBodyPointsPerKillMax),
+  "round1Eliminated": zod.number().int().min(1),
+  "round2Eliminated": zod.number().int().min(1),
+  "published": zod.boolean()
+})
+
+export const daily007AdminUpdateKnockoutEventResponseEventStagesItemSquadsMin = 2;
+
+export const daily007AdminUpdateKnockoutEventResponseEventStagesItemEliminatedMin = 0;
+
+export const daily007AdminUpdateKnockoutEventResponseEventStagesItemAdvanceMin = 2;
+
+
+
+export const Daily007AdminUpdateKnockoutEventResponse = zod.object({
+  "event": zod.object({
+  "matchId": zod.string().uuid(),
+  "title": zod.string(),
+  "startsAt": zod.coerce.date(),
+  "entryCoins": zod.number().int(),
+  "squadEntryCoins": zod.number().int(),
+  "prizePool": zod.number().int(),
+  "squadCount": zod.number().int(),
+  "playersPerSquad": zod.number().int(),
+  "totalPlayers": zod.number().int(),
+  "stageCount": zod.number().int(),
+  "pointsPerKill": zod.number().int(),
+  "round1Eliminated": zod.number().int(),
+  "round2Eliminated": zod.number().int(),
+  "stages": zod.array(zod.object({
+  "name": zod.enum(['Round 1', 'Round 2', 'Final']),
+  "squads": zod.number().int().min(daily007AdminUpdateKnockoutEventResponseEventStagesItemSquadsMin),
+  "eliminated": zod.number().int().min(daily007AdminUpdateKnockoutEventResponseEventStagesItemEliminatedMin),
+  "advance": zod.number().int().min(daily007AdminUpdateKnockoutEventResponseEventStagesItemAdvanceMin)
+})),
+  "registeredSquads": zod.number().int(),
+  "registeredPlayers": zod.number().int(),
+  "status": zod.enum(['draft', 'upcoming', 'ongoing', 'full', 'cancelled', 'completed']),
+  "published": zod.boolean(),
+  "registrationOpen": zod.boolean()
+})
+})
+
+
+/**
  * Admin only; body may update entryCoins (a nonnegative integer), startsAt (a future ISO timestamp), or both.
  * @summary Configure a match entry price
  */

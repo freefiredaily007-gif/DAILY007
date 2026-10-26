@@ -1,4 +1,4 @@
-const TOURNAMENT_ADMIN_SCREEN_KEYS = new Set(["tournaments", "killEarn", "registrations"]);
+const TOURNAMENT_ADMIN_SCREEN_KEYS = new Set(["tournaments", "killEarn", "registrations", "knockout"]);
 
 function mergeAccessRefreshResponse<T extends { token?: string }>(
   previous: T,
