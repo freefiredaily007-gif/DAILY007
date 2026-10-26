@@ -537,12 +537,14 @@ export function MatchCard({
   roomDetails,
   largeText = false,
   variant = 'default',
+  testID,
 }: {
   t: any;
   onPress?: () => void;
   roomDetails?: React.ReactNode;
   largeText?: boolean;
   variant?: 'default' | 'browse';
+  testID?: string;
 }) {
   const { t: translate } = useTranslation();
   const [failedImageUrl, setFailedImageUrl] = useState('');
@@ -634,6 +636,7 @@ export function MatchCard({
   return (
     <GCard
       onPress={onPress}
+      testID={testID}
       glowColor={s.key === 'ongoing' ? C.neon : undefined}
       style={usesArtCard ? mc.cardWithArt : { marginBottom: 12 }}
     >
@@ -702,7 +705,12 @@ export function MatchCard({
         <View style={[mc.topRow, showBattleRoyalePoster && mc.brPosterTopRow, largeText && mc.topRowLarge]}>
             <View style={[mc.nameWrap, largeText && mc.nameWrapLarge]}>
             <Text style={[mc.mode, largeText && mc.modeLarge]}>{(t?.mode || 'BATTLE ROYALE').toUpperCase()} • {String(t?.teamType || 'Solo').toUpperCase()}</Text>
-            <Text style={[mc.name, largeText && mc.nameLarge]}>{t?.name || t?.title || 'Tournament'}</Text>
+            <Text
+              testID={testID ? `${testID}-name` : undefined}
+              style={[mc.name, largeText && mc.nameLarge]}
+            >
+              {t?.name || t?.title || 'Tournament'}
+            </Text>
           </View>
           <Badge text={s.label} color={s.color} />
         </View>
@@ -714,7 +722,10 @@ export function MatchCard({
             <Text style={[mc.browseMode, largeText && mc.modeLarge]}>
               {translate(modeDisplayName)}
             </Text>
-            <Text style={[mc.browseName, largeText && mc.nameLarge]}>
+            <Text
+              testID={testID ? `${testID}-name` : undefined}
+              style={[mc.browseName, largeText && mc.nameLarge]}
+            >
               {t?.name || t?.title || 'Tournament'}
             </Text>
           </View>
@@ -723,7 +734,7 @@ export function MatchCard({
           {browse ? (
             <View style={[mc.browseDateRow, largeText && mc.metaLarge]}>
               <Feather name="calendar" size={14} color={C.blue} />
-              <Text style={mc.meta}>
+              <Text testID={testID ? `${testID}-date` : undefined} style={mc.meta}>
                 {scheduledDate}{scheduledTime ? ' • ' : ''}
                 {scheduledTime ? <Text style={mc.metaTime}>{fmtTime12(scheduledTime)} IST</Text> : null}
               </Text>
@@ -738,14 +749,20 @@ export function MatchCard({
         </View>
         {browse ? (
           <View style={[mc.statRow, mc.browseStatRow, largeText && mc.statRowLarge]}>
-            <View style={[mc.stat, mc.statDivider, largeText && mc.statLarge]}>
+            <View
+              testID={testID ? `${testID}-metric-prize-pool` : undefined}
+              style={[mc.stat, mc.statDivider, largeText && mc.statLarge]}
+            >
               <Text style={mc.statK}>{translate('PRIZE POOL')}</Text>
               <View style={mc.coinStatValue}>
                 <View style={mc.coinGlyph}><View style={mc.coinGlyphMark} /></View>
                 <Text style={[mc.statV, mc.browseStatV, { color: C.green }]}>{t?.prizePool ?? 0}</Text>
               </View>
             </View>
-            <View style={[mc.stat, mc.statDivider, largeText && mc.statLarge]}>
+            <View
+              testID={testID ? `${testID}-metric-per-kill` : undefined}
+              style={[mc.stat, mc.statDivider, largeText && mc.statLarge]}
+            >
               <Text style={mc.statK}>{translate('PER KILL')}</Text>
               <View style={mc.coinStatValue}>
                 {isKillEarn ? <View style={mc.coinGlyph}><View style={mc.coinGlyphMark} /></View> : null}
@@ -754,7 +771,10 @@ export function MatchCard({
                 </Text>
               </View>
             </View>
-            <View style={[mc.stat, mc.statDivider, largeText && mc.statLarge]}>
+            <View
+              testID={testID ? `${testID}-metric-entry` : undefined}
+              style={[mc.stat, mc.statDivider, largeText && mc.statLarge]}
+            >
               <Text style={mc.statK}>{translate('ENTRY')}</Text>
               <View style={mc.coinStatValue}>
                 <View style={mc.coinGlyph}><View style={mc.coinGlyphMark} /></View>
@@ -785,12 +805,21 @@ export function MatchCard({
           </View>
         )}
         {browse ? (
-          <View style={mc.browseProgress}>
+          <View
+            testID={testID ? `${testID}-progress` : undefined}
+            style={mc.browseProgress}
+          >
             <View style={[mc.browseProgressHead, largeText && mc.browseProgressHeadLarge]}>
-              <Text style={mc.browseProgressCount}>
+              <Text
+                testID={testID ? `${testID}-progress-count` : undefined}
+                style={mc.browseProgressCount}
+              >
                 {safeFilledPlayers}/{safeTotalPlayers} {translate('JOINED')}
               </Text>
-              <Text style={[mc.browseSpots, spotsLeft === 0 && mc.browseSpotsFull]}>
+              <Text
+                testID={testID ? `${testID}-progress-spots` : undefined}
+                style={[mc.browseSpots, spotsLeft === 0 && mc.browseSpotsFull]}
+              >
                 {safeTotalPlayers > 0 ? `${spotsLeft} ${translate('SPOTS LEFT')}` : translate('SLOTS NOT CONFIGURED')}
               </Text>
             </View>
@@ -805,7 +834,10 @@ export function MatchCard({
           </View>
         ) : null}
         {roomDetails}
-        <View style={[mc.joinBtn, largeText && mc.joinBtnLarge, { backgroundColor: ctaBackground, borderColor: ctaBorder }]}>
+        <View
+          testID={testID ? `${testID}-join` : undefined}
+          style={[mc.joinBtn, largeText && mc.joinBtnLarge, { backgroundColor: ctaBackground, borderColor: ctaBorder }]}
+        >
           <Text style={[mc.joinText, largeText && mc.joinTextLarge, { color: ctaColor }]}>{ctaText}</Text>
         </View>
       </View>

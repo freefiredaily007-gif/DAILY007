@@ -1,0 +1,290 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/tournament-native-text-scale-test
+- extendedWaitUntil:
+    visible:
+      id: tournament-text-scale-banner
+    timeout: 15000
+- assertVisible:
+    text: "Tournament card fixture | font scale ${TOURNAMENT_TEXT_SCALE} | large"
+- extendedWaitUntil:
+    visible:
+      text: "Tournament filters fit screen width at ${TOURNAMENT_TEXT_SCALE}x"
+    timeout: 10000
+
+- assertVisible:
+    text: "Selected tournament mode: all"
+- tapOn:
+    id: tournament-mode-tab-battle_royale_kill_earn
+- assertVisible:
+    text: "Selected tournament mode: battle_royale_kill_earn"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-kill-earn-name
+    direction: DOWN
+- assertVisible:
+    text: "International Kill & Earn Championship With Extended Finals Schedule"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-kill-earn-date
+    direction: DOWN
+- assertVisible:
+    text: "28 OCT 2027"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-kill-earn-metric-prize-pool
+    direction: DOWN
+- assertVisible:
+    text: "PRIZE POOL"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-kill-earn-metric-per-kill
+    direction: DOWN
+- assertVisible:
+    text: "PER KILL"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-kill-earn-metric-entry
+    direction: DOWN
+- assertVisible:
+    text: "ENTRY"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-kill-earn-progress-count
+    direction: DOWN
+- assertVisible:
+    text: "16/48 JOINED"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-kill-earn-progress-spots
+    direction: DOWN
+- assertVisible:
+    text: "32 SPOTS LEFT"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-kill-earn-join
+    direction: DOWN
+- assertVisible:
+    text: "JOIN TOURNAMENT"
+- tapOn:
+    id: tournament-card-text-scale-kill-earn-join
+- assertVisible:
+    text: "Opened tournament card: text-scale-kill-earn"
+
+- scrollUntilVisible:
+    element:
+      id: tournament-mode-tab-battle_royale
+    direction: UP
+- tapOn:
+    id: tournament-mode-tab-battle_royale
+- assertVisible:
+    text: "Selected tournament mode: battle_royale"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-br-classic-name
+    direction: DOWN
+- assertVisible:
+    text: "International Battle Royale Classic Championship Across Multiple Regions"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-br-classic-date
+    direction: DOWN
+- assertVisible:
+    text: "28 OCT 2027"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-br-classic-metric-prize-pool
+    direction: DOWN
+- assertVisible:
+    text: "PRIZE POOL"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-br-classic-metric-per-kill
+    direction: DOWN
+- assertVisible:
+    text: "PER KILL"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-br-classic-metric-entry
+    direction: DOWN
+- assertVisible:
+    text: "ENTRY"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-br-classic-progress-count
+    direction: DOWN
+- assertVisible:
+    text: "16/48 JOINED"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-br-classic-progress-spots
+    direction: DOWN
+- assertVisible:
+    text: "32 SPOTS LEFT"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-br-classic-join
+    direction: DOWN
+- assertVisible:
+    text: "JOIN TOURNAMENT"
+- tapOn:
+    id: tournament-card-text-scale-br-classic-join
+- assertVisible:
+    text: "Opened tournament card: text-scale-br-classic"
+
+- scrollUntilVisible:
+    element:
+      id: tournament-mode-tab-clash_squad
+    direction: UP
+- tapOn:
+    id: tournament-mode-tab-clash_squad
+- assertVisible:
+    text: "Selected tournament mode: clash_squad"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-clash-squad-name
+    direction: DOWN
+- assertVisible:
+    text: "International Clash Squad Championship With A Four-Round Final"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-clash-squad-date
+    direction: DOWN
+- assertVisible:
+    text: "28 OCT 2027"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-clash-squad-metric-prize-pool
+    direction: DOWN
+- assertVisible:
+    text: "PRIZE POOL"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-clash-squad-metric-per-kill
+    direction: DOWN
+- assertVisible:
+    text: "PER KILL"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-clash-squad-metric-entry
+    direction: DOWN
+- assertVisible:
+    text: "ENTRY"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-clash-squad-progress-count
+    direction: DOWN
+- assertVisible:
+    text: "16/48 JOINED"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-clash-squad-progress-spots
+    direction: DOWN
+- assertVisible:
+    text: "32 SPOTS LEFT"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-clash-squad-join
+    direction: DOWN
+- assertVisible:
+    text: "JOIN TOURNAMENT"
+- tapOn:
+    id: tournament-card-text-scale-clash-squad-join
+- assertVisible:
+    text: "Opened tournament card: text-scale-clash-squad"
+
+- scrollUntilVisible:
+    element:
+      id: tournament-mode-tab-lone_wolf
+    direction: UP
+- tapOn:
+    id: tournament-mode-tab-lone_wolf
+- assertVisible:
+    text: "Selected tournament mode: lone_wolf"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-lone-wolf-name
+    direction: DOWN
+- assertVisible:
+    text: "International Lone Wolf Championship With Extended Qualifiers"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-lone-wolf-date
+    direction: DOWN
+- assertVisible:
+    text: "28 OCT 2027"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-lone-wolf-metric-prize-pool
+    direction: DOWN
+- assertVisible:
+    text: "PRIZE POOL"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-lone-wolf-metric-per-kill
+    direction: DOWN
+- assertVisible:
+    text: "PER KILL"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-lone-wolf-metric-entry
+    direction: DOWN
+- assertVisible:
+    text: "ENTRY"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-lone-wolf-progress-count
+    direction: DOWN
+- assertVisible:
+    text: "16/48 JOINED"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-lone-wolf-progress-spots
+    direction: DOWN
+- assertVisible:
+    text: "32 SPOTS LEFT"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-lone-wolf-join
+    direction: DOWN
+- assertVisible:
+    text: "JOIN TOURNAMENT"
+- tapOn:
+    id: tournament-card-text-scale-lone-wolf-join
+- assertVisible:
+    text: "Opened tournament card: text-scale-lone-wolf"
+
+- scrollUntilVisible:
+    element:
+      id: tournament-mode-tab-all
+    direction: UP
+- tapOn:
+    id: tournament-mode-tab-all
+- assertVisible:
+    text: "Selected tournament mode: all"
+- scrollUntilVisible:
+    element:
+      id: room-credential-value-room-id
+    direction: DOWN
+- assertVisible:
+    text: "ROOM DETAILS"
+- assertVisible:
+    id: room-credential-value-room-id
+- assertVisible:
+    id: room-credential-value-password
+- assertVisible:
+    text: "Room ID: ROOM-DETAILS-TEST-ID-0123456789"
+- assertVisible:
+    text: "Password: TEST-PASSWORD-0123456789"
+- assertVisible:
+    id: room-credential-copy-room-id
+- assertVisible:
+    id: room-credential-copy-password
+- tapOn:
+    id: room-credential-copy-room-id
+- extendedWaitUntil:
+    visible:
+      text: "Room ID copied to clipboard."
+    timeout: 5000
+

@@ -11,6 +11,7 @@
 - [Daily007 password signup recovery](daily007-password-signup-recovery.md) — after account creation, retry session storage with the returned identity; never repeat registration or unlock protected tabs before persistence.
 - [Daily007 login throttling](daily007-login-throttling.md) — keep abuse limits short-lived, shared across login aliases, and independent of account/email existence.
 - [Expo preview screenshot checks](expo-preview-screenshot-checks.md) — when Expo screenshots appear blank, verify the rendered DOM with local Chromium before changing navigation.
+- [Expo focus-aware fixture previews](expo-focused-fixture-previews.md) — standalone Expo test routes may need a minimal NavigationContext around components that call useFocusEffect.
 - [Expo screen browser previews](expo-admin-vite-preview.md) — use isolated fake identity/API stubs; treat Vite package-export errors as preview-only.
 - [Expo auth browser previews](expo-auth-browser-preview.md) — define Expo dev globals and isolate Expo Router before diagnosing signup UI failures.
 - [Expo fixture component imports](expo-fixture-component-imports.md) — native test routes should import standalone UI components, not screens that pull in the app root.

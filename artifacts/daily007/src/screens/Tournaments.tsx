@@ -8,7 +8,6 @@ import {
   StyleSheet,
   RefreshControl,
   Pressable,
-  ScrollView,
   useWindowDimensions,
 } from 'react-native';
 import * as Network from 'expo-network';
@@ -18,6 +17,7 @@ import { api } from '../lib/api';
 import { C, Loading, MatchCard, SectionTitle, Msg } from '../components/ui';
 import { apiError } from '../lib/api';
 import { RoomCredentialsPanel } from '../components/RoomCredentialsPanel';
+import { TournamentModeFilters } from '../components/TournamentModeFilters';
 import {
   getNextRoomCredentialRefreshAtMs,
   getRoomCredentialSchedule,
@@ -51,26 +51,11 @@ import {
 } from '../lib/tournamentStartAnnouncement';
 import { createTournamentRoomDetailsAnnouncementTracker } from '../lib/tournamentRoomDetailsAnnouncement';
 import { translateExactText } from '../i18n';
-
-const GAME_MODE_FILTERS = [
-  { key: 'all', title: 'ALL', name: 'ALL TOURNAMENTS', gameMode: undefined, accent: C.gold },
-  { key: 'battle_royale_kill_earn', title: 'BR KILL & EARN', name: 'BATTLE ROYALE KILL & EARN', gameMode: 'battle_royale_kill_earn', accent: C.orange },
-  { key: 'battle_royale', title: 'BR CLASSIC', name: 'BATTLE ROYALE CLASSIC', gameMode: 'battle_royale', accent: C.gold },
-  { key: 'clash_squad', title: 'CLASH SQUAD', name: 'CLASH SQUAD', gameMode: 'clash_squad', accent: C.neon },
-  { key: 'lone_wolf', title: 'LONE WOLF', name: 'LONE WOLF', gameMode: 'lone_wolf', accent: C.purple },
-] as const;
-
-function normalizeModeFilter(value: unknown): string {
-  return String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-function resolveModeFilter(value: unknown): (typeof GAME_MODE_FILTERS)[number]['key'] {
-  const normalized = normalizeModeFilter(value);
-  if (!normalized) return 'all';
-  return GAME_MODE_FILTERS.find((filter) =>
-    filter.key !== 'all' && normalizeModeFilter(filter.gameMode) === normalized,
-  )?.key ?? 'all';
-}
+import {
+  GAME_MODE_FILTERS,
+  resolveModeFilter,
+  type TournamentModeFilterKey,
+} from '../lib/tournamentModeFilterOptions';
 
 function announcePlayerLoadStatusOnIOS(message: string): void {
   if (Platform.OS !== 'ios') return;
@@ -133,7 +118,7 @@ export default function Tournaments() {
   const legacyMode = route?.params?.mode as string | undefined;
   const teamType = route?.params?.teamType as string | undefined;
   const routeModeFilter = resolveModeFilter(gameMode || legacyMode);
-  const [selectedModeFilter, setSelectedModeFilter] = useState<string>(routeModeFilter);
+  const [selectedModeFilter, setSelectedModeFilter] = useState<TournamentModeFilterKey>(routeModeFilter);
   const selectedMode = GAME_MODE_FILTERS.find((filter) => filter.key === selectedModeFilter) ?? GAME_MODE_FILTERS[0];
   const heading = selectedMode.key === 'all' ? undefined : translateExactText(selectedMode.name);
   useEffect(() => {
@@ -479,37 +464,6 @@ export default function Tournaments() {
     );
     modeFilterCounts[filter.key] = counts.upcoming.length + counts.ongoing.length + counts.completed.length;
   }
-  const renderModeFilter = (filter: (typeof GAME_MODE_FILTERS)[number]) => {
-    const count = modeFilterCounts[filter.key] ?? 0;
-    const selected = selectedModeFilter === filter.key;
-    return (
-      <Pressable
-        key={filter.key}
-        testID={`tournament-mode-tab-${filter.key}`}
-        accessibilityRole="button"
-        accessibilityState={{ selected }}
-        accessibilityLabel={`${filter.name} tournaments, ${count}`}
-        onPress={() => {
-          setSelectedModeFilter(filter.key);
-          setRegistrationError('');
-        }}
-        style={[
-          s.modeFilterTab,
-          largeText && s.modeFilterTabLarge,
-          selected && { borderColor: filter.accent, backgroundColor: `${filter.accent}22` },
-        ]}
-      >
-        <Text style={[
-          s.modeFilterText,
-          largeText && s.modeFilterTextLarge,
-          selected && { color: filter.accent },
-        ]}>
-          {translateExactText(filter.title)} <Text style={[s.modeFilterCount, selected && { color: filter.accent }]}>{count}</Text>
-        </Text>
-      </Pressable>
-    );
-  };
-
   const onRefresh = async () => {
     if (refreshingRequest.current) return;
     refreshingRequest.current = true;
@@ -577,18 +531,16 @@ export default function Tournaments() {
         ListHeaderComponent={
           <View>
             <SectionTitle accent={C.neon}>{heading ? `${String(heading).toUpperCase()} TOURNAMENTS` : 'ALL TOURNAMENTS'}</SectionTitle>
-            {largeText ? (
-              <View style={s.modeFilterWrap}>{GAME_MODE_FILTERS.map(renderModeFilter)}</View>
-            ) : (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={s.modeFilterContent}
-                style={s.modeFilterScroll}
-              >
-                {GAME_MODE_FILTERS.map(renderModeFilter)}
-              </ScrollView>
-            )}
+            <TournamentModeFilters
+              filters={GAME_MODE_FILTERS}
+              counts={modeFilterCounts}
+              selectedMode={selectedModeFilter}
+              largeText={largeText}
+              onSelect={(key) => {
+                setSelectedModeFilter(key);
+                setRegistrationError('');
+              }}
+            />
             {!registrationOnly && (
               <View style={[s.tabs, largeText && s.tabsLarge]}>
                 {tabs.map((value) => {
@@ -698,25 +650,6 @@ const s = StyleSheet.create({
   },
   tabs: { flexDirection: 'row', gap: 7, marginBottom: 12 },
   tabsLarge: { flexDirection: 'column', alignItems: 'stretch' },
-  modeFilterScroll: { marginBottom: 10 },
-  modeFilterContent: { gap: 8, paddingRight: 8, paddingBottom: 2 },
-  modeFilterWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
-  modeFilterTab: {
-    minWidth: 88,
-    minHeight: 38,
-    paddingHorizontal: 11,
-    paddingVertical: 7,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 11,
-    borderWidth: 1,
-    borderColor: C.border,
-    backgroundColor: C.card,
-  },
-  modeFilterTabLarge: { flexBasis: '47%', flexGrow: 1, minWidth: 0, minHeight: 50 },
-  modeFilterText: { color: C.sub, fontSize: 10, fontWeight: '900', letterSpacing: 0.3, textAlign: 'center' },
-  modeFilterTextLarge: { fontSize: 12, letterSpacing: 0 },
-  modeFilterCount: { color: C.dim, fontSize: 9, fontWeight: '800' },
   tab: {
     flex: 1, minHeight: 38, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center',
     borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: C.card,

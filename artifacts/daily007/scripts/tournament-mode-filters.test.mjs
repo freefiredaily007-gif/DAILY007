@@ -88,6 +88,10 @@ const tournamentsSource = await readFile(
   new URL('../src/screens/Tournaments.tsx', import.meta.url),
   'utf8',
 );
+const tournamentModeFiltersSource = await readFile(
+  new URL('../src/components/TournamentModeFilters.tsx', import.meta.url),
+  'utf8',
+);
 const tournamentsSourceFile = ts.createSourceFile(
   'Tournaments.tsx',
   tournamentsSource,
@@ -848,8 +852,12 @@ test('the tournament screen opens directly on its route mode and supports mode f
     tournamentsSource,
     /const modeScopedTabs = tournamentTabsForRoute\(registrationOpenItems,\s*\{\s*gameMode:\s*selectedMode\.gameMode,\s*teamType:\s*registrationOnly \? teamType : undefined,\s*\},\s*lifecycleOf\)/,
   );
-  assert.match(tournamentsSource, /GAME_MODE_FILTERS\.map\(renderModeFilter\)/);
-  assert.match(tournamentsSource, /onPress=\{\(\) => \{\s*setSelectedModeFilter\(filter\.key\)/);
+  assert.match(tournamentsSource, /<TournamentModeFilters[\s\S]*?filters=\{GAME_MODE_FILTERS\}/);
+  assert.match(tournamentsSource, /onSelect=\{\(key\) => \{\s*setSelectedModeFilter\(key\)/);
+  assert.match(tournamentModeFiltersSource, /testID=\{`tournament-mode-tab-\$\{filter\.key\}`\}/);
+  assert.match(tournamentModeFiltersSource, /onPress=\{\(\) => onSelect\(filter\.key\)\}/);
+  assert.match(tournamentModeFiltersSource, /if \(largeText\)[\s\S]*?flexWrap: 'wrap'/);
+  assert.match(tournamentModeFiltersSource, /modeFilterTabLarge:\s*\{\s*flexBasis: '47%', flexGrow: 1, minWidth: 0, minHeight: 50\s*\}/);
   assert.match(tournamentsSource, /variant="browse"/);
   assert.match(tournamentsSource, /!registrationOnly && \(\s*<View style=\{\[s\.tabs/);
 });

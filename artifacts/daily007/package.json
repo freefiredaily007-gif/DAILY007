@@ -27,6 +27,8 @@
     "test:room-credentials-clock-skew": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/room-credentials-clock-skew.test.mjs",
     "test:tournament-ist-timezone": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tournament-ist-timezone.test.mjs",
     "test:tournament-mode-filters": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/tournament-mode-filters.test.mjs",
+    "test:tournament-native-text-scale": "node --test scripts/tournament-native-text-scale.test.mjs",
+    "test:android-tournament-large-text": "node scripts/run-android-tournament-large-text.mjs",
     "test:kill-earn-admin-flow": "node --test scripts/kill-earn-admin-flow.test.mjs",
     "test:tournament-pull-refresh-native": "node --test scripts/tournament-pull-refresh-native.test.mjs",
     "test:home-match-back-fixture": "node --test scripts/home-match-back-native.test.mjs",
