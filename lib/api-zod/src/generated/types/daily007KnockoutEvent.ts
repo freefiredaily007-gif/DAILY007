@@ -41,6 +41,7 @@ export interface Daily007KnockoutEvent {
   round2Eliminated: number;
   stages: Daily007KnockoutStage[];
   registeredSquads: number;
+  incompleteSquads: number;
   registeredPlayers: number;
   status: Daily007KnockoutEventStatus;
   published: boolean;

@@ -45,6 +45,7 @@ import type {
   Daily007AdminAccountRecoveryReviewResult,
   Daily007AdminApproveLeaderboardPeriodResponse,
   Daily007AdminDeleteTournamentWithoutRefund200,
+  Daily007AdminGetKnockoutRoundResultsParams,
   Daily007AdminGetRechargeProofUrl200,
   Daily007AdminInstagramFollowClaims,
   Daily007AdminKnockoutEventResponse,
@@ -65,6 +66,7 @@ import type {
   Daily007ChangePasswordBody,
   Daily007ChangePasswordResult,
   Daily007CurrentAccount,
+  Daily007GetKnockoutLeaderboardParams,
   Daily007GoogleOwnerRecoveryBody,
   Daily007GoogleOwnerRecoveryResult,
   Daily007GoogleRecoveryRequestAccepted,
@@ -73,8 +75,11 @@ import type {
   Daily007InstagramFollowClaim,
   Daily007InstagramFollowClaimBody,
   Daily007InstagramFollowTaskStatus,
+  Daily007KnockoutAdminResultsResponse,
   Daily007KnockoutEventsResponse,
   Daily007KnockoutLeaderboardResponse,
+  Daily007KnockoutRoundResultBody,
+  Daily007KnockoutRoundResultResponse,
   Daily007KnockoutSettingsBody,
   Daily007LanguagePreference,
   Daily007LanguagePreferenceSaveResult,
@@ -1870,20 +1875,29 @@ export function useDaily007ListPublicKnockoutEvents<TData = Awaited<ReturnType<t
 
 
 
-export const getDaily007GetKnockoutLeaderboardUrl = (id: string,) => {
+export const getDaily007GetKnockoutLeaderboardUrl = (id: string,
+    params?: Daily007GetKnockoutLeaderboardParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/daily007/v2/knockout/events/${id}/leaderboard`
+  return stringifiedParams.length > 0 ? `/api/daily007/v2/knockout/events/${id}/leaderboard?${stringifiedParams}` : `/api/daily007/v2/knockout/events/${id}/leaderboard`
 }
 
 /**
- * @summary List current Knockout squads before stage results are published
+ * @summary List official published Knockout round standings and squad payment status
  */
-export const daily007GetKnockoutLeaderboard = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<Daily007KnockoutLeaderboardResponse> => {
+export const daily007GetKnockoutLeaderboard = async (id: string,
+    params?: Daily007GetKnockoutLeaderboardParams, options?: Parameters<typeof customFetch>[1]): Promise<Daily007KnockoutLeaderboardResponse> => {
 
-  return customFetch<Daily007KnockoutLeaderboardResponse>(getDaily007GetKnockoutLeaderboardUrl(id),
+  return customFetch<Daily007KnockoutLeaderboardResponse>(getDaily007GetKnockoutLeaderboardUrl(id,params),
   {
     ...options,
     method: 'GET'
@@ -1896,23 +1910,25 @@ export const daily007GetKnockoutLeaderboard = async (id: string, options?: Param
 
 
 
-export const getDaily007GetKnockoutLeaderboardQueryKey = (id: string,) => {
+export const getDaily007GetKnockoutLeaderboardQueryKey = (id: string,
+    params?: Daily007GetKnockoutLeaderboardParams,) => {
     return [
-    `/api/daily007/v2/knockout/events/${id}/leaderboard`
+    `/api/daily007/v2/knockout/events/${id}/leaderboard`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getDaily007GetKnockoutLeaderboardQueryOptions = <TData = Awaited<ReturnType<typeof daily007GetKnockoutLeaderboard>>, TError = ErrorType<void>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007GetKnockoutLeaderboard>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getDaily007GetKnockoutLeaderboardQueryOptions = <TData = Awaited<ReturnType<typeof daily007GetKnockoutLeaderboard>>, TError = ErrorType<void>>(id: string,
+    params?: Daily007GetKnockoutLeaderboardParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007GetKnockoutLeaderboard>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getDaily007GetKnockoutLeaderboardQueryKey(id);
+  const queryKey =  queryOptions?.queryKey ?? getDaily007GetKnockoutLeaderboardQueryKey(id,params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007GetKnockoutLeaderboard>>> = ({ signal }) => daily007GetKnockoutLeaderboard(id, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007GetKnockoutLeaderboard>>> = ({ signal }) => daily007GetKnockoutLeaderboard(id,params, { signal, ...requestOptions });
 
 
 
@@ -1926,15 +1942,16 @@ export type Daily007GetKnockoutLeaderboardQueryError = ErrorType<void>
 
 
 /**
- * @summary List current Knockout squads before stage results are published
+ * @summary List official published Knockout round standings and squad payment status
  */
 
 export function useDaily007GetKnockoutLeaderboard<TData = Awaited<ReturnType<typeof daily007GetKnockoutLeaderboard>>, TError = ErrorType<void>>(
- id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007GetKnockoutLeaderboard>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ id: string,
+    params?: Daily007GetKnockoutLeaderboardParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007GetKnockoutLeaderboard>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getDaily007GetKnockoutLeaderboardQueryOptions(id,options)
+  const queryOptions = getDaily007GetKnockoutLeaderboardQueryOptions(id,params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -1946,6 +1963,261 @@ export function useDaily007GetKnockoutLeaderboard<TData = Awaited<ReturnType<typ
 
 
 
+
+export const getDaily007AdminGetKnockoutRoundResultsUrl = (id: string,
+    params: Daily007AdminGetKnockoutRoundResultsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/daily007/v2/admin/knockout/events/${id}/results?${stringifiedParams}` : `/api/daily007/v2/admin/knockout/events/${id}/results`
+}
+
+/**
+ * @summary View Knockout squads, payment states, and results for one round
+ */
+export const daily007AdminGetKnockoutRoundResults = async (id: string,
+    params: Daily007AdminGetKnockoutRoundResultsParams, options?: Parameters<typeof customFetch>[1]): Promise<Daily007KnockoutAdminResultsResponse> => {
+
+  return customFetch<Daily007KnockoutAdminResultsResponse>(getDaily007AdminGetKnockoutRoundResultsUrl(id,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminGetKnockoutRoundResultsQueryKey = (id: string,
+    params?: Daily007AdminGetKnockoutRoundResultsParams,) => {
+    return [
+    `/api/daily007/v2/admin/knockout/events/${id}/results`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getDaily007AdminGetKnockoutRoundResultsQueryOptions = <TData = Awaited<ReturnType<typeof daily007AdminGetKnockoutRoundResults>>, TError = ErrorType<void>>(id: string,
+    params: Daily007AdminGetKnockoutRoundResultsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminGetKnockoutRoundResults>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDaily007AdminGetKnockoutRoundResultsQueryKey(id,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007AdminGetKnockoutRoundResults>>> = ({ signal }) => daily007AdminGetKnockoutRoundResults(id,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof daily007AdminGetKnockoutRoundResults>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type Daily007AdminGetKnockoutRoundResultsQueryResult = NonNullable<Awaited<ReturnType<typeof daily007AdminGetKnockoutRoundResults>>>
+export type Daily007AdminGetKnockoutRoundResultsQueryError = ErrorType<void>
+
+
+/**
+ * @summary View Knockout squads, payment states, and results for one round
+ */
+
+export function useDaily007AdminGetKnockoutRoundResults<TData = Awaited<ReturnType<typeof daily007AdminGetKnockoutRoundResults>>, TError = ErrorType<void>>(
+ id: string,
+    params: Daily007AdminGetKnockoutRoundResultsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminGetKnockoutRoundResults>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDaily007AdminGetKnockoutRoundResultsQueryOptions(id,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDaily007AdminSaveKnockoutRoundResultUrl = (id: string,) => {
+
+
+
+
+  return `/api/daily007/v2/admin/knockout/events/${id}/results`
+}
+
+/**
+ * Saves one squad-level kill total and placement. Round points are calculated and validated by the server. Saving edits a published result back to draft.
+ * @summary Save a calculated Knockout squad result as a draft
+ */
+export const daily007AdminSaveKnockoutRoundResult = async (id: string,
+    daily007KnockoutRoundResultBody: Daily007KnockoutRoundResultBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007KnockoutRoundResultResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Daily007KnockoutRoundResultResponse>(getDaily007AdminSaveKnockoutRoundResultUrl(id),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(daily007KnockoutRoundResultBody)
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminSaveKnockoutRoundResultMutationKey = () => ['daily007AdminSaveKnockoutRoundResult'] as const;
+
+export const getDaily007AdminSaveKnockoutRoundResultMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminSaveKnockoutRoundResult>>, TError,Daily007AdminSaveKnockoutRoundResultMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007AdminSaveKnockoutRoundResult>>, TError,Daily007AdminSaveKnockoutRoundResultMutationVariables, TContext> => {
+
+const mutationKey = getDaily007AdminSaveKnockoutRoundResultMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007AdminSaveKnockoutRoundResult>>, Daily007AdminSaveKnockoutRoundResultMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  daily007AdminSaveKnockoutRoundResult(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007AdminSaveKnockoutRoundResultMutationResult = NonNullable<Awaited<ReturnType<typeof daily007AdminSaveKnockoutRoundResult>>>
+    export type Daily007AdminSaveKnockoutRoundResultMutationBody = BodyType<Daily007KnockoutRoundResultBody>
+    export type Daily007AdminSaveKnockoutRoundResultMutationError = ErrorType<void>
+    export type Daily007AdminSaveKnockoutRoundResultMutationVariables = {id: string;data: BodyType<Daily007KnockoutRoundResultBody>}
+
+    /**
+ * @summary Save a calculated Knockout squad result as a draft
+ */
+export const useDaily007AdminSaveKnockoutRoundResult = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminSaveKnockoutRoundResult>>, TError,Daily007AdminSaveKnockoutRoundResultMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007AdminSaveKnockoutRoundResult>>,
+        TError,
+        Daily007AdminSaveKnockoutRoundResultMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007AdminSaveKnockoutRoundResultMutationOptions(options));
+    }
+
+export const getDaily007AdminPublishKnockoutRoundResultUrl = (id: string,
+    resultId: string,) => {
+
+
+
+
+  return `/api/daily007/v2/admin/knockout/events/${id}/results/${resultId}/publish`
+}
+
+/**
+ * @summary Publish a saved Knockout round result to official rankings
+ */
+export const daily007AdminPublishKnockoutRoundResult = async (id: string,
+    resultId: string, options?: Parameters<typeof customFetch>[1]): Promise<Daily007KnockoutRoundResultResponse> => {
+
+  return customFetch<Daily007KnockoutRoundResultResponse>(getDaily007AdminPublishKnockoutRoundResultUrl(id,resultId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminPublishKnockoutRoundResultMutationKey = () => ['daily007AdminPublishKnockoutRoundResult'] as const;
+
+export const getDaily007AdminPublishKnockoutRoundResultMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminPublishKnockoutRoundResult>>, TError,Daily007AdminPublishKnockoutRoundResultMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007AdminPublishKnockoutRoundResult>>, TError,Daily007AdminPublishKnockoutRoundResultMutationVariables, TContext> => {
+
+const mutationKey = getDaily007AdminPublishKnockoutRoundResultMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007AdminPublishKnockoutRoundResult>>, Daily007AdminPublishKnockoutRoundResultMutationVariables> = (props) => {
+          const {id,resultId} = props ?? {};
+
+          return  daily007AdminPublishKnockoutRoundResult(id,resultId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007AdminPublishKnockoutRoundResultMutationResult = NonNullable<Awaited<ReturnType<typeof daily007AdminPublishKnockoutRoundResult>>>
+
+    export type Daily007AdminPublishKnockoutRoundResultMutationError = ErrorType<void>
+    export type Daily007AdminPublishKnockoutRoundResultMutationVariables = {id: string;resultId: string}
+
+    /**
+ * @summary Publish a saved Knockout round result to official rankings
+ */
+export const useDaily007AdminPublishKnockoutRoundResult = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminPublishKnockoutRoundResult>>, TError,Daily007AdminPublishKnockoutRoundResultMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007AdminPublishKnockoutRoundResult>>,
+        TError,
+        Daily007AdminPublishKnockoutRoundResultMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007AdminPublishKnockoutRoundResultMutationOptions(options));
+    }
 
 export const getDaily007AdminListKnockoutEventsUrl = () => {
 

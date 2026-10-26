@@ -105,6 +105,7 @@ export interface Daily007KnockoutEvent {
   round2Eliminated: number;
   stages: Daily007KnockoutStage[];
   registeredSquads: number;
+  incompleteSquads: number;
   registeredPlayers: number;
   status: Daily007KnockoutEventStatus;
   published: boolean;
@@ -139,24 +140,169 @@ export interface Daily007AdminKnockoutEventResponse {
   event: Daily007KnockoutEvent;
 }
 
+export type Daily007KnockoutRound = typeof Daily007KnockoutRound[keyof typeof Daily007KnockoutRound];
+
+
+export const Daily007KnockoutRound = {
+  round_1: 'round_1',
+  round_2: 'round_2',
+  final: 'final',
+} as const;
+
+export type Daily007KnockoutPaymentStatus = typeof Daily007KnockoutPaymentStatus[keyof typeof Daily007KnockoutPaymentStatus];
+
+
+export const Daily007KnockoutPaymentStatus = {
+  paid: 'paid',
+  pending: 'pending',
+  unpaid: 'unpaid',
+  open: 'open',
+} as const;
+
 export interface Daily007KnockoutLeaderboardPlayer {
   playerName: string;
   slotNumber: number;
+  paymentStatus: Daily007KnockoutPaymentStatus;
+  paidByCaptain: boolean;
 }
 
 export interface Daily007KnockoutLeaderboardSquad {
   teamNumber: number;
   teamName: string;
   registeredPlayers: number;
+  confirmed: boolean;
   players: Daily007KnockoutLeaderboardPlayer[];
+  /** @nullable */
+  officialRank: number | null;
+  /** @nullable */
+  placement: number | null;
+  /** @nullable */
+  squadKills: number | null;
+  /** @nullable */
+  placementPoints: number | null;
+  /** @nullable */
+  pointsPerKill: number | null;
+  /** @nullable */
+  roundPoints: number | null;
   resultStatus: string;
 }
 
 export interface Daily007KnockoutLeaderboardResponse {
   matchId: string;
   stage: string;
+  round: Daily007KnockoutRound;
   standings: Daily007KnockoutLeaderboardSquad[];
   message: string;
+}
+
+export type Daily007KnockoutRoundResultStatus = typeof Daily007KnockoutRoundResultStatus[keyof typeof Daily007KnockoutRoundResultStatus];
+
+
+export const Daily007KnockoutRoundResultStatus = {
+  draft: 'draft',
+  published: 'published',
+} as const;
+
+export interface Daily007KnockoutRoundResult {
+  id: string;
+  round: Daily007KnockoutRound;
+  /**
+     * @minimum 1
+     * @maximum 12
+     */
+  teamNumber: number;
+  /**
+     * @minimum 1
+     * @maximum 12
+     */
+  placement: number;
+  /**
+     * @minimum 0
+     * @maximum 100000
+     */
+  squadKills: number;
+  /**
+     * @minimum 0
+     * @maximum 12
+     */
+  placementPoints: number;
+  /**
+     * @minimum 1
+     * @maximum 1000
+     */
+  pointsPerKill: number;
+  /** @minimum 0 */
+  roundPoints: number;
+  status: Daily007KnockoutRoundResultStatus;
+  createdAt: string;
+  updatedAt: string;
+  /** @nullable */
+  publishedAt: string | null;
+}
+
+export interface Daily007KnockoutAdminPlayer {
+  playerName: string;
+  /**
+     * @minimum 1
+     * @maximum 4
+     */
+  slotNumber: number;
+  paymentStatus: Daily007KnockoutPaymentStatus;
+  /** @minimum 0 */
+  entryCoinsPaid: number;
+  paidByCaptain: boolean;
+}
+
+export interface Daily007KnockoutAdminSquad {
+  /**
+     * @minimum 1
+     * @maximum 12
+     */
+  teamNumber: number;
+  teamName: string;
+  /**
+     * @minimum 0
+     * @maximum 4
+     */
+  registeredPlayers: number;
+  confirmed: boolean;
+  players: Daily007KnockoutAdminPlayer[];
+}
+
+export interface Daily007KnockoutAdminResultsResponse {
+  matchId: string;
+  round: Daily007KnockoutRound;
+  /**
+     * @minimum 1
+     * @maximum 1000
+     */
+  pointsPerKill: number;
+  squads: Daily007KnockoutAdminSquad[];
+  results: Daily007KnockoutRoundResult[];
+}
+
+export interface Daily007KnockoutRoundResultBody {
+  round: Daily007KnockoutRound;
+  /**
+     * @minimum 1
+     * @maximum 12
+     */
+  teamNumber: number;
+  /**
+     * @minimum 1
+     * @maximum 12
+     */
+  placement: number;
+  /**
+     * @minimum 0
+     * @maximum 100000
+     */
+  squadKills: number;
+}
+
+export interface Daily007KnockoutRoundResultResponse {
+  result: Daily007KnockoutRoundResult;
+  alreadyPublished: boolean;
 }
 
 export type Daily007AdminTournamentSlotUnit = typeof Daily007AdminTournamentSlotUnit[keyof typeof Daily007AdminTournamentSlotUnit];
@@ -2099,6 +2245,14 @@ export interface Daily007AdminApproveLeaderboardPeriodResponse {
   rewards: Daily007LeaderboardPayout[];
   payouts: Daily007AdminLeaderboardApprovedPayout[];
 }
+
+export type Daily007GetKnockoutLeaderboardParams = {
+round?: Daily007KnockoutRound;
+};
+
+export type Daily007AdminGetKnockoutRoundResultsParams = {
+round: Daily007KnockoutRound;
+};
 
 /**
  * Optional field-keyed validation messages; absent for capacity, network, and database failures.

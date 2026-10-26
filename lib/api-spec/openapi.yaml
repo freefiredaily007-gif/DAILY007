@@ -368,17 +368,74 @@ paths:
   /daily007/v2/knockout/events/{id}/leaderboard:
     get:
       operationId: daily007GetKnockoutLeaderboard
-      summary: List current Knockout squads before stage results are published
+      summary: List official published Knockout round standings and squad payment status
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: round, in: query, required: false, schema: { $ref: "#/components/schemas/Daily007KnockoutRound" } }
       responses:
         "200":
-          description: Registered squad rosters and stage-result state
+          description: Registered rosters and published scores for the selected round; drafts are excluded
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Daily007KnockoutLeaderboardResponse" }
         "400": { description: Invalid tournament id }
         "404": { description: Knockout tournament not found }
+  /daily007/v2/admin/knockout/events/{id}/results:
+    get:
+      operationId: daily007AdminGetKnockoutRoundResults
+      summary: View Knockout squads, payment states, and results for one round
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: round, in: query, required: true, schema: { $ref: "#/components/schemas/Daily007KnockoutRound" } }
+      responses:
+        "200":
+          description: Squad registration states and draft/published round results
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007KnockoutAdminResultsResponse" }
+        "400": { description: "Invalid tournament id or round" }
+        "403": { description: Tournament administrator required }
+        "404": { description: Knockout event not found }
+    put:
+      operationId: daily007AdminSaveKnockoutRoundResult
+      summary: Save a calculated Knockout squad result as a draft
+      description: Saves one squad-level kill total and placement. Round points are calculated and validated by the server. Saving edits a published result back to draft.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007KnockoutRoundResultBody" }
+      responses:
+        "200":
+          description: Draft result saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007KnockoutRoundResultResponse" }
+        "400": { description: "Invalid placement, kill count, or round" }
+        "403": { description: Tournament administrator required }
+        "404": { description: Event or confirmed squad not found }
+        "409": { description: "Duplicate placement, invalid stage, or result locked by later round data" }
+  /daily007/v2/admin/knockout/events/{id}/results/{resultId}/publish:
+    post:
+      operationId: daily007AdminPublishKnockoutRoundResult
+      summary: Publish a saved Knockout round result to official rankings
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: resultId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Result published or already published
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007KnockoutRoundResultResponse" }
+        "403": { description: Tournament administrator required }
+        "404": { description: Event or result not found }
+        "409": { description: Squad is no longer confirmed or result is locked }
   /daily007/v2/admin/knockout/events:
     get:
       operationId: daily007AdminListKnockoutEvents
@@ -1678,6 +1735,7 @@ components:
           type: array
           items: { $ref: "#/components/schemas/Daily007KnockoutStage" }
         registeredSquads: { type: integer }
+        incompleteSquads: { type: integer }
         registeredPlayers: { type: integer }
         status: { type: string, enum: [draft, upcoming, ongoing, full, cancelled, completed] }
         published: { type: boolean }
@@ -1698,6 +1756,7 @@ components:
         - round2Eliminated
         - stages
         - registeredSquads
+        - incompleteSquads
         - registeredPlayers
         - status
         - published
@@ -1752,33 +1811,124 @@ components:
       properties:
         event: { $ref: "#/components/schemas/Daily007KnockoutEvent" }
       required: [event]
+    Daily007KnockoutRound:
+      type: string
+      enum: [round_1, round_2, final]
+    Daily007KnockoutPaymentStatus:
+      type: string
+      enum: [paid, pending, unpaid, open]
     Daily007KnockoutLeaderboardPlayer:
       type: object
       properties:
         playerName: { type: string }
         slotNumber: { type: integer }
-      required: [playerName, slotNumber]
+        paymentStatus: { $ref: "#/components/schemas/Daily007KnockoutPaymentStatus" }
+        paidByCaptain: { type: boolean }
+      required: [playerName, slotNumber, paymentStatus, paidByCaptain]
     Daily007KnockoutLeaderboardSquad:
       type: object
       properties:
         teamNumber: { type: integer }
         teamName: { type: string }
         registeredPlayers: { type: integer }
+        confirmed: { type: boolean }
         players:
           type: array
           items: { $ref: "#/components/schemas/Daily007KnockoutLeaderboardPlayer" }
+        officialRank: { type: ["integer", "null"] }
+        placement: { type: ["integer", "null"] }
+        squadKills: { type: ["integer", "null"] }
+        placementPoints: { type: ["integer", "null"] }
+        pointsPerKill: { type: ["integer", "null"] }
+        roundPoints: { type: ["integer", "null"] }
         resultStatus: { type: string }
-      required: [teamNumber, teamName, registeredPlayers, players, resultStatus]
+      required:
+        - teamNumber
+        - teamName
+        - registeredPlayers
+        - confirmed
+        - players
+        - officialRank
+        - placement
+        - squadKills
+        - placementPoints
+        - pointsPerKill
+        - roundPoints
+        - resultStatus
     Daily007KnockoutLeaderboardResponse:
       type: object
       properties:
         matchId: { type: string, format: uuid }
         stage: { type: string }
+        round: { $ref: "#/components/schemas/Daily007KnockoutRound" }
         standings:
           type: array
           items: { $ref: "#/components/schemas/Daily007KnockoutLeaderboardSquad" }
         message: { type: string }
-      required: [matchId, stage, standings, message]
+      required: [matchId, stage, round, standings, message]
+    Daily007KnockoutRoundResult:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        round: { $ref: "#/components/schemas/Daily007KnockoutRound" }
+        teamNumber: { type: integer, minimum: 1, maximum: 12 }
+        placement: { type: integer, minimum: 1, maximum: 12 }
+        squadKills: { type: integer, minimum: 0, maximum: 100000 }
+        placementPoints: { type: integer, minimum: 0, maximum: 12 }
+        pointsPerKill: { type: integer, minimum: 1, maximum: 1000 }
+        roundPoints: { type: integer, minimum: 0 }
+        status: { type: string, enum: [draft, published] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        publishedAt: { type: ["string", "null"], format: date-time }
+      required: [id, round, teamNumber, placement, squadKills, placementPoints, pointsPerKill, roundPoints, status, createdAt, updatedAt, publishedAt]
+    Daily007KnockoutAdminPlayer:
+      type: object
+      properties:
+        playerName: { type: string }
+        slotNumber: { type: integer, minimum: 1, maximum: 4 }
+        paymentStatus: { $ref: "#/components/schemas/Daily007KnockoutPaymentStatus" }
+        entryCoinsPaid: { type: integer, minimum: 0 }
+        paidByCaptain: { type: boolean }
+      required: [playerName, slotNumber, paymentStatus, entryCoinsPaid, paidByCaptain]
+    Daily007KnockoutAdminSquad:
+      type: object
+      properties:
+        teamNumber: { type: integer, minimum: 1, maximum: 12 }
+        teamName: { type: string }
+        registeredPlayers: { type: integer, minimum: 0, maximum: 4 }
+        confirmed: { type: boolean }
+        players:
+          type: array
+          items: { $ref: "#/components/schemas/Daily007KnockoutAdminPlayer" }
+      required: [teamNumber, teamName, registeredPlayers, confirmed, players]
+    Daily007KnockoutAdminResultsResponse:
+      type: object
+      properties:
+        matchId: { type: string, format: uuid }
+        round: { $ref: "#/components/schemas/Daily007KnockoutRound" }
+        pointsPerKill: { type: integer, minimum: 1, maximum: 1000 }
+        squads:
+          type: array
+          items: { $ref: "#/components/schemas/Daily007KnockoutAdminSquad" }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/Daily007KnockoutRoundResult" }
+      required: [matchId, round, pointsPerKill, squads, results]
+    Daily007KnockoutRoundResultBody:
+      type: object
+      properties:
+        round: { $ref: "#/components/schemas/Daily007KnockoutRound" }
+        teamNumber: { type: integer, minimum: 1, maximum: 12 }
+        placement: { type: integer, minimum: 1, maximum: 12 }
+        squadKills: { type: integer, minimum: 0, maximum: 100000 }
+      required: [round, teamNumber, placement, squadKills]
+    Daily007KnockoutRoundResultResponse:
+      type: object
+      properties:
+        result: { $ref: "#/components/schemas/Daily007KnockoutRoundResult" }
+        alreadyPublished: { type: boolean }
+      required: [result, alreadyPublished]
     Daily007AdminTournament:
       type: object
       properties:

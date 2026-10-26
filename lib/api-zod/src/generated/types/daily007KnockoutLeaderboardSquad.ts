@@ -28,6 +28,19 @@ export interface Daily007KnockoutLeaderboardSquad {
   teamNumber: number;
   teamName: string;
   registeredPlayers: number;
+  confirmed: boolean;
   players: Daily007KnockoutLeaderboardPlayer[];
+  /** @nullable */
+  officialRank: number | null;
+  /** @nullable */
+  placement: number | null;
+  /** @nullable */
+  squadKills: number | null;
+  /** @nullable */
+  placementPoints: number | null;
+  /** @nullable */
+  pointsPerKill: number | null;
+  /** @nullable */
+  roundPoints: number | null;
   resultStatus: string;
 }

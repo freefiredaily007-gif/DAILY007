@@ -181,6 +181,49 @@ export const daily007KnockoutEventsTable = pgTable("daily007_knockout_events", {
   index("daily007_knockout_events_updated_at_idx").on(table.updatedAt),
 ]);
 
+export const daily007KnockoutRoundResultsTable = pgTable("daily007_knockout_round_results", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  matchId: uuid("match_id").notNull()
+    .references(() => daily007KnockoutEventsTable.matchId, { onDelete: "cascade" }),
+  roundName: text("round_name").notNull(),
+  teamNumber: integer("team_number").notNull(),
+  placement: integer("placement").notNull(),
+  placementPoints: integer("placement_points").notNull(),
+  squadKills: integer("squad_kills").notNull(),
+  pointsPerKill: integer("points_per_kill").notNull(),
+  roundPoints: integer("round_points").notNull(),
+  status: text("status").notNull().default("draft"),
+  createdByUserId: uuid("created_by_user_id")
+    .references(() => daily007UsersTable.id, { onDelete: "set null" }),
+  updatedByUserId: uuid("updated_by_user_id")
+    .references(() => daily007UsersTable.id, { onDelete: "set null" }),
+  publishedByUserId: uuid("published_by_user_id")
+    .references(() => daily007UsersTable.id, { onDelete: "set null" }),
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  unique("daily007_knockout_result_team_round_unique")
+    .on(table.matchId, table.roundName, table.teamNumber),
+  unique("daily007_knockout_result_placement_round_unique")
+    .on(table.matchId, table.roundName, table.placement),
+  check("daily007_knockout_result_round_valid", sql`${table.roundName} IN ('round_1', 'round_2', 'final')`),
+  check("daily007_knockout_result_team_number_valid", sql`${table.teamNumber} BETWEEN 1 AND 12`),
+  check("daily007_knockout_result_placement_valid", sql`${table.placement} BETWEEN 1 AND 12`),
+  check("daily007_knockout_result_placement_points_valid", sql`${table.placementPoints} BETWEEN 0 AND 12`),
+  check("daily007_knockout_result_squad_kills_valid", sql`${table.squadKills} BETWEEN 0 AND 100000`),
+  check("daily007_knockout_result_points_per_kill_valid", sql`${table.pointsPerKill} BETWEEN 1 AND 1000`),
+  check("daily007_knockout_result_points_valid", sql`
+    ${table.roundPoints} = ${table.placementPoints} + (${table.squadKills} * ${table.pointsPerKill})
+  `),
+  check("daily007_knockout_result_status_valid", sql`${table.status} IN ('draft', 'published')`),
+  check("daily007_knockout_result_published_state_valid", sql`
+    (${table.status} = 'draft' AND ${table.publishedAt} IS NULL AND ${table.publishedByUserId} IS NULL)
+    OR (${table.status} = 'published' AND ${table.publishedAt} IS NOT NULL)
+  `),
+  index("daily007_knockout_results_round_status_idx").on(table.matchId, table.roundName, table.status),
+]);
+
 export const daily007RegistrationsTable = pgTable("daily007_v2_registrations", {
   id: uuid("id").defaultRandom().primaryKey(),
   matchId: uuid("match_id").notNull().references(() => daily007MatchesTable.id, { onDelete: "cascade" }),

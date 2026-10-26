@@ -22,8 +22,11 @@
  *
  * OpenAPI spec version: 0.1.0
  */
+import type { Daily007KnockoutPaymentStatus } from './daily007KnockoutPaymentStatus';
 
 export interface Daily007KnockoutLeaderboardPlayer {
   playerName: string;
   slotNumber: number;
+  paymentStatus: Daily007KnockoutPaymentStatus;
+  paidByCaptain: boolean;
 }

@@ -716,7 +716,9 @@ router.get("/daily007/v2/matches/:id/squad-slots", authenticate, async (req, res
         `SELECT m.mode, m.game_mode, m.team_type, m.capacity, m.status, m.enabled,
                 m.starts_at > clock_timestamp() + interval '5 hours 30 minutes' AS registration_open,
                 m.starts_at > clock_timestamp() + interval '6 hours' AS edit_open,
-                EXISTS (SELECT 1 FROM daily007_v2_result_awards a WHERE a.match_id = m.id) AS has_result
+                (EXISTS (SELECT 1 FROM daily007_v2_result_awards a WHERE a.match_id = m.id)
+                 OR EXISTS (SELECT 1 FROM daily007_knockout_round_results result WHERE result.match_id = m.id))
+                  AS has_result
            FROM daily007_v2_matches m WHERE m.id = $1 FOR UPDATE`,
         [matchId],
       );
@@ -852,7 +854,9 @@ router.post(
         }>(
           `SELECT m.title, m.mode, m.game_mode, m.team_type, m.capacity, m.status, m.enabled, m.entry_coins,
                   m.starts_at > clock_timestamp() + interval '5 hours 30 minutes' AS registration_open,
-                  EXISTS (SELECT 1 FROM daily007_v2_result_awards a WHERE a.match_id = m.id) AS has_result
+                  (EXISTS (SELECT 1 FROM daily007_v2_result_awards a WHERE a.match_id = m.id)
+                   OR EXISTS (SELECT 1 FROM daily007_knockout_round_results result WHERE result.match_id = m.id))
+                    AS has_result
              FROM daily007_v2_matches m WHERE m.id = $1 FOR UPDATE`,
           [matchId],
         );
@@ -1029,10 +1033,14 @@ router.post("/daily007/v2/matches/:id/squad-join", authenticate, async (req, res
     const result = await withTransaction(async (client) => {
       const matchResult = await client.query<{
         mode: string; game_mode: string | null; team_type: string | null;
-        capacity: number; status: string; enabled: boolean; entry_coins: number; registration_open: boolean;
+          capacity: number; status: string; enabled: boolean; entry_coins: number;
+          registration_open: boolean; has_result: boolean;
       }>(
         `SELECT m.mode, m.game_mode, m.team_type, m.capacity, m.status, m.enabled, m.entry_coins,
-                m.starts_at > clock_timestamp() + interval '5 hours 30 minutes' AS registration_open
+                  m.starts_at > clock_timestamp() + interval '5 hours 30 minutes' AS registration_open,
+                  (EXISTS (SELECT 1 FROM daily007_v2_result_awards a WHERE a.match_id = m.id)
+                   OR EXISTS (SELECT 1 FROM daily007_knockout_round_results result WHERE result.match_id = m.id))
+                    AS has_result
            FROM daily007_v2_matches m WHERE m.id = $1 FOR UPDATE`,
         [matchId],
       );
@@ -1093,7 +1101,8 @@ router.post("/daily007/v2/matches/:id/squad-join", authenticate, async (req, res
           status: 409, code: REGISTRATION_CONFLICT_CODES.alreadyRegistered,
         });
       }
-      if (!match.enabled || ["cancelled", "live", "closed", "completed"].includes(match.status)) {
+       if (!match.enabled || match.has_result ||
+           ["cancelled", "live", "closed", "completed"].includes(match.status)) {
         throw Object.assign(new Error("This tournament is not accepting registrations."), {
           status: 409, code: REGISTRATION_CONFLICT_CODES.tournamentDisabled,
         });
@@ -1253,7 +1262,9 @@ router.delete(
         }>(
           `SELECT m.mode, m.game_mode, m.team_type, m.status, m.enabled,
                   m.starts_at > clock_timestamp() + interval '6 hours' AS edit_open,
-                  EXISTS (SELECT 1 FROM daily007_v2_result_awards a WHERE a.match_id = m.id) AS has_result
+                  (EXISTS (SELECT 1 FROM daily007_v2_result_awards a WHERE a.match_id = m.id)
+                   OR EXISTS (SELECT 1 FROM daily007_knockout_round_results result WHERE result.match_id = m.id))
+                    AS has_result
              FROM daily007_v2_matches m WHERE m.id = $1 FOR UPDATE`,
           [matchId],
         );

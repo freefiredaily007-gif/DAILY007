@@ -23,10 +23,12 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { Daily007KnockoutLeaderboardSquad } from './daily007KnockoutLeaderboardSquad';
+import type { Daily007KnockoutRound } from './daily007KnockoutRound';
 
 export interface Daily007KnockoutLeaderboardResponse {
   matchId: string;
   stage: string;
+  round: Daily007KnockoutRound;
   standings: Daily007KnockoutLeaderboardSquad[];
   message: string;
 }
