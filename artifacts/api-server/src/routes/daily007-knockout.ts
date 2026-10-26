@@ -17,6 +17,11 @@ import {
   type KnockoutTieDecision,
   type KnockoutRound,
 } from "../lib/daily007-knockout-results";
+import {
+  KNOCKOUT_PRIZE_DISTRIBUTION,
+  buildKnockoutPrizeAwards,
+  type KnockoutPrizeRecipient,
+} from "../lib/daily007-knockout-prizes";
 import { authenticate, requireTournamentAdmin, withDaily007RoleTransaction } from "./daily007-v2";
 
 const router: IRouter = Router();
@@ -75,6 +80,41 @@ type KnockoutSquad = {
 
 function fail(res: Response, status: number, error: string): void {
   res.status(status).json({ error });
+}
+
+async function recordKnockoutAudit(
+  client: KnockoutQueryClient,
+  input: {
+    matchId: string;
+    adminId: string;
+    action: string;
+    round?: KnockoutRound | null;
+    teamNumber?: number | null;
+    reason?: string | null;
+    beforeState?: unknown;
+    afterState?: unknown;
+  },
+): Promise<void> {
+  await client.query(
+    `INSERT INTO daily007_knockout_audit
+       (match_id, round_name, team_number, action, admin_user_id, admin_name,
+        reason, before_state, after_state)
+     VALUES (
+       $1, $2, $3, $4, $5,
+       COALESCE((SELECT NULLIF(name, '') FROM daily007_v2_users WHERE id = $5), 'Admin'),
+       $6, $7::jsonb, $8::jsonb
+     )`,
+    [
+      input.matchId,
+      input.round ?? null,
+      input.teamNumber ?? null,
+      input.action,
+      input.adminId,
+      input.reason ?? null,
+      input.beforeState === undefined ? null : JSON.stringify(input.beforeState),
+      input.afterState === undefined ? null : JSON.stringify(input.afterState),
+    ],
+  );
 }
 
 async function listKnockoutSquads(
@@ -311,6 +351,7 @@ function serializeEvent(row: KnockoutRow) {
     entryCoins: Number(row.entryCoins),
     squadEntryCoins: Number(row.entryCoins) * 4,
     prizePool: Number(row.prizePool),
+    prizeDistribution: KNOCKOUT_PRIZE_DISTRIBUTION,
     squadCount: Number(row.squadCount),
     playersPerSquad: 4,
     totalPlayers: Number(row.squadCount) * 4,
@@ -325,6 +366,181 @@ function serializeEvent(row: KnockoutRow) {
     status,
     published: Boolean(row.enabled) || row.status === "completed" || row.status === "cancelled",
     registrationOpen: status === "upcoming",
+  };
+}
+
+type KnockoutPrizePreviewAward = KnockoutPrizeRecipient & {
+  squadPrizeCoins: number;
+  playerPrizeCoins: number;
+  status: "pending_approval" | "credited";
+  walletLedgerId: string | null;
+};
+
+async function loadKnockoutPrizePreview(
+  client: KnockoutQueryClient,
+  matchId: string,
+): Promise<{
+  matchId: string;
+  tournamentName: string;
+  prizePool: number;
+  status: "awaiting_final" | "pending_approval" | "credited" | "blocked";
+  message: string;
+  totalCoins: number;
+  canApprove: boolean;
+  approvedAt: string | null;
+  awards: KnockoutPrizePreviewAward[];
+}> {
+  const eventResult = await client.query<{
+    title: string;
+    prize_pool: number;
+    capacity: number;
+    status: string;
+    entry_coins: number;
+    round1_eliminated: number;
+    round2_eliminated: number;
+  }>(
+    `SELECT m.title, m.prize_pool, m.capacity, m.status, m.entry_coins,
+            settings.round1_eliminated, settings.round2_eliminated
+       FROM daily007_knockout_events settings
+       JOIN daily007_v2_matches m ON m.id = settings.match_id
+      WHERE m.id = $1`,
+    [matchId],
+  );
+  const event = eventResult.rows[0];
+  if (!event) throw Object.assign(new Error("Knockout tournament not found."), { status: 404 });
+  const config: KnockoutStageConfig = {
+    squadCount: Number(event.capacity),
+    round1Eliminated: Number(event.round1_eliminated),
+    round2Eliminated: Number(event.round2_eliminated),
+  };
+  const finalProgress = await client.query<{ stage_rank: number; status: string }>(
+    `SELECT stage_rank, status
+       FROM daily007_knockout_stage_progress
+      WHERE match_id = $1 AND round_name = 'final'
+      ORDER BY stage_rank`,
+    [matchId],
+  );
+  const base = {
+    matchId,
+    tournamentName: event.title,
+    prizePool: Number(event.prize_pool),
+    totalCoins: 1000,
+    awards: [] as KnockoutPrizePreviewAward[],
+    approvedAt: null as string | null,
+  };
+  if (
+    event.status !== "completed" ||
+    finalProgress.rows.length !== knockoutStageSpec("final", config).expectedSquads
+  ) {
+    return {
+      ...base,
+      status: "awaiting_final",
+      message: "Publish and confirm the complete Final before approving prizes.",
+      canApprove: false,
+    };
+  }
+  if (Number(event.prize_pool) !== 1000) {
+    return {
+      ...base,
+      status: "blocked",
+      message: "The configured prize pool must be exactly 1,000 coins for the fixed 500/300/200 distribution.",
+      canApprove: false,
+    };
+  }
+
+  const recipientsResult = await client.query<KnockoutPrizeRecipient & {
+    registrationStatus: string;
+    entryCoinsPaid: number;
+  }>(
+    `SELECT progress.stage_rank AS rank, progress.team_number AS "teamNumber",
+            member.slot_number AS "slotNumber", registration.id AS "registrationId",
+            CASE WHEN registration.added_by_captain
+                 THEN COALESCE(registration.paid_by_user_id, registration.captain_user_id)
+                 ELSE registration.captain_user_id
+            END AS "recipientUserId",
+            COALESCE(NULLIF(registration.captain_game_name, ''),
+                     NULLIF(registration.captain_name, ''), 'Player') AS "playerName",
+            COALESCE(NULLIF(beneficiary.name, ''), 'Captain') AS "recipientName",
+            registration.status AS "registrationStatus",
+            registration.entry_coins_paid AS "entryCoinsPaid"
+       FROM daily007_knockout_stage_progress progress
+       JOIN daily007_v2_squad_teams team
+         ON team.match_id = progress.match_id AND team.team_number = progress.team_number
+       JOIN daily007_v2_squad_team_members member
+         ON member.team_id = team.id AND member.is_active = true
+       JOIN daily007_v2_registrations registration
+         ON registration.id = member.registration_id
+       JOIN daily007_v2_users beneficiary
+         ON beneficiary.id = CASE WHEN registration.added_by_captain
+                                  THEN COALESCE(registration.paid_by_user_id, registration.captain_user_id)
+                                  ELSE registration.captain_user_id END
+      WHERE progress.match_id = $1 AND progress.round_name = 'final'
+        AND progress.status = 'winner' AND progress.stage_rank IN (1, 2, 3)
+      ORDER BY progress.stage_rank, member.slot_number`,
+    [matchId],
+  );
+  if (
+    recipientsResult.rows.some((recipient) =>
+      recipient.registrationStatus !== "approved" ||
+      Number(recipient.entryCoinsPaid) < Number(event.entry_coins),
+    )
+  ) {
+    return {
+      ...base,
+      status: "blocked",
+      message: "Every winning squad member must have an approved registration with the full entry fee paid.",
+      canApprove: false,
+    };
+  }
+
+  let computed: ReturnType<typeof buildKnockoutPrizeAwards>;
+  try {
+    computed = buildKnockoutPrizeAwards(recipientsResult.rows);
+  } catch (error) {
+    return {
+      ...base,
+      status: "blocked",
+      message: error instanceof Error ? error.message : "The winning rosters are not eligible for prize distribution.",
+      canApprove: false,
+    };
+  }
+  const creditedResult = await client.query<{
+    registration_id: string;
+    wallet_ledger_id: string;
+    approved_at: Date | string;
+  }>(
+    `SELECT registration_id, wallet_ledger_id, approved_at
+       FROM daily007_knockout_prize_awards
+      WHERE match_id = $1`,
+    [matchId],
+  );
+  const creditedByRegistration = new Map(
+    creditedResult.rows.map((row) => [row.registration_id, row]),
+  );
+  const awards = computed.map((award) => {
+    const credited = creditedByRegistration.get(award.registrationId);
+    return {
+      ...award,
+      status: credited ? "credited" as const : "pending_approval" as const,
+      walletLedgerId: credited?.wallet_ledger_id ?? null,
+    };
+  });
+  const fullyCredited = awards.length === 12 && creditedResult.rows.length === 12;
+  const partialCredit = creditedResult.rows.length > 0 && !fullyCredited;
+  const approvedAt = creditedResult.rows[0]?.approved_at
+    ? new Date(creditedResult.rows[0].approved_at).toISOString()
+    : null;
+  return {
+    ...base,
+    awards,
+    approvedAt,
+    status: fullyCredited ? "credited" : partialCredit ? "blocked" : "pending_approval",
+    message: fullyCredited
+      ? "1,000 coins have been credited to the winners' Daily007 wallets. No cash transfer was made."
+      : partialCredit
+        ? "Some prize records already exist. Review the ledger before taking further action."
+        : "Prize credit is pending explicit admin approval. Approval credits wallet coins only; it does not send cash.",
+    canApprove: !fullyCredited && !partialCredit && awards.length === 12,
   };
 }
 
@@ -387,6 +603,7 @@ router.get("/daily007/v2/knockout/events", async (_req, res): Promise<void> => {
         totalPlayers: DEFAULT_KNOCKOUT_SETTINGS.squadCount * DEFAULT_KNOCKOUT_SETTINGS.playersPerSquad,
         squadEntryCoins: DEFAULT_KNOCKOUT_SETTINGS.entryCoins * DEFAULT_KNOCKOUT_SETTINGS.playersPerSquad,
         stages: knockoutStages(12, 2, 2),
+        prizeDistribution: KNOCKOUT_PRIZE_DISTRIBUTION,
       },
       events,
     });
@@ -405,10 +622,11 @@ router.get("/daily007/v2/knockout/events/:id/leaderboard", async (req, res): Pro
     const event = await pool.query<{
       entry_coins: number;
       capacity: number;
+      prize_pool: number;
       round1_eliminated: number;
       round2_eliminated: number;
     }>(
-      `SELECT m.entry_coins, m.capacity,
+      `SELECT m.entry_coins, m.capacity, m.prize_pool,
               settings.round1_eliminated, settings.round2_eliminated
          FROM daily007_knockout_events settings
          JOIN daily007_v2_matches m ON m.id = settings.match_id
@@ -421,7 +639,7 @@ router.get("/daily007/v2/knockout/events/:id/leaderboard", async (req, res): Pro
       round1Eliminated: Number(event.rows[0].round1_eliminated),
       round2Eliminated: Number(event.rows[0].round2_eliminated),
     };
-    const [squads, progressRows, result] = await Promise.all([
+    const [squads, progressRows, result, creditedAwards] = await Promise.all([
       listKnockoutSquads(pool, matchId, Number(event.rows[0].entry_coins)),
       loadKnockoutProgress(pool, matchId),
       pool.query<KnockoutStageResult>(
@@ -432,13 +650,27 @@ router.get("/daily007/v2/knockout/events/:id/leaderboard", async (req, res): Pro
           WHERE match_id = $1 AND round_name = $2`,
         [matchId, round],
       ),
+      pool.query<{ count: number }>(
+        "SELECT COUNT(*)::integer AS count FROM daily007_knockout_prize_awards WHERE match_id = $1",
+        [matchId],
+      ),
     ]);
     const context = stageContext(round, config, squads, progressRows);
     const assessment = assessKnockoutProgression(round, config, context.eligibleTeamNumbers, result.rows);
     const currentProgress = progressRows.filter((row) => row.round_name === round);
     const officialStage = currentProgress.length === assessment.expectedSquads;
     const finalProgress = progressRows.filter((row) => row.round_name === "final");
-    const finalConfirmed = finalProgress.length === 8;
+    const finalConfirmed = finalProgress.length === knockoutStageSpec("final", config).expectedSquads;
+    const creditedAwardCount = Number(creditedAwards.rows[0]?.count ?? 0);
+    const prizePayoutStatus = !finalConfirmed
+      ? "AWAITING FINAL RESULTS"
+      : Number(event.rows[0].prize_pool) !== 1000
+        ? "BLOCKED · PRIZE POOL MUST BE 1,000"
+        : creditedAwardCount === 12
+          ? "CREDITED TO WALLET"
+          : creditedAwardCount > 0
+            ? "ADMIN REVIEW REQUIRED"
+            : "PENDING ADMIN APPROVAL";
     const resultByTeam = new Map(result.rows.map((row) => [row.teamNumber, row]));
     const previewRankByTeam = new Map(assessment.rankedResults.map((row) => [row.teamNumber, row.rank]));
     const currentProgressByTeam = new Map(currentProgress.map((row) => [Number(row.team_number), row]));
@@ -501,6 +733,8 @@ router.get("/daily007/v2/knockout/events/:id/leaderboard", async (req, res): Pro
       stage: knockoutRoundLabel(round),
       standings,
       progressionStatus,
+      prizeDistribution: KNOCKOUT_PRIZE_DISTRIBUTION,
+      prizePayoutStatus,
       message: officialStage
         ? "Official round rankings have been confirmed."
         : "Scores remain provisional until every result is published and an admin confirms the round.",
@@ -638,6 +872,12 @@ router.put(
     if (!input) {
       return fail(res, 400, "Enter a valid round, squad, integer placement, and nonnegative total squad kills.");
     }
+    const requestBody = req.body && typeof req.body === "object" && !Array.isArray(req.body)
+      ? req.body as Record<string, unknown>
+      : {};
+    const correctionReason = typeof requestBody.correctionReason === "string"
+      ? requestBody.correctionReason.trim()
+      : "";
     try {
       const response = await withDaily007RoleTransaction(
         req.daily007Account!.id,
@@ -704,6 +944,50 @@ router.put(
             throw Object.assign(new Error("That placement is already assigned to another squad in this round."), { status: 409 });
           }
 
+          const existingResult = await client.query<{
+            id: string;
+            placement: number;
+            squad_kills: number;
+            status: "draft" | "published";
+            created_at: Date | string;
+            updated_at: Date | string;
+            published_at: Date | string | null;
+            placement_points: number;
+            points_per_kill: number;
+            round_points: number;
+          }>(
+            `SELECT id, placement, squad_kills, status, created_at, updated_at,
+                    published_at, placement_points, points_per_kill, round_points
+               FROM daily007_knockout_round_results
+              WHERE match_id = $1 AND round_name = $2 AND team_number = $3
+              FOR UPDATE`,
+            [matchId, input.round, input.teamNumber],
+          );
+          const current = existingResult.rows[0];
+          const isCorrection = Boolean(
+            current &&
+            (current.status === "published" ||
+              Number(current.placement) !== input.placement ||
+              Number(current.squad_kills) !== input.squadKills),
+          );
+          if (isCorrection && (correctionReason.length < 5 || correctionReason.length > 500)) {
+            throw Object.assign(
+              new Error("Enter a 5–500 character reason before correcting a saved or published result."),
+              { status: 400 },
+            );
+          }
+          if (current && !isCorrection) {
+            return {
+              result: serializeRoundResult({
+                ...current,
+                id: current.id,
+                round_name: input.round,
+                team_number: input.teamNumber,
+              }),
+              alreadyPublished: false,
+            };
+          }
+
           const placementPoints = knockoutPlacementPoints(input.placement);
           const pointsPerKill = Number(event.points_per_kill);
           const roundPoints = calculateKnockoutRoundPoints(
@@ -757,6 +1041,25 @@ router.put(
             ],
           );
           const row = saved.rows[0];
+          await recordKnockoutAudit(client, {
+            matchId,
+            adminId: req.daily007Account!.id,
+            action: isCorrection ? "result_corrected" : "result_saved",
+            round: input.round,
+            teamNumber: input.teamNumber,
+            reason: isCorrection ? correctionReason : null,
+            beforeState: current
+              ? {
+                  placement: Number(current.placement),
+                  placementPoints: Number(current.placement_points),
+                  squadKills: Number(current.squad_kills),
+                  pointsPerKill: Number(current.points_per_kill),
+                  roundPoints: Number(current.round_points),
+                  status: current.status,
+                }
+              : undefined,
+            afterState: serializeRoundResult(row),
+          });
           return {
             result: serializeRoundResult(row),
             alreadyPublished: false,
@@ -875,6 +1178,15 @@ router.post(
                         created_at, updated_at, published_at`,
             [resultId, req.daily007Account!.id],
           );
+          await recordKnockoutAudit(client, {
+            matchId,
+            adminId: req.daily007Account!.id,
+            action: "result_published",
+            round: current.round_name,
+            teamNumber: Number(current.team_number),
+            beforeState: { status: "draft", resultId: current.id },
+            afterState: serializeRoundResult(published.rows[0]),
+          });
           return { result: serializeRoundResult(published.rows[0]), alreadyPublished: false };
         },
       );
@@ -1049,6 +1361,24 @@ router.post(
               [matchId],
             );
           }
+          await recordKnockoutAudit(client, {
+            matchId,
+            adminId: req.daily007Account!.id,
+            action: "stage_confirmed",
+            round,
+            reason: tieDecision?.reason ?? null,
+            beforeState: { status: "awaiting_confirmation" },
+            afterState: {
+              status: round === "final" ? "completed" : "confirmed",
+              rankings: assessment.rankedResults.map((ranked) => ({
+                teamNumber: ranked.teamNumber,
+                rank: ranked.rank,
+                stageStatus: ranked.status,
+                roundPoints: ranked.roundPoints,
+                decisionReason: ranked.decisionReason,
+              })),
+            },
+          });
           return {
             matchId,
             round,
@@ -1070,6 +1400,215 @@ router.post(
       }
       console.error("[daily007] confirm knockout progression failed", error);
       fail(res, 500, "Could not confirm Knockout progression.");
+    }
+  },
+);
+
+router.get(
+  "/daily007/v2/admin/knockout/events/:id/prizes",
+  authenticate,
+  async (req, res): Promise<void> => {
+    if (!requireTournamentAdmin(req, res)) return;
+    const matchId = String(req.params.id ?? "");
+    if (!UUID_PATTERN.test(matchId)) return fail(res, 400, "Tournament id must be a UUID.");
+    try {
+      const preview = await withDaily007RoleTransaction(
+        req.daily007Account!.id,
+        "tournament_admin",
+        (client) => loadKnockoutPrizePreview(client, matchId),
+      );
+      res.setHeader("Cache-Control", "no-store");
+      res.json(preview);
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      if (status) return fail(res, status, error instanceof Error ? error.message : "Could not load prize status.");
+      console.error("[daily007] knockout prize preview failed", error);
+      fail(res, 500, "Could not load Knockout prize status.");
+    }
+  },
+);
+
+router.post(
+  "/daily007/v2/admin/knockout/events/:id/prizes/approve",
+  authenticate,
+  async (req, res): Promise<void> => {
+    if (!requireTournamentAdmin(req, res)) return;
+    const matchId = String(req.params.id ?? "");
+    if (!UUID_PATTERN.test(matchId)) return fail(res, 400, "Tournament id must be a UUID.");
+    if (!req.body || req.body.confirm !== true) {
+      return fail(res, 400, "Explicitly confirm the 1,000-coin wallet credit.");
+    }
+    try {
+      const response = await withDaily007RoleTransaction(
+        req.daily007Account!.id,
+        "tournament_admin",
+        async (client) => {
+          const event = await client.query<{
+            title: string;
+            prize_pool: number;
+            status: string;
+          }>(
+            `SELECT m.title, m.prize_pool, m.status
+               FROM daily007_knockout_events settings
+               JOIN daily007_v2_matches m ON m.id = settings.match_id
+              WHERE m.id = $1
+              FOR UPDATE OF m, settings`,
+            [matchId],
+          );
+          const match = event.rows[0];
+          if (!match) throw Object.assign(new Error("Knockout tournament not found."), { status: 404 });
+          if (match.status !== "completed") {
+            throw Object.assign(new Error("Only a completed Knockout tournament can pay prizes."), { status: 409 });
+          }
+          if (Number(match.prize_pool) !== 1000) {
+            throw Object.assign(new Error("The tournament prize pool must be exactly 1,000 coins for this payout schedule."), { status: 409 });
+          }
+          const preview = await loadKnockoutPrizePreview(client, matchId);
+          if (preview.status === "credited") {
+            return { ...preview, alreadyCredited: true };
+          }
+          if (!preview.canApprove || preview.status !== "pending_approval") {
+            throw Object.assign(new Error(preview.message), { status: 409 });
+          }
+
+          const payouts: KnockoutPrizePreviewAward[] = [];
+          for (const award of preview.awards) {
+            const account = await client.query<{ wallet_coins: number | string }>(
+              "SELECT wallet_coins FROM daily007_v2_users WHERE id = $1 FOR UPDATE",
+              [award.recipientUserId],
+            );
+            const currentBalance = account.rows[0]?.wallet_coins;
+            if (currentBalance === undefined) {
+              throw Object.assign(new Error(`${award.recipientName}'s wallet account is unavailable.`), { status: 409 });
+            }
+            const balanceAfter = Number(currentBalance) + award.playerPrizeCoins;
+            if (!Number.isSafeInteger(balanceAfter) || balanceAfter > 2_147_483_647) {
+              throw Object.assign(new Error(`${award.recipientName}'s wallet would exceed its supported balance.`), { status: 409 });
+            }
+            const reason = `Knockout Tournament Prize - ${match.title} - Rank ${award.rank}`;
+            const ledger = await client.query<{ id: string }>(
+              `INSERT INTO daily007_v2_wallet_ledger
+                 (user_id, amount, balance_after, reason, match_id, registration_id,
+                  idempotency_key, details)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+               ON CONFLICT (idempotency_key) DO NOTHING
+               RETURNING id`,
+              [
+                award.recipientUserId,
+                award.playerPrizeCoins,
+                balanceAfter,
+                reason,
+                matchId,
+                award.registrationId,
+                `knockout-prize:${matchId}:registration:${award.registrationId}`,
+                JSON.stringify({
+                  description: "Knockout Tournament Prize",
+                  matchId,
+                  tournamentName: match.title,
+                  finalRank: award.rank,
+                  teamNumber: award.teamNumber,
+                  slotNumber: award.slotNumber,
+                  playerName: award.playerName,
+                  recipientName: award.recipientName,
+                  squadPrizeCoins: award.squadPrizeCoins,
+                  playerPrizeCoins: award.playerPrizeCoins,
+                  creditedByAdminId: req.daily007Account!.id,
+                  cashTransfer: false,
+                }),
+              ],
+            );
+            if (!ledger.rows[0]) {
+              throw Object.assign(new Error("A prize ledger entry already exists; no duplicate credit was applied."), { status: 409 });
+            }
+            await client.query(
+              "UPDATE daily007_v2_users SET wallet_coins = $2 WHERE id = $1",
+              [award.recipientUserId, balanceAfter],
+            );
+            await client.query(
+              `INSERT INTO daily007_knockout_prize_awards
+                 (match_id, registration_id, recipient_user_id, player_name,
+                  recipient_name, team_number, slot_number, final_rank,
+                  squad_prize_coins, player_prize_coins, wallet_ledger_id,
+                  approved_by_user_id, approved_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, clock_timestamp())`,
+              [
+                matchId,
+                award.registrationId,
+                award.recipientUserId,
+                award.playerName,
+                award.recipientName,
+                award.teamNumber,
+                award.slotNumber,
+                award.rank,
+                award.squadPrizeCoins,
+                award.playerPrizeCoins,
+                ledger.rows[0].id,
+                req.daily007Account!.id,
+              ],
+            );
+            payouts.push({
+              ...award,
+              status: "credited",
+              walletLedgerId: ledger.rows[0].id,
+            });
+          }
+
+          await recordKnockoutAudit(client, {
+            matchId,
+            adminId: req.daily007Account!.id,
+            action: "prize_credited",
+            reason: "Authorized admin approval credited 1,000 Daily007 wallet coins; no cash transfer.",
+            beforeState: { status: "pending_approval", awardCount: 12 },
+            afterState: { status: "credited", totalCoins: 1000, awardCount: payouts.length },
+          });
+          const updatedPreview = await loadKnockoutPrizePreview(client, matchId);
+          return { ...updatedPreview, awards: payouts, alreadyCredited: false };
+        },
+      );
+      res.setHeader("Cache-Control", "no-store");
+      res.json(response);
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      if (status) return fail(res, status, error instanceof Error ? error.message : "Could not approve Knockout prizes.");
+      if ((error as { code?: string }).code === "23505") {
+        return fail(res, 409, "A prize credit already exists for one of these registrations.");
+      }
+      console.error("[daily007] approve knockout prizes failed", error);
+      fail(res, 500, "Could not credit the Knockout prize pool.");
+    }
+  },
+);
+
+router.get(
+  "/daily007/v2/admin/knockout/events/:id/audit",
+  authenticate,
+  async (req, res): Promise<void> => {
+    if (!requireTournamentAdmin(req, res)) return;
+    const matchId = String(req.params.id ?? "");
+    if (!UUID_PATTERN.test(matchId)) return fail(res, 400, "Tournament id must be a UUID.");
+    try {
+      const audit = await withDaily007RoleTransaction(
+        req.daily007Account!.id,
+        "tournament_admin",
+        async (client) => client.query(
+          `SELECT id, action, round_name AS round, team_number AS "teamNumber",
+                  admin_user_id AS "adminUserId", admin_name AS "adminName",
+                  reason, before_state AS "beforeState", after_state AS "afterState",
+                  created_at AS "createdAt"
+             FROM daily007_knockout_audit
+            WHERE match_id = $1
+            ORDER BY created_at DESC, id DESC
+            LIMIT 100`,
+          [matchId],
+        ),
+      );
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ matchId, entries: audit.rows });
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      if (status) return fail(res, status, error instanceof Error ? error.message : "Could not load audit history.");
+      console.error("[daily007] knockout audit history failed", error);
+      fail(res, 500, "Could not load Knockout audit history.");
     }
   },
 );
@@ -1128,6 +1667,12 @@ router.post("/daily007/v2/admin/knockout/events", authenticate, async (req, res)
             req.daily007Account!.id,
           ],
         );
+        await recordKnockoutAudit(client, {
+          matchId,
+          adminId: req.daily007Account!.id,
+          action: "settings_created",
+          afterState: settings,
+        });
         return matchId;
       },
     );
@@ -1230,6 +1775,23 @@ router.patch("/daily007/v2/admin/knockout/events/:id", authenticate, async (req,
             WHERE match_id = $1`,
           [matchId, settings.pointsPerKill, settings.round1Eliminated, settings.round2Eliminated],
         );
+        await recordKnockoutAudit(client, {
+          matchId,
+          adminId: req.daily007Account!.id,
+          action: "settings_updated",
+          beforeState: {
+            title: row.title,
+            startsAt: tournamentInstantFromStored(row.starts_at).toISOString(),
+            squadCount: Number(row.capacity),
+            entryCoins: Number(row.entry_coins),
+            prizePool: Number(row.prize_pool),
+            published: Boolean(row.enabled),
+            pointsPerKill: Number(row.points_per_kill),
+            round1Eliminated: Number(row.round1_eliminated),
+            round2Eliminated: Number(row.round2_eliminated),
+          },
+          afterState: settings,
+        });
       },
     );
     const event = (await listKnockoutEvents(true)).find((item) => item.matchId === matchId);

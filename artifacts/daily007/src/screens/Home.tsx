@@ -115,6 +115,11 @@ const HOME_KNOCKOUT_DEFAULTS: Daily007KnockoutDefaultSettings = {
   stageCount: 3,
   entryCoins: 10,
   prizePool: 1000,
+  prizeDistribution: [
+    { rank: 1, squadCoins: 500, playerCoins: 125 },
+    { rank: 2, squadCoins: 300, playerCoins: 75 },
+    { rank: 3, squadCoins: 200, playerCoins: 50 },
+  ],
   pointsPerKill: 1,
   round1Eliminated: 2,
   round2Eliminated: 2,

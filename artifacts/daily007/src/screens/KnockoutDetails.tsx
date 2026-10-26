@@ -49,6 +49,11 @@ export default function KnockoutDetails() {
     stageCount: 3,
     entryCoins: 10,
     prizePool: 1000,
+    prizeDistribution: [
+      { rank: 1, squadCoins: 500, playerCoins: 125 },
+      { rank: 2, squadCoins: 300, playerCoins: 75 },
+      { rank: 3, squadCoins: 200, playerCoins: 50 },
+    ],
     pointsPerKill: 1,
     round1Eliminated: 2,
     round2Eliminated: 2,
@@ -119,6 +124,18 @@ export default function KnockoutDetails() {
               <Info label="PLAYERS" value={`${event.registeredPlayers}/${event.totalPlayers}`} />
               <Info label="POINTS PER KILL" value={`${event.pointsPerKill}`} />
             </View>
+            <View style={styles.prizeGrid}>
+              {event.prizeDistribution.map((tier) => (
+                <View key={tier.rank} style={styles.prizeTile}>
+                  <Text style={styles.prizeRank}>{translateExactText(`RANK ${tier.rank}`)}</Text>
+                  <Text style={styles.prizeSquad}>{inr(tier.squadCoins)} / {translateExactText("SQUAD")}</Text>
+                  <Text style={styles.prizePlayer}>{tier.playerCoins} {translateExactText("COINS / PLAYER")}</Text>
+                </View>
+              ))}
+            </View>
+            <Text style={styles.prizeFootnote}>
+              {translateExactText("Wallet coins are credited only after admin approval. This is not a cash transfer.")}
+            </Text>
             <Btn
               title={translateExactText(event.registrationOpen ? "JOIN TOURNAMENT" : "REGISTRATION CLOSED")}
               onPress={() => event.registrationOpen && navigation.navigate("TDetail", { id: event.matchId })}
@@ -168,6 +185,22 @@ export default function KnockoutDetails() {
                   {translateExactText(leaderboardQuery.data?.message ?? "Scores remain provisional until every result is published and an admin confirms the round.")}
                 </Text>
               </Card>
+              {selectedRound === "final" ? (
+                <Card style={styles.finalPrizeCard}>
+                  <Text style={styles.finalPrizeTitle}>{translateExactText("FINAL TOP 3 PRIZES")}</Text>
+                  <Text style={styles.finalPrizeStatus}>
+                    {translateExactText(leaderboardQuery.data?.prizePayoutStatus ?? "AWAITING FINAL RESULTS")}
+                  </Text>
+                  {event.prizeDistribution.map((tier) => (
+                    <Text key={tier.rank} style={styles.finalPrizeLine}>
+                      {translateExactText(`RANK ${tier.rank}`)} · {inr(tier.squadCoins)} {translateExactText("PER SQUAD")} · {tier.playerCoins} {translateExactText("COINS PER PLAYER")}
+                    </Text>
+                  ))}
+                  <Text style={styles.prizeFootnote}>
+                    {translateExactText("Prizes are credited as wallet coins after admin approval, not transferred as cash.")}
+                  </Text>
+                </Card>
+              ) : null}
               <View style={styles.roundTabs}>
                 {([
                   ["round_1", "ROUND 1"],
@@ -361,6 +394,16 @@ const styles = StyleSheet.create({
   info: { flexGrow: 1, flexBasis: "30%", minWidth: 100, padding: 9, borderRadius: 10, backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border },
   infoLabel: { color: C.dim, fontSize: 8, fontWeight: "900", letterSpacing: 0.8 },
   infoValue: { color: C.text, fontSize: 11, fontWeight: "900", marginTop: 4 },
+  prizeGrid: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
+  prizeTile: { flexGrow: 1, flexBasis: "30%", minWidth: 100, padding: 9, borderRadius: 10, backgroundColor: C.gold + "12", borderWidth: 1, borderColor: C.gold + "50", gap: 4 },
+  prizeRank: { color: C.gold, fontSize: 9, fontWeight: "900" },
+  prizeSquad: { color: C.text, fontSize: 10, fontWeight: "900" },
+  prizePlayer: { color: C.green, fontSize: 9, fontWeight: "800" },
+  prizeFootnote: { color: C.sub, fontSize: 9, lineHeight: 14 },
+  finalPrizeCard: { borderColor: C.gold + "70", gap: 7 },
+  finalPrizeTitle: { color: C.gold, fontSize: 11, fontWeight: "900", letterSpacing: 0.6 },
+  finalPrizeStatus: { color: C.green, fontSize: 9, fontWeight: "900" },
+  finalPrizeLine: { color: C.text, fontSize: 9, fontWeight: "800" },
   tabs: { flexDirection: "row", padding: 4, gap: 4, borderRadius: 12, backgroundColor: C.card, borderWidth: 1, borderColor: C.border },
   roundTabs: { flexDirection: "row", gap: 5, padding: 4, borderRadius: 12, backgroundColor: C.card, borderWidth: 1, borderColor: C.border },
   tab: { flex: 1, minHeight: 40, justifyContent: "center", alignItems: "center", borderRadius: 9 },

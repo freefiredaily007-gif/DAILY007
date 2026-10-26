@@ -252,6 +252,57 @@ export const daily007KnockoutStageProgressTable = pgTable("daily007_knockout_sta
   index("daily007_knockout_progress_round_status_idx").on(table.matchId, table.roundName, table.status),
 ]);
 
+export const daily007KnockoutPrizeAwardsTable = pgTable("daily007_knockout_prize_awards", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  matchId: uuid("match_id").notNull(),
+  registrationId: uuid("registration_id").notNull(),
+  recipientUserId: uuid("recipient_user_id").notNull(),
+  playerName: text("player_name").notNull(),
+  recipientName: text("recipient_name").notNull(),
+  teamNumber: integer("team_number").notNull(),
+  slotNumber: integer("slot_number").notNull(),
+  finalRank: integer("final_rank").notNull(),
+  squadPrizeCoins: integer("squad_prize_coins").notNull(),
+  playerPrizeCoins: integer("player_prize_coins").notNull(),
+  walletLedgerId: uuid("wallet_ledger_id").notNull(),
+  approvedByUserId: uuid("approved_by_user_id").notNull(),
+  approvedAt: timestamp("approved_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  unique("daily007_knockout_prize_registration_unique").on(table.matchId, table.registrationId),
+  unique("daily007_knockout_prize_seat_unique").on(table.matchId, table.teamNumber, table.slotNumber),
+  unique("daily007_knockout_prize_ledger_unique").on(table.walletLedgerId),
+  check("daily007_knockout_prize_rank_valid", sql`${table.finalRank} IN (1, 2, 3)`),
+  check("daily007_knockout_prize_seat_valid", sql`${table.teamNumber} BETWEEN 1 AND 12 AND ${table.slotNumber} BETWEEN 1 AND 4`),
+  check("daily007_knockout_prize_amount_valid", sql`
+    (${table.finalRank} = 1 AND ${table.squadPrizeCoins} = 500 AND ${table.playerPrizeCoins} = 125) OR
+    (${table.finalRank} = 2 AND ${table.squadPrizeCoins} = 300 AND ${table.playerPrizeCoins} = 75) OR
+    (${table.finalRank} = 3 AND ${table.squadPrizeCoins} = 200 AND ${table.playerPrizeCoins} = 50)
+  `),
+  index("daily007_knockout_prize_match_rank_idx").on(table.matchId, table.finalRank),
+]);
+
+export const daily007KnockoutAuditTable = pgTable("daily007_knockout_audit", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  matchId: uuid("match_id").notNull(),
+  roundName: text("round_name"),
+  teamNumber: integer("team_number"),
+  action: text("action").notNull(),
+  adminUserId: uuid("admin_user_id"),
+  adminName: text("admin_name").notNull(),
+  reason: text("reason"),
+  beforeState: jsonb("before_state"),
+  afterState: jsonb("after_state"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  check("daily007_knockout_audit_action_valid", sql`
+    ${table.action} IN ('settings_created', 'settings_updated', 'result_saved', 'result_corrected',
+                        'result_published', 'stage_confirmed', 'prize_credited')
+  `),
+  check("daily007_knockout_audit_team_valid", sql`${table.teamNumber} IS NULL OR ${table.teamNumber} BETWEEN 1 AND 12`),
+  check("daily007_knockout_audit_reason_valid", sql`${table.reason} IS NULL OR length(btrim(${table.reason})) BETWEEN 5 AND 500`),
+  index("daily007_knockout_audit_match_time_idx").on(table.matchId, table.createdAt),
+]);
+
 export const daily007RegistrationsTable = pgTable("daily007_v2_registrations", {
   id: uuid("id").defaultRandom().primaryKey(),
   matchId: uuid("match_id").notNull().references(() => daily007MatchesTable.id, { onDelete: "cascade" }),

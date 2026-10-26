@@ -15,6 +15,12 @@ Count a squad as confirmed only when all four existing seats have approved regis
 
 **How to apply:** Build later stage results and advancement against the same tournament match and its saved settings. Credit prizes only through the existing wallet ledger and authenticated admin transaction path.
 
+The Knockout top-three prize schedule is fixed at 500/300/200 coins per squad, split evenly across four seats (125/75/50 each). Do not credit wallet coins until an authorized admin explicitly approves the final payout; wallet credit is not a cash transfer. Use atomic, idempotent per-registration ledger entries and retain an admin audit trail for corrections and payout actions.
+
+**Why:** The user requires manual authorization, no automatic money movement, exact per-player shares, duplicate-credit protection, and an audit history.
+
+**How to apply:** Snapshot only confirmed final winners, validate all 12 paid roster seats and the 1,000-coin pool before approval, then write wallet balances, ledger rows, and payout records together in one transaction.
+
 Advance or eliminate squads only in one explicit, admin-authorized transaction after every eligible squad's result is published. Persist each squad's round outcome; if a tie remains at the advance/winner cutoff, require a recorded admin ordering and reason. Final confirmation publishes the top three and completes the match.
 
 **Why:** The user requires a gated 12 → 10 → 8 → Final progression, no outcome changes from drafts, and no duplicate or unrecorded advancement decisions.

@@ -89,6 +89,39 @@ export const Daily007KnockoutEventStatus = {
   completed: 'completed',
 } as const;
 
+export type Daily007KnockoutPrizeTierRank = typeof Daily007KnockoutPrizeTierRank[keyof typeof Daily007KnockoutPrizeTierRank];
+
+
+export const Daily007KnockoutPrizeTierRank = {
+  NUMBER_1: 1,
+  NUMBER_2: 2,
+  NUMBER_3: 3,
+} as const;
+
+export type Daily007KnockoutPrizeTierSquadCoins = typeof Daily007KnockoutPrizeTierSquadCoins[keyof typeof Daily007KnockoutPrizeTierSquadCoins];
+
+
+export const Daily007KnockoutPrizeTierSquadCoins = {
+  NUMBER_500: 500,
+  NUMBER_300: 300,
+  NUMBER_200: 200,
+} as const;
+
+export type Daily007KnockoutPrizeTierPlayerCoins = typeof Daily007KnockoutPrizeTierPlayerCoins[keyof typeof Daily007KnockoutPrizeTierPlayerCoins];
+
+
+export const Daily007KnockoutPrizeTierPlayerCoins = {
+  NUMBER_125: 125,
+  NUMBER_75: 75,
+  NUMBER_50: 50,
+} as const;
+
+export interface Daily007KnockoutPrizeTier {
+  rank: Daily007KnockoutPrizeTierRank;
+  squadCoins: Daily007KnockoutPrizeTierSquadCoins;
+  playerCoins: Daily007KnockoutPrizeTierPlayerCoins;
+}
+
 export interface Daily007KnockoutEvent {
   matchId: string;
   title: string;
@@ -96,6 +129,7 @@ export interface Daily007KnockoutEvent {
   entryCoins: number;
   squadEntryCoins: number;
   prizePool: number;
+  prizeDistribution: Daily007KnockoutPrizeTier[];
   squadCount: number;
   playersPerSquad: number;
   totalPlayers: number;
@@ -119,6 +153,7 @@ export interface Daily007KnockoutDefaultSettings {
   stageCount: number;
   entryCoins: number;
   prizePool: number;
+  prizeDistribution: Daily007KnockoutPrizeTier[];
   pointsPerKill: number;
   round1Eliminated: number;
   round2Eliminated: number;
@@ -200,7 +235,137 @@ export interface Daily007KnockoutLeaderboardResponse {
   round: Daily007KnockoutRound;
   standings: Daily007KnockoutLeaderboardSquad[];
   progressionStatus: string;
+  prizeDistribution: Daily007KnockoutPrizeTier[];
+  prizePayoutStatus: string;
   message: string;
+}
+
+export type Daily007KnockoutPrizeAwardRank = typeof Daily007KnockoutPrizeAwardRank[keyof typeof Daily007KnockoutPrizeAwardRank];
+
+
+export const Daily007KnockoutPrizeAwardRank = {
+  NUMBER_1: 1,
+  NUMBER_2: 2,
+  NUMBER_3: 3,
+} as const;
+
+export type Daily007KnockoutPrizeAwardSquadPrizeCoins = typeof Daily007KnockoutPrizeAwardSquadPrizeCoins[keyof typeof Daily007KnockoutPrizeAwardSquadPrizeCoins];
+
+
+export const Daily007KnockoutPrizeAwardSquadPrizeCoins = {
+  NUMBER_500: 500,
+  NUMBER_300: 300,
+  NUMBER_200: 200,
+} as const;
+
+export type Daily007KnockoutPrizeAwardPlayerPrizeCoins = typeof Daily007KnockoutPrizeAwardPlayerPrizeCoins[keyof typeof Daily007KnockoutPrizeAwardPlayerPrizeCoins];
+
+
+export const Daily007KnockoutPrizeAwardPlayerPrizeCoins = {
+  NUMBER_125: 125,
+  NUMBER_75: 75,
+  NUMBER_50: 50,
+} as const;
+
+export type Daily007KnockoutPrizeAwardStatus = typeof Daily007KnockoutPrizeAwardStatus[keyof typeof Daily007KnockoutPrizeAwardStatus];
+
+
+export const Daily007KnockoutPrizeAwardStatus = {
+  pending_approval: 'pending_approval',
+  credited: 'credited',
+} as const;
+
+export interface Daily007KnockoutPrizeAward {
+  registrationId: string;
+  recipientUserId: string;
+  playerName: string;
+  recipientName: string;
+  /**
+     * @minimum 1
+     * @maximum 12
+     */
+  teamNumber: number;
+  /**
+     * @minimum 1
+     * @maximum 4
+     */
+  slotNumber: number;
+  rank: Daily007KnockoutPrizeAwardRank;
+  squadPrizeCoins: Daily007KnockoutPrizeAwardSquadPrizeCoins;
+  playerPrizeCoins: Daily007KnockoutPrizeAwardPlayerPrizeCoins;
+  status: Daily007KnockoutPrizeAwardStatus;
+  /** @nullable */
+  walletLedgerId: string | null;
+}
+
+export type Daily007KnockoutPrizePayoutResponseStatus = typeof Daily007KnockoutPrizePayoutResponseStatus[keyof typeof Daily007KnockoutPrizePayoutResponseStatus];
+
+
+export const Daily007KnockoutPrizePayoutResponseStatus = {
+  awaiting_final: 'awaiting_final',
+  pending_approval: 'pending_approval',
+  credited: 'credited',
+  blocked: 'blocked',
+} as const;
+
+export interface Daily007KnockoutPrizePayoutResponse {
+  matchId: string;
+  tournamentName: string;
+  prizePool: number;
+  status: Daily007KnockoutPrizePayoutResponseStatus;
+  message: string;
+  totalCoins: number;
+  canApprove: boolean;
+  /** @nullable */
+  approvedAt: string | null;
+  alreadyCredited?: boolean;
+  awards: Daily007KnockoutPrizeAward[];
+}
+
+/**
+ * @nullable
+ */
+export type Daily007KnockoutAuditEntryRound = typeof Daily007KnockoutAuditEntryRound[keyof typeof Daily007KnockoutAuditEntryRound] | null;
+
+
+export const Daily007KnockoutAuditEntryRound = {
+  round_1: 'round_1',
+  round_2: 'round_2',
+  final: 'final',
+} as const;
+
+/**
+ * @nullable
+ */
+export type Daily007KnockoutAuditEntryBeforeState = { [key: string]: unknown } | null;
+
+/**
+ * @nullable
+ */
+export type Daily007KnockoutAuditEntryAfterState = { [key: string]: unknown } | null;
+
+export interface Daily007KnockoutAuditEntry {
+  id: string;
+  action: string;
+  /** @nullable */
+  round: Daily007KnockoutAuditEntryRound;
+  /** @nullable */
+  teamNumber: number | null;
+  /** @nullable */
+  adminUserId: string | null;
+  adminName: string;
+  /** @nullable */
+  reason: string | null;
+  /** @nullable */
+  beforeState: Daily007KnockoutAuditEntryBeforeState;
+  /** @nullable */
+  afterState: Daily007KnockoutAuditEntryAfterState;
+  createdAt: string;
+}
+
+export interface Daily007KnockoutAuditResponse {
+  matchId: string;
+  entries: Daily007KnockoutAuditEntry[];
 }
 
 export type Daily007KnockoutRoundResultStatus = typeof Daily007KnockoutRoundResultStatus[keyof typeof Daily007KnockoutRoundResultStatus];
@@ -381,6 +546,11 @@ export interface Daily007KnockoutRoundResultBody {
      * @maximum 100000
      */
   squadKills: number;
+  /**
+     * @minLength 5
+     * @maxLength 500
+     */
+  correctionReason?: string;
 }
 
 export interface Daily007KnockoutRoundResultResponse {
@@ -2378,6 +2548,10 @@ round?: Daily007KnockoutRound;
 
 export type Daily007AdminGetKnockoutRoundResultsParams = {
 round: Daily007KnockoutRound;
+};
+
+export type Daily007AdminApproveKnockoutPrizesBody = {
+  confirm: true;
 };
 
 /**

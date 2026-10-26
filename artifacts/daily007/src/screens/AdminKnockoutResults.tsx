@@ -5,11 +5,16 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useDaily007AdminConfirmKnockoutProgression,
   useDaily007AdminGetKnockoutRoundResults,
+  useDaily007AdminGetKnockoutPrizeStatus,
+  useDaily007AdminApproveKnockoutPrizes,
+  useDaily007AdminGetKnockoutAudit,
   useDaily007AdminPublishKnockoutRoundResult,
   useDaily007AdminSaveKnockoutRoundResult,
   type Daily007KnockoutProgressionBody,
   type Daily007KnockoutEvent,
   type Daily007KnockoutRound,
+  type Daily007KnockoutPrizePayoutResponse,
+  type Daily007KnockoutAuditEntry,
 } from "@workspace/api-client-react";
 import { ReadableText as Text, ReadableTextInput as TextInput } from "../components/typography";
 import { A } from "../components/adminKit";
@@ -36,6 +41,7 @@ export default function AdminKnockoutResults({ events }: { events: Daily007Knock
   const [editKey, setEditKey] = useState("");
   const [placementInput, setPlacementInput] = useState("");
   const [killsInput, setKillsInput] = useState("");
+  const [correctionReason, setCorrectionReason] = useState("");
   const [tieOrder, setTieOrder] = useState<number[]>([]);
   const [tieReason, setTieReason] = useState("");
   const [error, setError] = useState("");
@@ -53,9 +59,26 @@ export default function AdminKnockoutResults({ events }: { events: Daily007Knock
       refetchOnMount: "always",
     } },
   );
+  const prizesQuery = useDaily007AdminGetKnockoutPrizeStatus(matchId, {
+    query: {
+      queryKey: ["daily007", "knockout", "admin-prizes", matchId],
+      enabled: Boolean(matchId),
+      staleTime: 0,
+      refetchOnMount: "always",
+    },
+  });
+  const auditQuery = useDaily007AdminGetKnockoutAudit(matchId, {
+    query: {
+      queryKey: ["daily007", "knockout", "admin-audit", matchId],
+      enabled: Boolean(matchId),
+      staleTime: 0,
+      refetchOnMount: "always",
+    },
+  });
   const saveMutation = useDaily007AdminSaveKnockoutRoundResult();
   const publishMutation = useDaily007AdminPublishKnockoutRoundResult();
   const progressionMutation = useDaily007AdminConfirmKnockoutProgression();
+  const prizesMutation = useDaily007AdminApproveKnockoutPrizes();
   const squads = resultsQuery.data?.squads ?? [];
   const progression = resultsQuery.data?.progression;
   const eligibleSquads = useMemo(() => squads.filter((squad) => squad.eligible), [squads]);
@@ -83,6 +106,7 @@ export default function AdminKnockoutResults({ events }: { events: Daily007Knock
     ? placementPoints(placement) * 1 + squadKills * (resultsQuery.data?.pointsPerKill ?? selectedEvent?.pointsPerKill ?? 1)
     : null;
   const saving = saveMutation.isPending || publishMutation.isPending || progressionMutation.isPending;
+  const prizeSaving = prizesMutation.isPending;
   const boundaryTie = progression?.boundaryTieTeamNumbers ?? [];
   const effectiveTieOrder = tieOrder.length === boundaryTie.length &&
     tieOrder.every((teamNumber) => boundaryTie.includes(teamNumber))
@@ -100,6 +124,14 @@ export default function AdminKnockoutResults({ events }: { events: Daily007Knock
     progression.publishedResultCount === progression.expectedSquads &&
     (boundaryTie.length ? tieDecisionReady : progression.canConfirm),
   );
+  const needsCorrectionReason = Boolean(
+    savedResult &&
+    (savedResult.status === "published" ||
+      (validInput &&
+        (savedResult.placement !== placement || savedResult.squadKills !== squadKills))),
+  );
+  const correctionReasonValid = !needsCorrectionReason ||
+    (correctionReason.trim().length >= 5 && correctionReason.trim().length <= 500);
 
   const selectEvent = (id: string) => {
     setSelectedMatchId(id);
@@ -109,6 +141,7 @@ export default function AdminKnockoutResults({ events }: { events: Daily007Knock
     setNotice("");
     setTieOrder([]);
     setTieReason("");
+    setCorrectionReason("");
   };
   const selectRound = (value: Daily007KnockoutRound) => {
     setRound(value);
@@ -118,6 +151,7 @@ export default function AdminKnockoutResults({ events }: { events: Daily007Knock
     setNotice("");
     setTieOrder([]);
     setTieReason("");
+    setCorrectionReason("");
   };
   const editField = (kind: "placement" | "kills", value: string) => {
     setEditKey(formKey);
@@ -141,11 +175,17 @@ export default function AdminKnockoutResults({ events }: { events: Daily007Knock
           teamNumber: selectedSquad.teamNumber,
           placement,
           squadKills,
+          ...(savedResult ? { correctionReason: correctionReason.trim() } : {}),
         },
       });
       setEditKey("");
+      setCorrectionReason("");
       setNotice("Draft saved. It will not affect official rankings until published.");
-      await resultsQuery.refetch();
+      await Promise.all([
+        resultsQuery.refetch(),
+        prizesQuery.refetch(),
+        auditQuery.refetch(),
+      ]);
     } catch (cause) {
       setError(requestError(cause));
     }
@@ -160,7 +200,7 @@ export default function AdminKnockoutResults({ events }: { events: Daily007Knock
         resultId: savedResult.id,
       });
       setNotice(result.alreadyPublished ? "This result is already published." : "Result published to official rankings.");
-      await resultsQuery.refetch();
+      await Promise.all([resultsQuery.refetch(), auditQuery.refetch()]);
     } catch (cause) {
       setError(requestError(cause));
     }
@@ -184,6 +224,8 @@ export default function AdminKnockoutResults({ events }: { events: Daily007Knock
       setNotice(result.alreadyConfirmed ? "This stage was already confirmed. No duplicate advancement was applied." : outcome);
       await Promise.all([
         resultsQuery.refetch(),
+        prizesQuery.refetch(),
+        auditQuery.refetch(),
         queryClient.invalidateQueries({ queryKey: ["daily007", "knockout", "admin"] }),
       ]);
     } catch (cause) {
@@ -200,6 +242,41 @@ export default function AdminKnockoutResults({ events }: { events: Daily007Knock
       { text: "Review", style: "cancel" },
       { text: "Confirm", onPress: () => void confirmProgression() },
     ]);
+  };
+  const approvePrizes = async () => {
+    if (!selectedEvent || !prizesQuery.data?.canApprove) return;
+    setError("");
+    setNotice("");
+    try {
+      const result = await prizesMutation.mutateAsync({
+        id: selectedEvent.matchId,
+        data: { confirm: true },
+      });
+      setNotice(
+        result.alreadyCredited
+          ? "Knockout prizes were already credited. No duplicate wallet credit was applied."
+          : "1,000 wallet coins credited to the top-three rosters. No cash transfer was made.",
+      );
+      await Promise.all([
+        prizesQuery.refetch(),
+        auditQuery.refetch(),
+        resultsQuery.refetch(),
+        queryClient.invalidateQueries({ queryKey: ["daily007", "knockout", "public"] }),
+      ]);
+    } catch (cause) {
+      setError(requestError(cause));
+    }
+  };
+  const requestPrizeApproval = () => {
+    if (!prizesQuery.data?.canApprove) return;
+    Alert.alert(
+      "Approve Knockout wallet prizes?",
+      "This credits exactly 1,000 Daily007 wallet coins (₹500/₹300/₹200 squad awards) to the approved recipients. It does not transfer cash.",
+      [
+        { text: "Review", style: "cancel" },
+        { text: "Approve & Credit", onPress: () => void approvePrizes() },
+      ],
+    );
   };
   const moveTieTeam = (index: number, direction: -1 | 1) => {
     const next = effectiveTieOrder.slice();
@@ -312,6 +389,7 @@ export default function AdminKnockoutResults({ events }: { events: Daily007Knock
                         onPress={() => {
                           setSelectedTeamNumber(squad.teamNumber);
                           setEditKey("");
+                          setCorrectionReason("");
                           setError("");
                           setNotice("");
                         }}
@@ -397,16 +475,31 @@ export default function AdminKnockoutResults({ events }: { events: Daily007Knock
                       {savedResult.status === "published" ? ` · ${savedResult.roundPoints} POINTS` : ""}
                     </Text>
                   ) : null}
+                  {savedResult ? (
+                    <View style={styles.correctionBlock}>
+                      <Text style={styles.fieldLabel}>CORRECTION REASON · REQUIRED WHEN CHANGING A SAVED RESULT</Text>
+                      <TextInput
+                        testID="knockout-result-correction-reason"
+                        accessibilityLabel="Reason for correcting this result"
+                        value={correctionReason}
+                        onChangeText={(value) => setCorrectionReason(value.slice(0, 500))}
+                        placeholder="Explain the correction (5–500 characters)"
+                        placeholderTextColor={A.sub}
+                        multiline
+                        style={[styles.input, styles.tieReason]}
+                      />
+                    </View>
+                  ) : null}
                   {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
                   {notice ? <Text accessibilityLiveRegion="polite" style={styles.success}>{notice}</Text> : null}
                   <View style={styles.actions}>
                     <Pressable
                       testID="knockout-result-save-draft"
                       accessibilityRole="button"
-                      accessibilityState={{ disabled: saving || !validInput }}
-                      disabled={saving || !validInput}
+                      accessibilityState={{ disabled: saving || !validInput || !correctionReasonValid }}
+                      disabled={saving || !validInput || !correctionReasonValid}
                       onPress={() => void saveDraft()}
-                      style={[styles.button, styles.saveButton, (saving || !validInput) && styles.disabled]}
+                      style={[styles.button, styles.saveButton, (saving || !validInput || !correctionReasonValid) && styles.disabled]}
                     >
                       <Feather name="save" size={14} color={A.bg} />
                       <Text style={styles.saveText}>{savedResult?.status === "published" ? "SAVE AS DRAFT" : "SAVE DRAFT"}</Text>
@@ -492,10 +585,189 @@ export default function AdminKnockoutResults({ events }: { events: Daily007Knock
               )}
             </>
           ) : null}
+          <PrizeStatusPanel
+            event={selectedEvent}
+            data={prizesQuery.data}
+            isLoading={prizesQuery.isLoading}
+            isError={prizesQuery.isError}
+            saving={prizeSaving}
+            onApprove={requestPrizeApproval}
+          />
+          <KnockoutAuditPanel
+            entries={auditQuery.data?.entries ?? []}
+            isLoading={auditQuery.isLoading}
+            isError={auditQuery.isError}
+          />
         </>
       ) : null}
     </View>
   );
+}
+
+function PrizeStatusPanel({
+  event,
+  data,
+  isLoading,
+  isError,
+  saving,
+  onApprove,
+}: {
+  event: Daily007KnockoutEvent;
+  data: Daily007KnockoutPrizePayoutResponse | undefined;
+  isLoading: boolean;
+  isError: boolean;
+  saving: boolean;
+  onApprove: () => void;
+}) {
+  return (
+    <View style={styles.prizePanel} testID="admin-knockout-prizes">
+      <Text style={styles.sectionLabel}>TOP 3 PRIZE STATUS</Text>
+      <Text style={styles.prizeNotice}>
+        Fixed distribution · 1,000 wallet coins total · wallet credit only, not a cash transfer.
+      </Text>
+      <View style={styles.prizeTiers}>
+        {event.prizeDistribution.map((tier) => (
+          <View key={tier.rank} style={styles.prizeTier}>
+            <Text style={styles.prizeRank}>RANK {tier.rank}</Text>
+            <Text style={styles.prizeAmount}>₹{tier.squadCoins} / squad</Text>
+            <Text style={styles.prizeMember}>{tier.playerCoins} coins / player</Text>
+          </View>
+        ))}
+      </View>
+      {isLoading ? <Text style={styles.empty}>Loading final prize status…</Text> : null}
+      {isError ? <Text accessibilityRole="alert" style={styles.error}>Could not load prize status. Refresh and retry.</Text> : null}
+      {!isLoading && !isError && data ? (
+        <>
+          <Text style={[
+            styles.payoutStatus,
+            data.status === "credited" ? styles.paid : data.status === "blocked" ? styles.pending : null,
+          ]}>
+            {data.status === "credited"
+              ? "CREDITED TO DAILY007 WALLETS"
+              : data.status === "pending_approval"
+                ? "PENDING ADMIN APPROVAL"
+                : data.status === "blocked"
+                  ? "PAYOUT BLOCKED · REVIEW REQUIRED"
+                  : "AWAITING FINAL RESULTS"}
+          </Text>
+          <Text style={styles.prizeNotice}>{data.message}</Text>
+          {data.awards.map((award) => (
+            <View key={award.registrationId} style={styles.awardRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.awardPlayer}>
+                  #{award.rank} · Team {String(award.teamNumber).padStart(2, "0")} · Slot {award.slotNumber}
+                </Text>
+                <Text style={styles.awardRecipient} numberOfLines={2}>
+                  {award.playerName}
+                  {award.recipientName !== award.playerName ? ` · credited to ${award.recipientName}` : ""}
+                </Text>
+              </View>
+              <View style={styles.awardAmountBlock}>
+                <Text style={styles.awardAmount}>{award.playerPrizeCoins} coins</Text>
+                <Text style={[styles.awardStatus, award.status === "credited" ? styles.paid : styles.pending]}>
+                  {award.status === "credited" ? "CREDITED" : "PENDING"}
+                </Text>
+              </View>
+            </View>
+          ))}
+          {data.approvedAt ? <Text style={styles.prizeNotice}>Approved {formatAuditTime(data.approvedAt)}</Text> : null}
+          {data.canApprove ? (
+            <Pressable
+              testID="knockout-prize-approve"
+              accessibilityRole="button"
+              accessibilityState={{ disabled: saving }}
+              disabled={saving}
+              onPress={onApprove}
+              style={[styles.confirmButton, saving && styles.disabled]}
+            >
+              <Feather name="credit-card" size={15} color={A.bg} />
+              <Text style={styles.confirmText}>{saving ? "CREDITING…" : "APPROVE & CREDIT 1,000 COINS"}</Text>
+            </Pressable>
+          ) : null}
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+function KnockoutAuditPanel({
+  entries,
+  isLoading,
+  isError,
+}: {
+  entries: Daily007KnockoutAuditEntry[];
+  isLoading: boolean;
+  isError: boolean;
+}) {
+  return (
+    <View style={styles.auditPanel} testID="admin-knockout-audit">
+      <Text style={styles.sectionLabel}>ADMIN AUDIT HISTORY</Text>
+      <Text style={styles.prizeNotice}>
+        Settings changes, result corrections, publication, progression, and prize credits.
+      </Text>
+      {isLoading ? <Text style={styles.empty}>Loading audit history…</Text> : null}
+      {isError ? <Text accessibilityRole="alert" style={styles.error}>Could not load audit history.</Text> : null}
+      {!isLoading && !isError && entries.length === 0 ? (
+        <Text style={styles.empty}>No admin actions have been recorded yet.</Text>
+      ) : null}
+      {entries.slice(0, 20).map((entry) => (
+        <View key={entry.id} style={styles.auditRow}>
+          <View style={styles.auditHeader}>
+            <Text style={styles.auditAction}>{entry.action.replaceAll("_", " ").toUpperCase()}</Text>
+            <Text style={styles.auditTime}>{formatAuditTime(entry.createdAt)}</Text>
+          </View>
+          <Text style={styles.auditMeta}>
+            {entry.adminName}
+            {entry.round ? ` · ${entry.round.replaceAll("_", " ").toUpperCase()}` : ""}
+            {entry.teamNumber ? ` · Team ${String(entry.teamNumber).padStart(2, "0")}` : ""}
+          </Text>
+          {entry.reason ? <Text style={styles.auditReason}>{entry.reason}</Text> : null}
+          {auditDetail(entry) ? <Text style={styles.auditDiff}>{auditDetail(entry)}</Text> : null}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function formatAuditTime(value: string): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "—";
+  return `${new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  }).format(date)} IST`;
+}
+
+function auditDetail(entry: Daily007KnockoutAuditEntry): string | null {
+  const before = entry.beforeState ?? {};
+  const after = entry.afterState ?? {};
+  const value = (state: Record<string, unknown>, key: string) =>
+    typeof state[key] === "number" || typeof state[key] === "string" ? state[key] : "—";
+  if (entry.action === "result_corrected") {
+    return `Before: #${value(before, "placement")}, ${value(before, "squadKills")} kills → After: #${value(after, "placement")}, ${value(after, "squadKills")} kills`;
+  }
+  if (entry.action === "result_saved" || entry.action === "result_published") {
+    return `Placement #${value(after, "placement")} · ${value(after, "squadKills")} kills · ${value(after, "roundPoints")} points`;
+  }
+  if (entry.action === "settings_created") {
+    return `${value(after, "title")} · ${value(after, "squadCount")} squads · ${value(after, "prizePool")} coin pool`;
+  }
+  if (entry.action === "settings_updated") {
+    return `Settings: ${value(before, "title")} / ${value(before, "prizePool")} pool → ${value(after, "title")} / ${value(after, "prizePool")} pool`;
+  }
+  if (entry.action === "stage_confirmed") {
+    const rankings = Array.isArray(after.rankings) ? after.rankings.length : 0;
+    return `${value(after, "status")} · ${rankings} squad results locked`;
+  }
+  if (entry.action === "prize_credited") {
+    return `${value(after, "totalCoins")} coins · ${value(after, "awardCount")} player credits`;
+  }
+  return null;
 }
 
 const styles = StyleSheet.create({
@@ -521,6 +793,29 @@ const styles = StyleSheet.create({
   previewTeam: { color: A.text, fontSize: 9, fontWeight: "900" },
   previewMeta: { color: A.sub, fontSize: 8, fontWeight: "700", marginTop: 2 },
   previewStatus: { fontSize: 7, fontWeight: "900", textAlign: "right" },
+  prizePanel: { padding: 10, borderRadius: 11, backgroundColor: A.bg, borderWidth: 1, borderColor: A.gold + "55", gap: 8 },
+  prizeNotice: { color: A.sub, fontSize: 8, lineHeight: 13 },
+  prizeTiers: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  prizeTier: { flexGrow: 1, flexBasis: "30%", minWidth: 95, padding: 8, borderRadius: 9, backgroundColor: A.gold + "10", borderWidth: 1, borderColor: A.gold + "40", gap: 3 },
+  prizeRank: { color: A.gold, fontSize: 8, fontWeight: "900" },
+  prizeAmount: { color: A.text, fontSize: 9, fontWeight: "900" },
+  prizeMember: { color: A.sub, fontSize: 8, fontWeight: "800" },
+  payoutStatus: { color: A.orange, fontSize: 9, fontWeight: "900" },
+  awardRow: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 6, paddingHorizontal: 8, borderRadius: 8, backgroundColor: A.card, borderWidth: 1, borderColor: A.border },
+  awardPlayer: { color: A.text, fontSize: 8, fontWeight: "900" },
+  awardRecipient: { color: A.sub, fontSize: 8, marginTop: 2 },
+  awardAmountBlock: { alignItems: "flex-end", gap: 2 },
+  awardAmount: { color: A.gold, fontSize: 9, fontWeight: "900" },
+  awardStatus: { fontSize: 7, fontWeight: "900" },
+  auditPanel: { padding: 10, borderRadius: 11, backgroundColor: A.bg, borderWidth: 1, borderColor: A.border, gap: 7 },
+  auditRow: { padding: 8, borderRadius: 8, backgroundColor: A.card, borderWidth: 1, borderColor: A.border, gap: 3 },
+  auditHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 6 },
+  auditAction: { flex: 1, color: A.gold, fontSize: 8, fontWeight: "900" },
+  auditTime: { color: A.sub, fontSize: 7, fontWeight: "700", textAlign: "right" },
+  auditMeta: { color: A.cyan, fontSize: 8, fontWeight: "800" },
+  auditReason: { color: A.text, fontSize: 8, lineHeight: 12 },
+  auditDiff: { color: A.sub, fontSize: 8, lineHeight: 12 },
+  correctionBlock: { gap: 6 },
   teamList: { gap: 7 },
   teamCard: { padding: 10, borderRadius: 11, backgroundColor: A.bg, borderWidth: 1, borderColor: A.border, gap: 6 },
   teamCardActive: { borderColor: A.gold + "88" },

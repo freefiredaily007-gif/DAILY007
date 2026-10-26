@@ -668,6 +668,11 @@ export const Daily007ListPublicKnockoutEventsResponse = zod.object({
   "stageCount": zod.number().int(),
   "entryCoins": zod.number().int(),
   "prizePool": zod.number().int(),
+  "prizeDistribution": zod.array(zod.object({
+  "rank": zod.union([zod.literal(1),zod.literal(2),zod.literal(3)]),
+  "squadCoins": zod.union([zod.literal(500),zod.literal(300),zod.literal(200)]),
+  "playerCoins": zod.union([zod.literal(125),zod.literal(75),zod.literal(50)])
+})),
   "pointsPerKill": zod.number().int(),
   "round1Eliminated": zod.number().int(),
   "round2Eliminated": zod.number().int(),
@@ -687,6 +692,11 @@ export const Daily007ListPublicKnockoutEventsResponse = zod.object({
   "entryCoins": zod.number().int(),
   "squadEntryCoins": zod.number().int(),
   "prizePool": zod.number().int(),
+  "prizeDistribution": zod.array(zod.object({
+  "rank": zod.union([zod.literal(1),zod.literal(2),zod.literal(3)]),
+  "squadCoins": zod.union([zod.literal(500),zod.literal(300),zod.literal(200)]),
+  "playerCoins": zod.union([zod.literal(125),zod.literal(75),zod.literal(50)])
+})),
   "squadCount": zod.number().int(),
   "playersPerSquad": zod.number().int(),
   "totalPlayers": zod.number().int(),
@@ -750,6 +760,12 @@ export const Daily007GetKnockoutLeaderboardResponse = zod.object({
   "qualificationStatus": zod.string()
 })),
   "progressionStatus": zod.string(),
+  "prizeDistribution": zod.array(zod.object({
+  "rank": zod.union([zod.literal(1),zod.literal(2),zod.literal(3)]),
+  "squadCoins": zod.union([zod.literal(500),zod.literal(300),zod.literal(200)]),
+  "playerCoins": zod.union([zod.literal(125),zod.literal(75),zod.literal(50)])
+})),
+  "prizePayoutStatus": zod.string(),
   "message": zod.string()
 })
 
@@ -884,13 +900,17 @@ export const daily007AdminSaveKnockoutRoundResultBodyPlacementMax = 12;
 export const daily007AdminSaveKnockoutRoundResultBodySquadKillsMin = 0;
 export const daily007AdminSaveKnockoutRoundResultBodySquadKillsMax = 100000;
 
+export const daily007AdminSaveKnockoutRoundResultBodyCorrectionReasonMin = 5;
+export const daily007AdminSaveKnockoutRoundResultBodyCorrectionReasonMax = 500;
+
 
 
 export const Daily007AdminSaveKnockoutRoundResultBody = zod.object({
   "round": zod.enum(['round_1', 'round_2', 'final']),
   "teamNumber": zod.number().int().min(1).max(daily007AdminSaveKnockoutRoundResultBodyTeamNumberMax),
   "placement": zod.number().int().min(1).max(daily007AdminSaveKnockoutRoundResultBodyPlacementMax),
-  "squadKills": zod.number().int().min(daily007AdminSaveKnockoutRoundResultBodySquadKillsMin).max(daily007AdminSaveKnockoutRoundResultBodySquadKillsMax)
+  "squadKills": zod.number().int().min(daily007AdminSaveKnockoutRoundResultBodySquadKillsMin).max(daily007AdminSaveKnockoutRoundResultBodySquadKillsMax),
+  "correctionReason": zod.string().min(daily007AdminSaveKnockoutRoundResultBodyCorrectionReasonMin).max(daily007AdminSaveKnockoutRoundResultBodyCorrectionReasonMax).optional()
 })
 
 export const daily007AdminSaveKnockoutRoundResultResponseResultTeamNumberMax = 12;
@@ -1018,6 +1038,113 @@ export const Daily007AdminConfirmKnockoutProgressionResponse = zod.object({
 
 
 /**
+ * @summary View the final top-three prize preview and wallet-credit status
+ */
+export const Daily007AdminGetKnockoutPrizeStatusParams = zod.object({
+  "id": zod.coerce.string().uuid()
+})
+
+export const daily007AdminGetKnockoutPrizeStatusResponseAwardsItemTeamNumberMax = 12;
+
+export const daily007AdminGetKnockoutPrizeStatusResponseAwardsItemSlotNumberMax = 4;
+
+
+
+export const Daily007AdminGetKnockoutPrizeStatusResponse = zod.object({
+  "matchId": zod.string().uuid(),
+  "tournamentName": zod.string(),
+  "prizePool": zod.number().int(),
+  "status": zod.enum(['awaiting_final', 'pending_approval', 'credited', 'blocked']),
+  "message": zod.string(),
+  "totalCoins": zod.number().int(),
+  "canApprove": zod.boolean(),
+  "approvedAt": zod.coerce.date().nullable(),
+  "alreadyCredited": zod.boolean().optional(),
+  "awards": zod.array(zod.object({
+  "registrationId": zod.string().uuid(),
+  "recipientUserId": zod.string().uuid(),
+  "playerName": zod.string(),
+  "recipientName": zod.string(),
+  "teamNumber": zod.number().int().min(1).max(daily007AdminGetKnockoutPrizeStatusResponseAwardsItemTeamNumberMax),
+  "slotNumber": zod.number().int().min(1).max(daily007AdminGetKnockoutPrizeStatusResponseAwardsItemSlotNumberMax),
+  "rank": zod.union([zod.literal(1),zod.literal(2),zod.literal(3)]),
+  "squadPrizeCoins": zod.union([zod.literal(500),zod.literal(300),zod.literal(200)]),
+  "playerPrizeCoins": zod.union([zod.literal(125),zod.literal(75),zod.literal(50)]),
+  "status": zod.enum(['pending_approval', 'credited']),
+  "walletLedgerId": zod.string().uuid().nullable()
+}))
+})
+
+
+/**
+ * Credits wallet coins atomically after final publication. This does not transfer cash. Repeated approvals are idempotent.
+ * @summary Explicitly credit the fixed top-three prize awards to Daily007 wallets
+ */
+export const Daily007AdminApproveKnockoutPrizesParams = zod.object({
+  "id": zod.coerce.string().uuid()
+})
+
+export const Daily007AdminApproveKnockoutPrizesBody = zod.object({
+  "confirm": zod.literal(true)
+})
+
+export const daily007AdminApproveKnockoutPrizesResponseAwardsItemTeamNumberMax = 12;
+
+export const daily007AdminApproveKnockoutPrizesResponseAwardsItemSlotNumberMax = 4;
+
+
+
+export const Daily007AdminApproveKnockoutPrizesResponse = zod.object({
+  "matchId": zod.string().uuid(),
+  "tournamentName": zod.string(),
+  "prizePool": zod.number().int(),
+  "status": zod.enum(['awaiting_final', 'pending_approval', 'credited', 'blocked']),
+  "message": zod.string(),
+  "totalCoins": zod.number().int(),
+  "canApprove": zod.boolean(),
+  "approvedAt": zod.coerce.date().nullable(),
+  "alreadyCredited": zod.boolean().optional(),
+  "awards": zod.array(zod.object({
+  "registrationId": zod.string().uuid(),
+  "recipientUserId": zod.string().uuid(),
+  "playerName": zod.string(),
+  "recipientName": zod.string(),
+  "teamNumber": zod.number().int().min(1).max(daily007AdminApproveKnockoutPrizesResponseAwardsItemTeamNumberMax),
+  "slotNumber": zod.number().int().min(1).max(daily007AdminApproveKnockoutPrizesResponseAwardsItemSlotNumberMax),
+  "rank": zod.union([zod.literal(1),zod.literal(2),zod.literal(3)]),
+  "squadPrizeCoins": zod.union([zod.literal(500),zod.literal(300),zod.literal(200)]),
+  "playerPrizeCoins": zod.union([zod.literal(125),zod.literal(75),zod.literal(50)]),
+  "status": zod.enum(['pending_approval', 'credited']),
+  "walletLedgerId": zod.string().uuid().nullable()
+}))
+})
+
+
+/**
+ * @summary View Knockout settings, result correction, publication, progression, and payout audit history
+ */
+export const Daily007AdminGetKnockoutAuditParams = zod.object({
+  "id": zod.coerce.string().uuid()
+})
+
+export const Daily007AdminGetKnockoutAuditResponse = zod.object({
+  "matchId": zod.string().uuid(),
+  "entries": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "action": zod.string(),
+  "round": zod.union([zod.literal('round_1'),zod.literal('round_2'),zod.literal('final'),zod.literal(null)]).nullable(),
+  "teamNumber": zod.number().int().nullable(),
+  "adminUserId": zod.string().uuid().nullable(),
+  "adminName": zod.string(),
+  "reason": zod.string().nullable(),
+  "beforeState": zod.record(zod.string(), zod.unknown()).nullable(),
+  "afterState": zod.record(zod.string(), zod.unknown()).nullable(),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
  * @summary List all Knockout events including drafts
  */
 export const daily007AdminListKnockoutEventsResponseEventsItemStagesItemSquadsMin = 2;
@@ -1036,6 +1163,11 @@ export const Daily007AdminListKnockoutEventsResponse = zod.object({
   "entryCoins": zod.number().int(),
   "squadEntryCoins": zod.number().int(),
   "prizePool": zod.number().int(),
+  "prizeDistribution": zod.array(zod.object({
+  "rank": zod.union([zod.literal(1),zod.literal(2),zod.literal(3)]),
+  "squadCoins": zod.union([zod.literal(500),zod.literal(300),zod.literal(200)]),
+  "playerCoins": zod.union([zod.literal(125),zod.literal(75),zod.literal(50)])
+})),
   "squadCount": zod.number().int(),
   "playersPerSquad": zod.number().int(),
   "totalPlayers": zod.number().int(),
@@ -1110,6 +1242,11 @@ export const Daily007AdminCreateKnockoutEventResponse = zod.object({
   "entryCoins": zod.number().int(),
   "squadEntryCoins": zod.number().int(),
   "prizePool": zod.number().int(),
+  "prizeDistribution": zod.array(zod.object({
+  "rank": zod.union([zod.literal(1),zod.literal(2),zod.literal(3)]),
+  "squadCoins": zod.union([zod.literal(500),zod.literal(300),zod.literal(200)]),
+  "playerCoins": zod.union([zod.literal(125),zod.literal(75),zod.literal(50)])
+})),
   "squadCount": zod.number().int(),
   "playersPerSquad": zod.number().int(),
   "totalPlayers": zod.number().int(),
@@ -1188,6 +1325,11 @@ export const Daily007AdminUpdateKnockoutEventResponse = zod.object({
   "entryCoins": zod.number().int(),
   "squadEntryCoins": zod.number().int(),
   "prizePool": zod.number().int(),
+  "prizeDistribution": zod.array(zod.object({
+  "rank": zod.union([zod.literal(1),zod.literal(2),zod.literal(3)]),
+  "squadCoins": zod.union([zod.literal(500),zod.literal(300),zod.literal(200)]),
+  "playerCoins": zod.union([zod.literal(125),zod.literal(75),zod.literal(50)])
+})),
   "squadCount": zod.number().int(),
   "playersPerSquad": zod.number().int(),
   "totalPlayers": zod.number().int(),

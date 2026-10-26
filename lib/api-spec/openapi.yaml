@@ -459,6 +459,61 @@ paths:
         "403": { description: Tournament administrator required }
         "404": { description: Knockout event not found }
         "409": { description: "Incomplete results, unresolved tie, or stage already advanced" }
+  /daily007/v2/admin/knockout/events/{id}/prizes:
+    get:
+      operationId: daily007AdminGetKnockoutPrizeStatus
+      summary: View the final top-three prize preview and wallet-credit status
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Prize breakdown, eligible recipients, and approval status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007KnockoutPrizePayoutResponse" }
+        "403": { description: Tournament administrator required }
+        "404": { description: Knockout event not found }
+  /daily007/v2/admin/knockout/events/{id}/prizes/approve:
+    post:
+      operationId: daily007AdminApproveKnockoutPrizes
+      summary: Explicitly credit the fixed top-three prize awards to Daily007 wallets
+      description: Credits wallet coins atomically after final publication. This does not transfer cash. Repeated approvals are idempotent.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { confirm: { type: boolean, enum: [true] } }
+              required: [confirm]
+      responses:
+        "200":
+          description: Wallet coin awards were credited or already credited
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007KnockoutPrizePayoutResponse" }
+        "400": { description: Explicit admin confirmation is required }
+        "403": { description: Tournament administrator required }
+        "404": { description: Knockout event not found }
+        "409": { description: "Final results, prize pool, paid roster, or payout state is not eligible" }
+  /daily007/v2/admin/knockout/events/{id}/audit:
+    get:
+      operationId: daily007AdminGetKnockoutAudit
+      summary: View Knockout settings, result correction, publication, progression, and payout audit history
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Immutable admin action history, newest first
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007KnockoutAuditResponse" }
+        "403": { description: Tournament administrator required }
   /daily007/v2/admin/knockout/events:
     get:
       operationId: daily007AdminListKnockoutEvents
@@ -1747,6 +1802,9 @@ components:
         entryCoins: { type: integer }
         squadEntryCoins: { type: integer }
         prizePool: { type: integer }
+        prizeDistribution:
+          type: array
+          items: { $ref: "#/components/schemas/Daily007KnockoutPrizeTier" }
         squadCount: { type: integer }
         playersPerSquad: { type: integer }
         totalPlayers: { type: integer }
@@ -1770,6 +1828,7 @@ components:
         - entryCoins
         - squadEntryCoins
         - prizePool
+        - prizeDistribution
         - squadCount
         - playersPerSquad
         - totalPlayers
@@ -1801,6 +1860,9 @@ components:
         stageCount: { type: integer }
         entryCoins: { type: integer }
         prizePool: { type: integer }
+        prizeDistribution:
+          type: array
+          items: { $ref: "#/components/schemas/Daily007KnockoutPrizeTier" }
         pointsPerKill: { type: integer }
         round1Eliminated: { type: integer }
         round2Eliminated: { type: integer }
@@ -1816,6 +1878,7 @@ components:
         - stageCount
         - entryCoins
         - prizePool
+        - prizeDistribution
         - pointsPerKill
         - round1Eliminated
         - round2Eliminated
@@ -1898,8 +1961,72 @@ components:
           type: array
           items: { $ref: "#/components/schemas/Daily007KnockoutLeaderboardSquad" }
         progressionStatus: { type: string }
+        prizeDistribution:
+          type: array
+          items: { $ref: "#/components/schemas/Daily007KnockoutPrizeTier" }
+        prizePayoutStatus: { type: string }
         message: { type: string }
-      required: [matchId, stage, round, standings, progressionStatus, message]
+      required: [matchId, stage, round, standings, progressionStatus, prizeDistribution, prizePayoutStatus, message]
+    Daily007KnockoutPrizeTier:
+      type: object
+      properties:
+        rank: { type: integer, enum: [1, 2, 3] }
+        squadCoins: { type: integer, enum: [500, 300, 200] }
+        playerCoins: { type: integer, enum: [125, 75, 50] }
+      required: [rank, squadCoins, playerCoins]
+    Daily007KnockoutPrizeAward:
+      type: object
+      properties:
+        registrationId: { type: string, format: uuid }
+        recipientUserId: { type: string, format: uuid }
+        playerName: { type: string }
+        recipientName: { type: string }
+        teamNumber: { type: integer, minimum: 1, maximum: 12 }
+        slotNumber: { type: integer, minimum: 1, maximum: 4 }
+        rank: { type: integer, enum: [1, 2, 3] }
+        squadPrizeCoins: { type: integer, enum: [500, 300, 200] }
+        playerPrizeCoins: { type: integer, enum: [125, 75, 50] }
+        status: { type: string, enum: [pending_approval, credited] }
+        walletLedgerId: { type: ["string", "null"], format: uuid }
+      required: [registrationId, recipientUserId, playerName, recipientName, teamNumber, slotNumber, rank, squadPrizeCoins, playerPrizeCoins, status, walletLedgerId]
+    Daily007KnockoutPrizePayoutResponse:
+      type: object
+      properties:
+        matchId: { type: string, format: uuid }
+        tournamentName: { type: string }
+        prizePool: { type: integer }
+        status: { type: string, enum: [awaiting_final, pending_approval, credited, blocked] }
+        message: { type: string }
+        totalCoins: { type: integer }
+        canApprove: { type: boolean }
+        approvedAt: { type: ["string", "null"], format: date-time }
+        alreadyCredited: { type: boolean }
+        awards:
+          type: array
+          items: { $ref: "#/components/schemas/Daily007KnockoutPrizeAward" }
+      required: [matchId, tournamentName, prizePool, status, message, totalCoins, canApprove, approvedAt, awards]
+    Daily007KnockoutAuditEntry:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        action: { type: string }
+        round: { type: ["string", "null"], enum: [round_1, round_2, final, null] }
+        teamNumber: { type: ["integer", "null"] }
+        adminUserId: { type: ["string", "null"], format: uuid }
+        adminName: { type: string }
+        reason: { type: ["string", "null"] }
+        beforeState: { type: ["object", "null"], additionalProperties: true }
+        afterState: { type: ["object", "null"], additionalProperties: true }
+        createdAt: { type: string, format: date-time }
+      required: [id, action, round, teamNumber, adminUserId, adminName, reason, beforeState, afterState, createdAt]
+    Daily007KnockoutAuditResponse:
+      type: object
+      properties:
+        matchId: { type: string, format: uuid }
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/Daily007KnockoutAuditEntry" }
+      required: [matchId, entries]
     Daily007KnockoutRoundResult:
       type: object
       properties:
@@ -1993,6 +2120,7 @@ components:
         teamNumber: { type: integer, minimum: 1, maximum: 12 }
         placement: { type: integer, minimum: 1, maximum: 12 }
         squadKills: { type: integer, minimum: 0, maximum: 100000 }
+        correctionReason: { type: string, minLength: 5, maxLength: 500 }
       required: [round, teamNumber, placement, squadKills]
     Daily007KnockoutRoundResultResponse:
       type: object

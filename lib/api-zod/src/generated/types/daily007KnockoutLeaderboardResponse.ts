@@ -23,6 +23,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { Daily007KnockoutLeaderboardSquad } from './daily007KnockoutLeaderboardSquad';
+import type { Daily007KnockoutPrizeTier } from './daily007KnockoutPrizeTier';
 import type { Daily007KnockoutRound } from './daily007KnockoutRound';
 
 export interface Daily007KnockoutLeaderboardResponse {
@@ -31,5 +32,7 @@ export interface Daily007KnockoutLeaderboardResponse {
   round: Daily007KnockoutRound;
   standings: Daily007KnockoutLeaderboardSquad[];
   progressionStatus: string;
+  prizeDistribution: Daily007KnockoutPrizeTier[];
+  prizePayoutStatus: string;
   message: string;
 }

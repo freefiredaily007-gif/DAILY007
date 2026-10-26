@@ -22,6 +22,7 @@
  *
  * OpenAPI spec version: 0.1.0
  */
+import type { Daily007KnockoutPrizeTier } from './daily007KnockoutPrizeTier';
 import type { Daily007KnockoutStage } from './daily007KnockoutStage';
 
 export interface Daily007KnockoutDefaultSettings {
@@ -31,6 +32,7 @@ export interface Daily007KnockoutDefaultSettings {
   stageCount: number;
   entryCoins: number;
   prizePool: number;
+  prizeDistribution: Daily007KnockoutPrizeTier[];
   pointsPerKill: number;
   round1Eliminated: number;
   round2Eliminated: number;

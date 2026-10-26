@@ -41,4 +41,9 @@ export interface Daily007KnockoutRoundResultBody {
      * @maximum 100000
      */
   squadKills: number;
+  /**
+     * @minLength 5
+     * @maxLength 500
+     */
+  correctionReason?: string;
 }

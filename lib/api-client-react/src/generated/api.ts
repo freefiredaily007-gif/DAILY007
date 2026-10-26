@@ -43,6 +43,7 @@ import type {
   Daily007AdminAccountRecoveryRequest,
   Daily007AdminAccountRecoveryReviewBody,
   Daily007AdminAccountRecoveryReviewResult,
+  Daily007AdminApproveKnockoutPrizesBody,
   Daily007AdminApproveLeaderboardPeriodResponse,
   Daily007AdminDeleteTournamentWithoutRefund200,
   Daily007AdminGetKnockoutRoundResultsParams,
@@ -76,8 +77,10 @@ import type {
   Daily007InstagramFollowClaimBody,
   Daily007InstagramFollowTaskStatus,
   Daily007KnockoutAdminResultsResponse,
+  Daily007KnockoutAuditResponse,
   Daily007KnockoutEventsResponse,
   Daily007KnockoutLeaderboardResponse,
+  Daily007KnockoutPrizePayoutResponse,
   Daily007KnockoutProgressionBody,
   Daily007KnockoutProgressionResponse,
   Daily007KnockoutRoundResultBody,
@@ -2310,6 +2313,250 @@ export const useDaily007AdminConfirmKnockoutProgression = <TError = ErrorType<vo
       > => {
       return useMutation(getDaily007AdminConfirmKnockoutProgressionMutationOptions(options));
     }
+
+export const getDaily007AdminGetKnockoutPrizeStatusUrl = (id: string,) => {
+
+
+
+
+  return `/api/daily007/v2/admin/knockout/events/${id}/prizes`
+}
+
+/**
+ * @summary View the final top-three prize preview and wallet-credit status
+ */
+export const daily007AdminGetKnockoutPrizeStatus = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<Daily007KnockoutPrizePayoutResponse> => {
+
+  return customFetch<Daily007KnockoutPrizePayoutResponse>(getDaily007AdminGetKnockoutPrizeStatusUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminGetKnockoutPrizeStatusQueryKey = (id: string,) => {
+    return [
+    `/api/daily007/v2/admin/knockout/events/${id}/prizes`
+    ] as const;
+    }
+
+
+export const getDaily007AdminGetKnockoutPrizeStatusQueryOptions = <TData = Awaited<ReturnType<typeof daily007AdminGetKnockoutPrizeStatus>>, TError = ErrorType<void>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminGetKnockoutPrizeStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDaily007AdminGetKnockoutPrizeStatusQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007AdminGetKnockoutPrizeStatus>>> = ({ signal }) => daily007AdminGetKnockoutPrizeStatus(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof daily007AdminGetKnockoutPrizeStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type Daily007AdminGetKnockoutPrizeStatusQueryResult = NonNullable<Awaited<ReturnType<typeof daily007AdminGetKnockoutPrizeStatus>>>
+export type Daily007AdminGetKnockoutPrizeStatusQueryError = ErrorType<void>
+
+
+/**
+ * @summary View the final top-three prize preview and wallet-credit status
+ */
+
+export function useDaily007AdminGetKnockoutPrizeStatus<TData = Awaited<ReturnType<typeof daily007AdminGetKnockoutPrizeStatus>>, TError = ErrorType<void>>(
+ id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminGetKnockoutPrizeStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDaily007AdminGetKnockoutPrizeStatusQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDaily007AdminApproveKnockoutPrizesUrl = (id: string,) => {
+
+
+
+
+  return `/api/daily007/v2/admin/knockout/events/${id}/prizes/approve`
+}
+
+/**
+ * Credits wallet coins atomically after final publication. This does not transfer cash. Repeated approvals are idempotent.
+ * @summary Explicitly credit the fixed top-three prize awards to Daily007 wallets
+ */
+export const daily007AdminApproveKnockoutPrizes = async (id: string,
+    daily007AdminApproveKnockoutPrizesBody: Daily007AdminApproveKnockoutPrizesBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007KnockoutPrizePayoutResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Daily007KnockoutPrizePayoutResponse>(getDaily007AdminApproveKnockoutPrizesUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(daily007AdminApproveKnockoutPrizesBody)
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminApproveKnockoutPrizesMutationKey = () => ['daily007AdminApproveKnockoutPrizes'] as const;
+
+export const getDaily007AdminApproveKnockoutPrizesMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminApproveKnockoutPrizes>>, TError,Daily007AdminApproveKnockoutPrizesMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007AdminApproveKnockoutPrizes>>, TError,Daily007AdminApproveKnockoutPrizesMutationVariables, TContext> => {
+
+const mutationKey = getDaily007AdminApproveKnockoutPrizesMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007AdminApproveKnockoutPrizes>>, Daily007AdminApproveKnockoutPrizesMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  daily007AdminApproveKnockoutPrizes(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007AdminApproveKnockoutPrizesMutationResult = NonNullable<Awaited<ReturnType<typeof daily007AdminApproveKnockoutPrizes>>>
+    export type Daily007AdminApproveKnockoutPrizesMutationBody = BodyType<Daily007AdminApproveKnockoutPrizesBody>
+    export type Daily007AdminApproveKnockoutPrizesMutationError = ErrorType<void>
+    export type Daily007AdminApproveKnockoutPrizesMutationVariables = {id: string;data: BodyType<Daily007AdminApproveKnockoutPrizesBody>}
+
+    /**
+ * @summary Explicitly credit the fixed top-three prize awards to Daily007 wallets
+ */
+export const useDaily007AdminApproveKnockoutPrizes = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminApproveKnockoutPrizes>>, TError,Daily007AdminApproveKnockoutPrizesMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007AdminApproveKnockoutPrizes>>,
+        TError,
+        Daily007AdminApproveKnockoutPrizesMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007AdminApproveKnockoutPrizesMutationOptions(options));
+    }
+
+export const getDaily007AdminGetKnockoutAuditUrl = (id: string,) => {
+
+
+
+
+  return `/api/daily007/v2/admin/knockout/events/${id}/audit`
+}
+
+/**
+ * @summary View Knockout settings, result correction, publication, progression, and payout audit history
+ */
+export const daily007AdminGetKnockoutAudit = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<Daily007KnockoutAuditResponse> => {
+
+  return customFetch<Daily007KnockoutAuditResponse>(getDaily007AdminGetKnockoutAuditUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminGetKnockoutAuditQueryKey = (id: string,) => {
+    return [
+    `/api/daily007/v2/admin/knockout/events/${id}/audit`
+    ] as const;
+    }
+
+
+export const getDaily007AdminGetKnockoutAuditQueryOptions = <TData = Awaited<ReturnType<typeof daily007AdminGetKnockoutAudit>>, TError = ErrorType<void>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminGetKnockoutAudit>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDaily007AdminGetKnockoutAuditQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof daily007AdminGetKnockoutAudit>>> = ({ signal }) => daily007AdminGetKnockoutAudit(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof daily007AdminGetKnockoutAudit>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type Daily007AdminGetKnockoutAuditQueryResult = NonNullable<Awaited<ReturnType<typeof daily007AdminGetKnockoutAudit>>>
+export type Daily007AdminGetKnockoutAuditQueryError = ErrorType<void>
+
+
+/**
+ * @summary View Knockout settings, result correction, publication, progression, and payout audit history
+ */
+
+export function useDaily007AdminGetKnockoutAudit<TData = Awaited<ReturnType<typeof daily007AdminGetKnockoutAudit>>, TError = ErrorType<void>>(
+ id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof daily007AdminGetKnockoutAudit>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDaily007AdminGetKnockoutAuditQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getDaily007AdminListKnockoutEventsUrl = () => {
 
