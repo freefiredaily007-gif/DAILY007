@@ -67,8 +67,8 @@ export default function HomeGameModeCards({
           <View key={mode.gameMode}>
             <GCard
               onPress={() => onOpenMode(routeParams)}
-              accessibilityLabel={`Open ${mode.mode} formats and tournaments.${showLiveCount ? ` ${liveCount} currently open for registration.` : ''}`}
-              accessibilityHint="Opens the format choices for this game mode"
+              accessibilityLabel={`Open ${mode.mode} tournaments.${showLiveCount ? ` ${liveCount} currently open for registration.` : ''}`}
+              accessibilityHint="Opens the tournament list filtered to this game mode"
               testID={`home-mode-${mode.mode.toLowerCase().replace(/[^a-z]+/g, '-')}`}
               glowColor={mode.accent}
               style={[s.modeCard, largeModeCard && s.modeCardLarge, { borderLeftColor: mode.accent }]}

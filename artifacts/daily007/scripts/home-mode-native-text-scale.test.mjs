@@ -25,7 +25,7 @@ test("native route renders the shared Home game-mode cards with deterministic de
   assert.match(cards, /export default function HomeGameModeCards/);
   assert.match(
     home,
-    /onOpenMode=\{\(params\) => nav\.navigate\('ModeSubmodes', params\)\}/,
+    /onOpenMode=\{\(params\) => nav\.push\('Tournaments', params\)\}/,
   );
 });
 

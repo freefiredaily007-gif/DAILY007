@@ -751,7 +751,7 @@ export default function Home() {
       <HomeGameModeCards
         modeCounts={openTournamentCounts}
         modeCountsReady={lastSuccessfulRefreshAt !== null}
-        onOpenMode={(params) => nav.navigate('ModeSubmodes', params)}
+        onOpenMode={(params) => nav.push('Tournaments', params)}
       />
 
       <HomeLeaderboards onOpen={() => nav.navigate('LeaderboardDetails', { cycleType: 'weekly' })} />

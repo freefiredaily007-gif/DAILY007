@@ -8,6 +8,7 @@ import {
   StyleSheet,
   RefreshControl,
   Pressable,
+  ScrollView,
   useWindowDimensions,
 } from 'react-native';
 import * as Network from 'expo-network';
@@ -50,6 +51,26 @@ import {
 } from '../lib/tournamentStartAnnouncement';
 import { createTournamentRoomDetailsAnnouncementTracker } from '../lib/tournamentRoomDetailsAnnouncement';
 import { translateExactText } from '../i18n';
+
+const GAME_MODE_FILTERS = [
+  { key: 'all', title: 'ALL', name: 'ALL TOURNAMENTS', gameMode: undefined, accent: C.gold },
+  { key: 'battle_royale_kill_earn', title: 'BR KILL & EARN', name: 'BATTLE ROYALE KILL & EARN', gameMode: 'battle_royale_kill_earn', accent: C.orange },
+  { key: 'battle_royale', title: 'BR CLASSIC', name: 'BATTLE ROYALE CLASSIC', gameMode: 'battle_royale', accent: C.gold },
+  { key: 'clash_squad', title: 'CLASH SQUAD', name: 'CLASH SQUAD', gameMode: 'clash_squad', accent: C.neon },
+  { key: 'lone_wolf', title: 'LONE WOLF', name: 'LONE WOLF', gameMode: 'lone_wolf', accent: C.purple },
+] as const;
+
+function normalizeModeFilter(value: unknown): string {
+  return String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function resolveModeFilter(value: unknown): (typeof GAME_MODE_FILTERS)[number]['key'] {
+  const normalized = normalizeModeFilter(value);
+  if (!normalized) return 'all';
+  return GAME_MODE_FILTERS.find((filter) =>
+    filter.key !== 'all' && normalizeModeFilter(filter.gameMode) === normalized,
+  )?.key ?? 'all';
+}
 
 function announcePlayerLoadStatusOnIOS(message: string): void {
   if (Platform.OS !== 'ios') return;
@@ -111,14 +132,16 @@ export default function Tournaments() {
   const gameMode = route?.params?.gameMode as string | undefined;
   const legacyMode = route?.params?.mode as string | undefined;
   const teamType = route?.params?.teamType as string | undefined;
-  const heading = route?.params?.gameModeLabel || legacyMode || gameMode;
-  const normalizedRouteMode = String(gameMode || legacyMode || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
+  const routeModeFilter = resolveModeFilter(gameMode || legacyMode);
+  const [selectedModeFilter, setSelectedModeFilter] = useState<string>(routeModeFilter);
+  const selectedMode = GAME_MODE_FILTERS.find((filter) => filter.key === selectedModeFilter) ?? GAME_MODE_FILTERS[0];
+  const heading = selectedMode.key === 'all' ? undefined : translateExactText(selectedMode.name);
+  useEffect(() => {
+    setSelectedModeFilter(routeModeFilter);
+    setTab('upcoming');
+  }, [routeModeFilter]);
   const registrationOnly = route?.params?.registrationOnly === true &&
-    (normalizedRouteMode === 'clashsquad' ||
-      normalizedRouteMode === 'lonewolf' ||
-      normalizedRouteMode === 'battleroyalekillearn');
+    selectedMode.key !== 'all';
 
   const loadLatest = useCallback(async (trigger: TournamentLoadTrigger) => {
     const request = loadRequests.current.begin();
@@ -426,8 +449,8 @@ export default function Tournaments() {
     ? items.filter((tournament) => isHomeTournamentOpenForRegistration(tournament, clockNow))
     : items;
   const modeScopedTabs = tournamentTabsForRoute(registrationOpenItems, {
-    gameMode: gameMode || legacyMode,
-    teamType,
+    gameMode: selectedMode.gameMode,
+    teamType: registrationOnly ? teamType : undefined,
   }, lifecycleOf);
   const visible = registrationOnly ? modeScopedTabs.upcoming : modeScopedTabs[tab];
   const orderedVisible = registrationOnly
@@ -443,7 +466,49 @@ export default function Tournaments() {
   };
   const emptyMessage = registrationOnly
     ? 'NO LIVE TOURNAMENTS AVAILABLE'
-    : tournamentListEmptyMessage(false, tabLabel[tab], heading, teamType);
+    : tournamentListEmptyMessage(false, tabLabel[tab], heading);
+  const modeFilterCounts: Record<string, number> = {
+    all: modeScopedTabs.upcoming.length + modeScopedTabs.ongoing.length + modeScopedTabs.completed.length,
+  };
+  for (const filter of GAME_MODE_FILTERS) {
+    if (filter.key === 'all') continue;
+    const counts = tournamentTabsForRoute(
+      registrationOpenItems,
+      { gameMode: filter.gameMode },
+      lifecycleOf,
+    );
+    modeFilterCounts[filter.key] = counts.upcoming.length + counts.ongoing.length + counts.completed.length;
+  }
+  const renderModeFilter = (filter: (typeof GAME_MODE_FILTERS)[number]) => {
+    const count = modeFilterCounts[filter.key] ?? 0;
+    const selected = selectedModeFilter === filter.key;
+    return (
+      <Pressable
+        key={filter.key}
+        testID={`tournament-mode-tab-${filter.key}`}
+        accessibilityRole="button"
+        accessibilityState={{ selected }}
+        accessibilityLabel={`${filter.name} tournaments, ${count}`}
+        onPress={() => {
+          setSelectedModeFilter(filter.key);
+          setRegistrationError('');
+        }}
+        style={[
+          s.modeFilterTab,
+          largeText && s.modeFilterTabLarge,
+          selected && { borderColor: filter.accent, backgroundColor: `${filter.accent}22` },
+        ]}
+      >
+        <Text style={[
+          s.modeFilterText,
+          largeText && s.modeFilterTextLarge,
+          selected && { color: filter.accent },
+        ]}>
+          {translateExactText(filter.title)} <Text style={[s.modeFilterCount, selected && { color: filter.accent }]}>{count}</Text>
+        </Text>
+      </Pressable>
+    );
+  };
 
   const onRefresh = async () => {
     if (refreshingRequest.current) return;
@@ -512,6 +577,18 @@ export default function Tournaments() {
         ListHeaderComponent={
           <View>
             <SectionTitle accent={C.neon}>{heading ? `${String(heading).toUpperCase()} TOURNAMENTS` : 'ALL TOURNAMENTS'}</SectionTitle>
+            {largeText ? (
+              <View style={s.modeFilterWrap}>{GAME_MODE_FILTERS.map(renderModeFilter)}</View>
+            ) : (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={s.modeFilterContent}
+                style={s.modeFilterScroll}
+              >
+                {GAME_MODE_FILTERS.map(renderModeFilter)}
+              </ScrollView>
+            )}
             {!registrationOnly && (
               <View style={[s.tabs, largeText && s.tabsLarge]}>
                 {tabs.map((value) => {
@@ -599,6 +676,7 @@ export default function Tournaments() {
           <MatchCard
             t={cardItem}
             largeText={largeText}
+            variant="browse"
             roomDetails={roomDetails}
             onPress={() => nav.push('TDetail', { id: item.id })}
           />
@@ -620,6 +698,25 @@ const s = StyleSheet.create({
   },
   tabs: { flexDirection: 'row', gap: 7, marginBottom: 12 },
   tabsLarge: { flexDirection: 'column', alignItems: 'stretch' },
+  modeFilterScroll: { marginBottom: 10 },
+  modeFilterContent: { gap: 8, paddingRight: 8, paddingBottom: 2 },
+  modeFilterWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
+  modeFilterTab: {
+    minWidth: 88,
+    minHeight: 38,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.card,
+  },
+  modeFilterTabLarge: { flexBasis: '47%', flexGrow: 1, minWidth: 0, minHeight: 50 },
+  modeFilterText: { color: C.sub, fontSize: 10, fontWeight: '900', letterSpacing: 0.3, textAlign: 'center' },
+  modeFilterTextLarge: { fontSize: 12, letterSpacing: 0 },
+  modeFilterCount: { color: C.dim, fontSize: 9, fontWeight: '800' },
   tab: {
     flex: 1, minHeight: 38, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center',
     borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: C.card,

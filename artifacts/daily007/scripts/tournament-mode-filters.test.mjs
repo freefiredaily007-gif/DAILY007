@@ -371,6 +371,26 @@ test('Solo, Duo, Trio, and Squad selections keep the selected game mode in their
   assert.match(modeSubmodesSource, /`\$\{format\.size\} VS \$\{format\.size\}`/);
 });
 
+test('the tournament mode tabs isolate each real game-mode category and All restores the complete list', () => {
+  const records = [
+    { id: 'kill-earn-solo', gameMode: 'battle_royale_kill_earn', teamType: 'solo', lifecycle: 'upcoming' },
+    { id: 'classic-solo', gameMode: 'battle_royale', teamType: 'solo', lifecycle: 'upcoming' },
+    { id: 'classic-duo', gameMode: 'battle_royale', teamType: 'duo', lifecycle: 'upcoming' },
+    { id: 'clash-1v1', gameMode: 'clash_squad', teamType: 'solo', lifecycle: 'upcoming' },
+    { id: 'lone-wolf-1v1', gameMode: 'lone_wolf', teamType: 'solo', lifecycle: 'upcoming' },
+  ];
+  const lifecycleOf = (tournament) => tournament.lifecycle;
+
+  for (const gameMode of ['battle_royale_kill_earn', 'battle_royale', 'clash_squad', 'lone_wolf']) {
+    const tabs = tournamentTabsForRoute(records, { gameMode }, lifecycleOf);
+    assert.ok(tabs.upcoming.length > 0, `${gameMode} should have its own list`);
+    assert.ok(tabs.upcoming.every((tournament) => tournament.gameMode === gameMode));
+  }
+
+  const all = tournamentTabsForRoute(records, {}, lifecycleOf);
+  assert.deepEqual(all.upcoming.map((tournament) => tournament.id), records.map((tournament) => tournament.id));
+});
+
 test('all selectable Clash Squad and Lone Wolf formats show only published, open matches for their exact mode and format', () => {
   const now = Date.now();
   const formats = [
@@ -574,7 +594,7 @@ test('Battle Royale format counts stay separate and show only open Solo, Duo, an
     countOpenHomeTournamentsByFormat(records, 'battle_royale', now),
     { solo: 2, duo: 3, trio: 0, squad: 5 },
   );
-  assert.match(homeSource, /onOpenMode=\{\(params\) => nav\.navigate\('ModeSubmodes', params\)\}/);
+  assert.match(homeSource, /onOpenMode=\{\(params\) => nav\.push\('Tournaments', params\)\}/);
   assert.match(modeSubmodesSource, /FORMATS\.map\(\(format\) =>/);
   assert.doesNotMatch(modeSubmodesSource, /\{ type: 'trio', title: 'TRIO'/);
   assert.match(modeSubmodesSource, /const mutedLiveCount = count === 0 \|\| count === undefined/);
@@ -727,7 +747,7 @@ test('Home mode cards keep every lifecycle tab mode-scoped and the format picker
 
   assert.match(
     homeSource,
-    /onOpenMode=\{\(params\) => nav\.navigate\('ModeSubmodes', params\)\}/,
+    /onOpenMode=\{\(params\) => nav\.push\('Tournaments', params\)\}/,
   );
   assert.match(
     homeGameModeCardsSource,
@@ -743,7 +763,7 @@ test('Home mode cards keep every lifecycle tab mode-scoped and the format picker
   );
   assert.match(
     homeGameModeCardsSource,
-    /accessibilityHint="Opens the format choices for this game mode"/,
+    /accessibilityHint="Opens the tournament list filtered to this game mode"/,
   );
 
   for (const card of HOME_GAME_MODE_CARDS) {
@@ -810,21 +830,27 @@ test('Home mode cards reflow and stay tappable with Android text scaled to 1.5x'
   assert.doesNotMatch(homeGameModeCardsSource, /numberOfLines=|ellipsizeMode=/);
 
   assert.match(homeSource, /<ScrollView style=\{\{\s*flex:\s*1,/);
-  assert.match(homeGameModeCardsSource, /accessibilityLabel=\{`Open \$\{mode\.mode\} formats and tournaments/);
+  assert.match(homeGameModeCardsSource, /accessibilityLabel=\{`Open \$\{mode\.mode\} tournaments/);
   assert.match(homeGameModeCardsSource, /testID=\{`home-mode-\$\{mode\.mode/);
 
   assert.match(typographySource, /<NativeText\s+\{\.\.\.props\}/);
   assert.doesNotMatch(typographySource, /allowFontScaling\s*=\s*\{false\}/);
 });
 
-test('the tournament screen applies both route mode and team type filters', () => {
+test('the tournament screen opens directly on its route mode and supports mode filtering', () => {
   assert.match(tournamentsSource, /const gameMode = route\?\.params\?\.gameMode/);
   assert.match(tournamentsSource, /const teamType = route\?\.params\?\.teamType/);
   assert.match(
     tournamentsSource,
-    /tournamentTabsForRoute\(registrationOpenItems,\s*\{\s*gameMode:\s*gameMode\s*\|\|\s*legacyMode,\s*teamType,\s*\},\s*lifecycleOf\)/,
+    /const routeModeFilter = resolveModeFilter\(gameMode \|\| legacyMode\)/,
   );
-  assert.match(tournamentsSource, /const registrationOnly = route\?\.params\?\.registrationOnly === true/);
+  assert.match(
+    tournamentsSource,
+    /const modeScopedTabs = tournamentTabsForRoute\(registrationOpenItems,\s*\{\s*gameMode:\s*selectedMode\.gameMode,\s*teamType:\s*registrationOnly \? teamType : undefined,\s*\},\s*lifecycleOf\)/,
+  );
+  assert.match(tournamentsSource, /GAME_MODE_FILTERS\.map\(renderModeFilter\)/);
+  assert.match(tournamentsSource, /onPress=\{\(\) => \{\s*setSelectedModeFilter\(filter\.key\)/);
+  assert.match(tournamentsSource, /variant="browse"/);
   assert.match(tournamentsSource, /!registrationOnly && \(\s*<View style=\{\[s\.tabs/);
 });
 
@@ -871,7 +897,7 @@ test('focus, pull-to-refresh, and app resume reuse the mode-scoped screen data',
   assert.match(tournamentsSource, /if \(!loadRequests\.current\.isCurrent\(request\)\) return;/);
   assert.match(
     tournamentsSource,
-    /const modeScopedTabs = tournamentTabsForRoute\(registrationOpenItems,\s*\{\s*gameMode:\s*gameMode \|\| legacyMode,\s*teamType,\s*\},\s*lifecycleOf\)/,
+    /const modeScopedTabs = tournamentTabsForRoute\(registrationOpenItems,\s*\{\s*gameMode:\s*selectedMode\.gameMode,\s*teamType:\s*registrationOnly \? teamType : undefined,\s*\},\s*lifecycleOf\)/,
   );
   assert.match(tournamentsSource, /const visible = registrationOnly \? modeScopedTabs\.upcoming : modeScopedTabs\[tab\]/);
   assert.match(tournamentsSource, /const count = modeScopedTabs\[value\]\.length/);
@@ -2395,7 +2421,7 @@ test('opening a tournament pushes its detail above the filtered list for Android
   );
   assert.match(
     tournamentsSource,
-    /const heading = route\?\.params\?\.gameModeLabel \|\| legacyMode \|\| gameMode/,
+    /const heading = selectedMode\.key === 'all' \? undefined : translateExactText\(selectedMode\.name\)/,
   );
   assert.match(
     appSource,
@@ -2750,7 +2776,7 @@ test('empty format-filtered lifecycle tabs announce the selected mode and team s
   );
   assert.match(
     tournamentsSource,
-    /const emptyMessage = registrationOnly\s*\?\s*'NO LIVE TOURNAMENTS AVAILABLE'\s*:\s*tournamentListEmptyMessage\(false,\s*tabLabel\[tab\],\s*heading,\s*teamType\)/,
+    /const emptyMessage = registrationOnly\s*\?\s*'NO LIVE TOURNAMENTS AVAILABLE'\s*:\s*tournamentListEmptyMessage\(false,\s*tabLabel\[tab\],\s*heading\)/,
   );
   assert.match(
     tournamentsSource,

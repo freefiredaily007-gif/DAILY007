@@ -7,6 +7,8 @@ import { LocalizedTextScope, useLocalizedTextEnabled } from '../i18n/LanguagePro
 import { Feather } from '@expo/vector-icons';
 import { getTournamentFormatPresentation as selectTournamentFormatPresentation } from '../lib/tournamentFormatPresentation';
 import { getRoomCredentialSchedule } from '../lib/roomCredentialTiming';
+import { isHomeTournamentOpenForRegistration } from '../lib/tournamentFilters';
+import { getTournamentFilledPlayerCount } from '../lib/tournamentCapacity';
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 import {
   nativeTextScaleTextProps,
@@ -534,54 +536,131 @@ export function MatchCard({
   onPress,
   roomDetails,
   largeText = false,
+  variant = 'default',
 }: {
   t: any;
   onPress?: () => void;
   roomDetails?: React.ReactNode;
   largeText?: boolean;
+  variant?: 'default' | 'browse';
 }) {
-  const s = statusOf(t);
+  const { t: translate } = useTranslation();
   const [failedImageUrl, setFailedImageUrl] = useState('');
   const joined = t?.joined === true;
-  const filled = t?.filledSlots ?? 0;
-  const total = t?.totalSlots ?? 0;
+  const filled = Number(t?.filledSlots ?? 0);
+  const total = Number(t?.totalSlots ?? 0);
   const requestedImageUrl = typeof t?.imageUrl === 'string' ? t.imageUrl.trim() : '';
   const customImageUrl = /^https:\/\/\S+$/i.test(requestedImageUrl) ? requestedImageUrl : '';
   const formatPresentation = getTournamentFormatPresentation(t);
+  const browse = variant === 'browse';
+  const teamSize = Math.max(1, Number(t?.teamSize ?? 1) || 1);
+  const filledPlayers = getTournamentFilledPlayerCount({
+    filledSlots: filled,
+    teamSize,
+    filledPlayerSlots: t?.filledPlayerSlots,
+    individualPlayerSlots:
+      String(t?.slotUnit ?? '').toLowerCase() === 'player' ||
+      String(t?.teamType ?? '').toLowerCase() === 'solo',
+  });
+  const totalPlayers = Number(t?.totalPlayerSlots ?? total * teamSize);
+  const safeFilledPlayers = Math.max(0, Number.isFinite(filledPlayers) ? filledPlayers : 0);
+  const safeTotalPlayers = Math.max(0, Number.isFinite(totalPlayers) ? totalPlayers : 0);
+  const fullByPlayers = safeTotalPlayers > 0 && safeFilledPlayers >= safeTotalPlayers;
+  const status = statusOf(t);
+  const s = browse && (status.key === 'upcoming' || status.key === 'full')
+    ? fullByPlayers
+      ? { key: 'full', label: translate('SLOTS FULL'), color: C.orange }
+      : { key: 'upcoming', label: translate('UPCOMING'), color: C.green }
+    : status;
   const imageSource = customImageUrl && failedImageUrl !== customImageUrl
     ? { uri: customImageUrl }
     : formatPresentation.image;
-  const filledPlayers = t?.filledPlayerSlots ?? filled * (t?.teamSize ?? 1);
-  const totalPlayers = t?.totalPlayerSlots ?? total * (t?.teamSize ?? 1);
-  const isKillEarn = String(t?.gameMode ?? '').toLowerCase() === 'battle_royale_kill_earn';
+  const normalizedMode = String(t?.gameMode ?? t?.mode ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const isKillEarn = normalizedMode === 'battleroyalkillearn';
+  const modeDisplayName = isKillEarn
+    ? 'BATTLE ROYALE KILL & EARN'
+    : normalizedMode.includes('battleroyale')
+      ? 'BATTLE ROYALE'
+      : normalizedMode.includes('clashsquad')
+        ? 'CLASH SQUAD'
+        : normalizedMode.includes('lonewolf')
+          ? 'LONE WOLF'
+          : String(t?.mode || t?.gameMode || '').replace(/_/g, ' ').toUpperCase();
   const perKillCoins = Number(t?.perKillCoins ?? t?.killRewardCoins ?? 0);
   const schedule = getRoomCredentialSchedule(t?.startsAt);
   const scheduledDate = schedule?.date ?? fmtDate(t?.date);
   const scheduledTime = schedule?.startTime24 ?? t?.time;
   const { format, showFormatBanner, showBattleRoyalePoster } = formatPresentation;
-  const usesArtCard = showFormatBanner || showBattleRoyalePoster;
+  const usesArtCard = browse || showFormatBanner || showBattleRoyalePoster;
+  const registrationAvailable = browse && isHomeTournamentOpenForRegistration(t);
   const statusUnknown = t?.joinedStatusUnknown === true;
   const ctaText = statusUnknown
     ? 'ENTRY STATUS UNKNOWN · TAP TO CHECK →'
+    : browse
+      ? joined
+        ? translate('VIEW MATCH')
+      : s.key === 'ongoing'
+          ? translate('VIEW MATCH')
+        : s.key === 'full'
+          ? translate('SLOTS FULL')
+          : s.key === 'completed'
+            ? s.label
+            : registrationAvailable
+              ? translate('JOIN TOURNAMENT')
+              : translate('REGISTRATION CLOSED')
     : joined
     ? s.key === 'full' ? 'Joined · Slots Full' : 'Joined'
     : s.key === 'ongoing' ? 'VIEW MATCH' : s.key === 'full' ? 'Slots Full' : s.key === 'completed' ? 'ENDED' : 'JOIN NOW →';
   const ctaColor = statusUnknown
     ? C.gold
+    : browse && !joined && s.key === 'upcoming' && !registrationAvailable
+      ? C.dim
     : joined ? C.green : s.key === 'full' || s.key === 'completed' || s.key === 'ongoing' ? C.dim : C.neon;
   const ctaBackground = statusUnknown
     ? C.gold + '22'
+    : browse && !joined && s.key === 'upcoming' && !registrationAvailable
+      ? C.card2
     : joined ? C.green + '22' : s.key === 'full' || s.key === 'completed' || s.key === 'ongoing' ? C.card2 : C.neon + '22';
   const ctaBorder = statusUnknown
     ? C.gold + '77'
+    : browse && !joined && s.key === 'upcoming' && !registrationAvailable
+      ? C.border
     : joined ? C.green + '77' : s.key === 'full' || s.key === 'completed' || s.key === 'ongoing' ? C.border : C.neon + '77';
+  const bannerStatus = translate(s.key === 'ongoing' ? 'LIVE' : s.label);
+  const spotsLeft = Math.max(0, safeTotalPlayers - safeFilledPlayers);
+  const playerFillPercent = safeTotalPlayers > 0
+    ? Math.min(100, (safeFilledPlayers / safeTotalPlayers) * 100)
+    : 0;
   return (
     <GCard
       onPress={onPress}
       glowColor={s.key === 'ongoing' ? C.neon : undefined}
       style={usesArtCard ? mc.cardWithArt : { marginBottom: 12 }}
     >
-      {showBattleRoyalePoster && (
+      {browse ? (
+        <View style={[mc.artwork, mc.browseArtwork, largeText && mc.artworkLarge]}>
+          <Image
+            source={imageSource}
+            onError={() => {
+              if (customImageUrl && failedImageUrl !== customImageUrl) setFailedImageUrl(customImageUrl);
+            }}
+            resizeMode="cover"
+            style={mc.browseArtImage}
+          />
+          <View pointerEvents="none" style={mc.artShade} />
+          <View style={[mc.artTop, largeText && mc.artTopLarge]}>
+            <View style={[mc.formatPill, largeText && mc.formatPillLarge]}>
+              <Feather name="users" size={11} color={C.text} />
+              <Text style={mc.formatText}>
+                {showBattleRoyalePoster
+                  ? format.toUpperCase()
+                  : formatPresentation.matchup.replace(' VS ', 'V')}
+              </Text>
+            </View>
+            <Badge text={bannerStatus} color={s.color} />
+          </View>
+        </View>
+      ) : showBattleRoyalePoster ? (
         <View style={mc.brPosterArtwork}>
           <Image
             source={imageSource}
@@ -592,8 +671,8 @@ export function MatchCard({
             style={mc.brPosterImage}
           />
         </View>
-      )}
-      {showFormatBanner ? (
+      ) : null}
+      {!browse && showFormatBanner ? (
         <View style={[mc.artwork, largeText && mc.artworkLarge]}>
           <Image
             source={imageSource}
@@ -619,7 +698,7 @@ export function MatchCard({
             <Text style={mc.artName}>{t?.name || t?.title || 'Tournament'}</Text>
           </View>
         </View>
-      ) : (
+      ) : !browse && !showFormatBanner ? (
         <View style={[mc.topRow, showBattleRoyalePoster && mc.brPosterTopRow, largeText && mc.topRowLarge]}>
             <View style={[mc.nameWrap, largeText && mc.nameWrapLarge]}>
             <Text style={[mc.mode, largeText && mc.modeLarge]}>{(t?.mode || 'BATTLE ROYALE').toUpperCase()} • {String(t?.teamType || 'Solo').toUpperCase()}</Text>
@@ -627,36 +706,104 @@ export function MatchCard({
           </View>
           <Badge text={s.label} color={s.color} />
         </View>
-      )}
+      ) : null}
       <View style={usesArtCard ? mc.bannerBody : undefined}>
-        {!showFormatBanner && <View style={mc.sep} />}
+        {!showFormatBanner && !browse && <View style={mc.sep} />}
+        {browse && (
+          <View style={[mc.browseTitle, largeText && mc.nameWrapLarge]}>
+            <Text style={[mc.browseMode, largeText && mc.modeLarge]}>
+              {translate(modeDisplayName)}
+            </Text>
+            <Text style={[mc.browseName, largeText && mc.nameLarge]}>
+              {t?.name || t?.title || 'Tournament'}
+            </Text>
+          </View>
+        )}
         <View style={[mc.metaRow, largeText && mc.metaRowLarge]}>
-          <Text style={[mc.meta, largeText && mc.metaLarge]}>
-            📅 {scheduledDate}{scheduledTime ? ' • ' : ''}
-            {scheduledTime ? <Text style={mc.metaTime}>{fmtTime12(scheduledTime)} IST</Text> : null}
-          </Text>
-          <Text style={[mc.meta, largeText && mc.metaLarge]}>{filledPlayers}/{totalPlayers} players</Text>
-        </View>
-        <View style={[mc.statRow, largeText && mc.statRowLarge]}>
-          <View style={[mc.stat, largeText && mc.statLarge]}>
-            <Text style={mc.statK}>ENTRY</Text>
-            <Text style={[mc.statV, { color: C.gold }]}>🪙 {t?.entryCoins ?? 0}</Text>
-          </View>
-          {isKillEarn && (
-            <View style={[mc.stat, mc.statDivider, largeText && mc.statLarge]}>
-              <Text style={mc.statK}>PER KILL</Text>
-              <Text style={[mc.statV, mc.statValueCompact, { color: C.gold }]}>🪙 {perKillCoins}</Text>
+          {browse ? (
+            <View style={[mc.browseDateRow, largeText && mc.metaLarge]}>
+              <Feather name="calendar" size={14} color={C.blue} />
+              <Text style={mc.meta}>
+                {scheduledDate}{scheduledTime ? ' • ' : ''}
+                {scheduledTime ? <Text style={mc.metaTime}>{fmtTime12(scheduledTime)} IST</Text> : null}
+              </Text>
             </View>
+          ) : (
+            <Text style={[mc.meta, largeText && mc.metaLarge]}>
+              📅 {scheduledDate}{scheduledTime ? ' • ' : ''}
+              {scheduledTime ? <Text style={mc.metaTime}>{fmtTime12(scheduledTime)} IST</Text> : null}
+            </Text>
           )}
-          <View style={[mc.stat, mc.statDivider, largeText && mc.statLarge]}>
-            <Text style={mc.statK}>PRIZE POOL</Text>
-            <Text style={[mc.statV, { color: C.green }]}>🪙 {t?.prizePool ?? 0}</Text>
-          </View>
-          <View style={[mc.stat, isKillEarn && mc.statDivider, largeText && mc.statLarge]}>
-            <Text style={mc.statK}>PLAYER SLOTS</Text>
-            <Text style={[mc.statV, { color: C.blue }]}>{filledPlayers}/{totalPlayers}</Text>
-          </View>
+          {!browse && <Text style={[mc.meta, largeText && mc.metaLarge]}>{filledPlayers}/{totalPlayers} players</Text>}
         </View>
+        {browse ? (
+          <View style={[mc.statRow, mc.browseStatRow, largeText && mc.statRowLarge]}>
+            <View style={[mc.stat, mc.statDivider, largeText && mc.statLarge]}>
+              <Text style={mc.statK}>{translate('PRIZE POOL')}</Text>
+              <View style={mc.coinStatValue}>
+                <View style={mc.coinGlyph}><View style={mc.coinGlyphMark} /></View>
+                <Text style={[mc.statV, mc.browseStatV, { color: C.green }]}>{t?.prizePool ?? 0}</Text>
+              </View>
+            </View>
+            <View style={[mc.stat, mc.statDivider, largeText && mc.statLarge]}>
+              <Text style={mc.statK}>{translate('PER KILL')}</Text>
+              <View style={mc.coinStatValue}>
+                {isKillEarn ? <View style={mc.coinGlyph}><View style={mc.coinGlyphMark} /></View> : null}
+                <Text style={[mc.statV, mc.browseStatV, { color: C.gold }]}>
+                  {isKillEarn ? perKillCoins : '—'}
+                </Text>
+              </View>
+            </View>
+            <View style={[mc.stat, mc.statDivider, largeText && mc.statLarge]}>
+              <Text style={mc.statK}>{translate('ENTRY')}</Text>
+              <View style={mc.coinStatValue}>
+                <View style={mc.coinGlyph}><View style={mc.coinGlyphMark} /></View>
+                <Text style={[mc.statV, mc.browseStatV, { color: C.gold }]}>{t?.entryCoins ?? 0}</Text>
+              </View>
+            </View>
+          </View>
+        ) : (
+          <View style={[mc.statRow, largeText && mc.statRowLarge]}>
+            <View style={[mc.stat, largeText && mc.statLarge]}>
+              <Text style={mc.statK}>ENTRY</Text>
+              <Text style={[mc.statV, { color: C.gold }]}>🪙 {t?.entryCoins ?? 0}</Text>
+            </View>
+            {isKillEarn && (
+              <View style={[mc.stat, mc.statDivider, largeText && mc.statLarge]}>
+                <Text style={mc.statK}>PER KILL</Text>
+                <Text style={[mc.statV, mc.statValueCompact, { color: C.gold }]}>🪙 {perKillCoins}</Text>
+              </View>
+            )}
+            <View style={[mc.stat, mc.statDivider, largeText && mc.statLarge]}>
+              <Text style={mc.statK}>PRIZE POOL</Text>
+              <Text style={[mc.statV, { color: C.green }]}>🪙 {t?.prizePool ?? 0}</Text>
+            </View>
+            <View style={[mc.stat, isKillEarn && mc.statDivider, largeText && mc.statLarge]}>
+              <Text style={mc.statK}>PLAYER SLOTS</Text>
+              <Text style={[mc.statV, { color: C.blue }]}>{filledPlayers}/{totalPlayers}</Text>
+            </View>
+          </View>
+        )}
+        {browse ? (
+          <View style={mc.browseProgress}>
+            <View style={[mc.browseProgressHead, largeText && mc.browseProgressHeadLarge]}>
+              <Text style={mc.browseProgressCount}>
+                {safeFilledPlayers}/{safeTotalPlayers} {translate('JOINED')}
+              </Text>
+              <Text style={[mc.browseSpots, spotsLeft === 0 && mc.browseSpotsFull]}>
+                {safeTotalPlayers > 0 ? `${spotsLeft} ${translate('SPOTS LEFT')}` : translate('SLOTS NOT CONFIGURED')}
+              </Text>
+            </View>
+            <View
+              style={mc.browseProgressTrack}
+              accessibilityRole="progressbar"
+              accessibilityValue={{ min: 0, max: Math.max(1, safeTotalPlayers), now: Math.min(safeFilledPlayers, safeTotalPlayers) }}
+              accessibilityLabel={`${safeFilledPlayers} of ${safeTotalPlayers} players joined`}
+            >
+              <View style={[mc.browseProgressFill, { width: `${playerFillPercent}%` }]} />
+            </View>
+          </View>
+        ) : null}
         {roomDetails}
         <View style={[mc.joinBtn, largeText && mc.joinBtnLarge, { backgroundColor: ctaBackground, borderColor: ctaBorder }]}>
           <Text style={[mc.joinText, largeText && mc.joinTextLarge, { color: ctaColor }]}>{ctaText}</Text>
@@ -670,6 +817,16 @@ const mc = StyleSheet.create({
   cardWithArt: { padding: 0, paddingVertical: 0, overflow: 'hidden', marginBottom: 12, borderRadius: 16 },
   artwork: { width: '100%', minHeight: 180, position: 'relative', justifyContent: 'space-between', padding: 12, overflow: 'hidden', backgroundColor: C.bg2 },
   artworkLarge: { justifyContent: 'flex-start', rowGap: 14, padding: 14 },
+  browseArtwork: { aspectRatio: 16 / 9, minHeight: 190, maxHeight: 245 },
+  browseArtImage: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+  },
   brPosterArtwork: { width: '100%', aspectRatio: 16 / 9, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: C.bg2 },
   brPosterImage: { width: '100%', height: '100%' },
   brPosterTopRow: { paddingHorizontal: 14, paddingTop: 12 },
@@ -688,6 +845,9 @@ const mc = StyleSheet.create({
   artModeLarge: { letterSpacing: 0.7 },
   artName: { color: C.text, fontSize: 17, fontWeight: '900', textShadowColor: '#000000aa', textShadowRadius: 6, textShadowOffset: { width: 0, height: 1 } },
   bannerBody: { padding: 14, paddingTop: 10 },
+  browseTitle: { marginBottom: 8 },
+  browseMode: { color: C.orange, fontSize: 10, fontWeight: '900', letterSpacing: 1.1 },
+  browseName: { color: C.text, fontSize: 17, fontWeight: '900', marginTop: 2 },
   topRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start' },
   topRowLarge: { flexDirection: 'column', alignItems: 'stretch' },
   nameWrap: { flex: 1, minWidth: 0, marginRight: 8 },
@@ -710,6 +870,20 @@ const mc = StyleSheet.create({
   statK: { color: C.dim, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
   statV: { fontSize: 14, fontWeight: '900', marginTop: 2 },
   statValueCompact: { fontSize: 12, letterSpacing: -0.3 },
+  browseStatRow: { minHeight: 66 },
+  browseStatV: { fontSize: 13, marginTop: 0 },
+  coinStatValue: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, marginTop: 4 },
+  coinGlyph: { width: 14, height: 14, borderRadius: 7, borderWidth: 2, borderColor: C.gold, alignItems: 'center', justifyContent: 'center' },
+  coinGlyphMark: { width: 4, height: 4, borderRadius: 2, backgroundColor: C.gold },
+  browseDateRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 },
+  browseProgress: { marginTop: 10, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: C.bg2 },
+  browseProgressHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 7 },
+  browseProgressHeadLarge: { flexDirection: 'column', alignItems: 'flex-start' },
+  browseProgressCount: { color: C.text, fontSize: 12, fontWeight: '900', letterSpacing: 0.5 },
+  browseSpots: { color: C.green, fontSize: 10, fontWeight: '900', letterSpacing: 0.8, flexShrink: 1, textAlign: 'right' },
+  browseSpotsFull: { color: C.dim },
+  browseProgressTrack: { height: 7, overflow: 'hidden', borderRadius: 4, backgroundColor: C.border },
+  browseProgressFill: { height: '100%', minWidth: 2, borderRadius: 4, backgroundColor: C.green },
   joinBtn: { marginTop: 10, borderRadius: 10, borderWidth: 1, alignItems: 'center', paddingVertical: 10 },
   joinBtnLarge: { alignSelf: 'stretch', paddingHorizontal: 12 },
   joinText: { fontWeight: '900', fontSize: 12, letterSpacing: 1.5 },

@@ -22,7 +22,6 @@ import {
 } from './lib/api';
 import Auth from './screens/Auth';
 import Home from './screens/Home';
-import ModeSubmodes from './screens/ModeSubmodes';
 import Video from './screens/Video';
 import Earn from './screens/Earn';
 import Tournaments from './screens/Tournaments';
@@ -649,7 +648,6 @@ function DailyAppContent({
             ) : (
               <>
                 <Stack.Screen name="Tabs" component={Tabs} options={{ headerShown: false }} />
-                <Stack.Screen name="ModeSubmodes" component={ModeSubmodes} options={{ title: t('SELECT FORMAT') }} />
                 <Stack.Screen name="Tournaments" component={Tournaments} options={{ title: t('MATCHES') }} />
                 <Stack.Screen name="MyMatches" component={MyMatches} options={{ title: t('MY MATCHES') }} />
                 <Stack.Screen name="TDetail" component={TDetail} options={{ title: t('TOURNAMENT') }} />
