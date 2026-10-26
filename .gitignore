@@ -48,3 +48,6 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Export archives and other generated deliverables
+/generated-artifacts/

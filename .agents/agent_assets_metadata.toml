@@ -70,3 +70,17 @@ mtime_ms = 1792002846057
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:9492c012-b12a-4992-af24-33e2ae97fe5a/30bc0c62-007a-463e-b8d1-e7409ac6a591/bd6cb98d-58a2-4f5e-952c-2edb26530ac6"
 storage_version_token = "1792003058239431"
 content_type = "image/png"
+
+[[outputs]]
+id = "YWmDj6m8YpIwS95Uo28E7"
+uri = "file://generated-artifacts/daily007-project-export.zip"
+type = "unspecified"
+title = "DAILY007 source project export"
+description = "Safe project ZIP with source, assets, pnpm lockfile, database schema, admin/API/app code, and a blank .env.example. No secrets, database records, browser state, dependencies, or build caches included."
+logical_id = "75a35eb1-9105-4a92-874c-49a0b53b3f6f"
+content_hash = "sha256:abcb21be3686056ed407f396347c8788f7035d9b3af4a3f79f9927e5b3bbd1d0"
+size = 10123554
+mtime_ms = 1792997595461
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:9492c012-b12a-4992-af24-33e2ae97fe5a/75a35eb1-9105-4a92-874c-49a0b53b3f6f/0fe6bb90-70c2-4320-a20b-a6faed8168cb"
+storage_version_token = "1792997609286342"
+content_type = "application/octet-stream"
