@@ -1,0 +1,129 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/tournament-native-text-scale-test
+- extendedWaitUntil:
+    visible:
+      id: tournament-text-scale-banner
+    timeout: 15000
+- tapOn:
+    id: tournament-language-${TOURNAMENT_TEXT_LANGUAGE}
+- extendedWaitUntil:
+    visible:
+      id: tournament-language-state-${TOURNAMENT_TEXT_LANGUAGE}
+    timeout: 5000
+- tapOn:
+    id: tournament-mode-tab-all
+- assertVisible:
+    text: "Selected tournament mode: all"
+- assertVisible:
+    id: tournament-mode-tab-label-all
+- assertVisible:
+    text: "${TOURNAMENT_TEXT_EXPECTED_ALL_FILTER}"
+- tapOn:
+    id: tournament-mode-tab-battle_royale_kill_earn
+- assertVisible:
+    text: "Selected tournament mode: battle_royale_kill_earn"
+- assertVisible:
+    text: "${TOURNAMENT_TEXT_EXPECTED_KILL_EARN_FILTER}"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-kill-earn-name
+    direction: DOWN
+- assertVisible:
+    text: "${TOURNAMENT_TEXT_EXPECTED_KILL_EARN_TITLE}"
+
+- scrollUntilVisible:
+    element:
+      id: tournament-mode-tab-battle_royale
+    direction: UP
+- tapOn:
+    id: tournament-mode-tab-battle_royale
+- assertVisible:
+    text: "Selected tournament mode: battle_royale"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-br-classic-name
+    direction: DOWN
+- assertVisible:
+    text: "${TOURNAMENT_TEXT_EXPECTED_BR_TITLE}"
+
+- scrollUntilVisible:
+    element:
+      id: tournament-mode-tab-clash_squad
+    direction: UP
+- tapOn:
+    id: tournament-mode-tab-clash_squad
+- assertVisible:
+    text: "Selected tournament mode: clash_squad"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-clash-squad-name
+    direction: DOWN
+- assertVisible:
+    text: "${TOURNAMENT_TEXT_EXPECTED_CLASH_TITLE}"
+
+- scrollUntilVisible:
+    element:
+      id: tournament-mode-tab-lone_wolf
+    direction: UP
+- tapOn:
+    id: tournament-mode-tab-lone_wolf
+- assertVisible:
+    text: "Selected tournament mode: lone_wolf"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-lone-wolf-name
+    direction: DOWN
+- assertVisible:
+    text: "${TOURNAMENT_TEXT_EXPECTED_LONE_WOLF_TITLE}"
+
+- scrollUntilVisible:
+    element:
+      id: tournament-mode-tab-all
+    direction: UP
+- tapOn:
+    id: tournament-mode-tab-all
+- assertVisible:
+    text: "Selected tournament mode: all"
+- extendedWaitUntil:
+    visible:
+      id: tournament-text-scale-layout-pass
+    timeout: 10000
+
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-kill-earn-metric-prize-pool-label
+    direction: DOWN
+- assertVisible:
+    text: "${TOURNAMENT_TEXT_EXPECTED_PRIZE_POOL}"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-kill-earn-metric-per-kill-label
+    direction: DOWN
+- assertVisible:
+    text: "${TOURNAMENT_TEXT_EXPECTED_PER_KILL}"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-kill-earn-metric-entry-label
+    direction: DOWN
+- assertVisible:
+    text: "${TOURNAMENT_TEXT_EXPECTED_ENTRY}"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-kill-earn-progress-count
+    direction: DOWN
+- assertVisible:
+    text: "${TOURNAMENT_TEXT_EXPECTED_JOINED}"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-kill-earn-progress-spots
+    direction: DOWN
+- assertVisible:
+    text: "${TOURNAMENT_TEXT_EXPECTED_SPOTS_LEFT}"
+- scrollUntilVisible:
+    element:
+      id: tournament-card-text-scale-kill-earn-join-label
+    direction: DOWN
+- assertVisible:
+    text: "${TOURNAMENT_TEXT_EXPECTED_JOIN}"

@@ -10,6 +10,10 @@ import { ReadableText as Text } from './typography';
 import { C } from './ui';
 import type { GAME_MODE_FILTERS, TournamentModeFilterKey } from '../lib/tournamentModeFilterOptions';
 import { translateExactText } from '../i18n';
+import {
+  nativeTextScaleTextProps,
+  type NativeTextScaleLayoutObserver,
+} from '../lib/nativeTextScaleLayout';
 
 type ModeFilter = (typeof GAME_MODE_FILTERS)[number];
 
@@ -21,6 +25,7 @@ export function TournamentModeFilters({
   onSelect,
   onContainerLayout,
   onFilterLayout,
+  onTextScaleLayout,
 }: {
   filters: readonly ModeFilter[];
   counts: Partial<Record<TournamentModeFilterKey, number>>;
@@ -29,6 +34,7 @@ export function TournamentModeFilters({
   onSelect: (key: TournamentModeFilterKey) => void;
   onContainerLayout?: (event: LayoutChangeEvent) => void;
   onFilterLayout?: (key: TournamentModeFilterKey, x: number, width: number) => void;
+  onTextScaleLayout?: NativeTextScaleLayoutObserver;
 }) {
   const renderFilter = (filter: ModeFilter) => {
     const count = counts[filter.key] ?? 0;
@@ -54,11 +60,15 @@ export function TournamentModeFilters({
           selected && { borderColor: filter.accent, backgroundColor: `${filter.accent}22` },
         ]}
       >
-        <Text style={[
+        <Text
+          {...nativeTextScaleTextProps(`tournament-filter:${filter.key}`, onTextScaleLayout)}
+          testID={`tournament-mode-tab-label-${filter.key}`}
+          style={[
           styles.modeFilterText,
           largeText && styles.modeFilterTextLarge,
           selected && { color: filter.accent },
-        ]}>
+        ]}
+        >
           {translateExactText(filter.title)} <Text style={[styles.modeFilterCount, selected && { color: filter.accent }]}>{count}</Text>
         </Text>
       </Pressable>
@@ -107,6 +117,12 @@ const styles = StyleSheet.create({
   },
   modeFilterTabLarge: { flexBasis: '47%', flexGrow: 1, minWidth: 0, minHeight: 50 },
   modeFilterText: { color: C.sub, fontSize: 10, fontWeight: '900', letterSpacing: 0.3, textAlign: 'center' },
-  modeFilterTextLarge: { fontSize: 12, letterSpacing: 0 },
+  modeFilterTextLarge: {
+    width: '100%',
+    maxWidth: '100%',
+    flexShrink: 1,
+    fontSize: 12,
+    letterSpacing: 0,
+  },
   modeFilterCount: { color: C.dim, fontSize: 9, fontWeight: '800' },
 });

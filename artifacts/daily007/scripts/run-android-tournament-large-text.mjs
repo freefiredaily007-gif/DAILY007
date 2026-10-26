@@ -7,7 +7,48 @@ if (!expoDevUrl) {
 }
 
 const scales = ['1.5', '2'];
-const flowPath = 'maestro/tournament-native-text-scale/large-text.yaml';
+const flows = [
+  {
+    language: 'en',
+    path: 'maestro/tournament-native-text-scale/large-text.yaml',
+  },
+  {
+    language: 'hi',
+    path: 'maestro/tournament-native-text-scale/localized-large-text.yaml',
+    expected: {
+      ALL_FILTER: 'सभी 5',
+      KILL_EARN_FILTER: 'बीआर किल और कमाएँ 1',
+      KILL_EARN_TITLE: 'अंतरराष्ट्रीय बैटल रॉयल किल एंड अर्न चैंपियनशिप लंबे फाइनल मुकाबलों के साथ',
+      BR_TITLE: 'कई क्षेत्रों में अंतरराष्ट्रीय बैटल रॉयल क्लासिक चैंपियनशिप का आयोजन',
+      CLASH_TITLE: 'चार दौर के फाइनल के साथ अंतरराष्ट्रीय क्लैश स्क्वाड चैंपियनशिप',
+      LONE_WOLF_TITLE: 'विस्तारित क्वालीफायर के साथ अंतरराष्ट्रीय लोन वुल्फ चैंपियनशिप',
+      PRIZE_POOL: 'इनाम राशि',
+      PER_KILL: 'प्रति किल',
+      ENTRY: 'प्रवेश',
+      JOINED: '16/48 जुड़े',
+      SPOTS_LEFT: '32 जगह बाकी',
+      JOIN: 'टूर्नामेंट में शामिल हों',
+    },
+  },
+  {
+    language: 'gu',
+    path: 'maestro/tournament-native-text-scale/localized-large-text.yaml',
+    expected: {
+      ALL_FILTER: 'બધા 5',
+      KILL_EARN_FILTER: 'બીઆર કિલ અને કમાણી 1',
+      KILL_EARN_TITLE: 'આંતરરાષ્ટ્રીય બેટલ રોયલ કિલ અને અર્ન ચેમ્પિયનશિપ લાંબી ફાઇનલ સાથે',
+      BR_TITLE: 'ઘણા પ્રદેશોમાં આંતરરાષ્ટ્રીય બેટલ રોયલ ક્લાસિક ચેમ્પિયનશિપ',
+      CLASH_TITLE: 'ચાર રાઉન્ડની ફાઇનલ સાથે આંતરરાષ્ટ્રીય ક્લેશ સ્ક્વોડ ચેમ્પિયનશિપ',
+      LONE_WOLF_TITLE: 'વિસ્તૃત ક્વોલિફાયર સાથે આંતરરાષ્ટ્રીય લોન વુલ્ફ ચેમ્પિયનશિપ',
+      PRIZE_POOL: 'ઇનામ રકમ',
+      PER_KILL: 'પ્રતિ કિલ',
+      ENTRY: 'પ્રવેશ',
+      JOINED: '16/48 જોડાયા',
+      SPOTS_LEFT: '32 સ્થાનો બાકી',
+      JOIN: 'ટુર્નામેન્ટમાં જોડાઓ',
+    },
+  },
+];
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { encoding: 'utf8', ...options });
@@ -75,23 +116,32 @@ try {
     );
     console.log(`Checking tournament cards and filters at ${Number(scale).toFixed(2)}× Android text scale.`);
 
-    const maestroArgs = ['test'];
-    if (process.env.MAESTRO_TEST_OUTPUT_DIR) {
-      maestroArgs.push(`--test-output-dir=${process.env.MAESTRO_TEST_OUTPUT_DIR}`);
-    }
-    maestroArgs.push(flowPath);
-    const result = run('maestro', maestroArgs, {
-      stdio: 'inherit',
-      env: {
-        ...process.env,
-        EXPO_DEV_URL: expoDevUrl,
-        TOURNAMENT_TEXT_SCALE: Number(scale).toFixed(2),
-      },
-    });
-    if (result.status !== 0) {
-      throw new Error(
-        `Maestro failed for tournament cards at ${Number(scale).toFixed(2)}× (exit code ${result.status ?? 'unknown'}).`,
-      );
+    for (const flow of flows) {
+      const maestroArgs = ['test'];
+      if (process.env.MAESTRO_TEST_OUTPUT_DIR) {
+        maestroArgs.push(`--test-output-dir=${process.env.MAESTRO_TEST_OUTPUT_DIR}`);
+      }
+      maestroArgs.push(flow.path);
+      const result = run('maestro', maestroArgs, {
+        stdio: 'inherit',
+        env: {
+          ...process.env,
+          EXPO_DEV_URL: expoDevUrl,
+          TOURNAMENT_TEXT_SCALE: Number(scale).toFixed(2),
+          TOURNAMENT_TEXT_LANGUAGE: flow.language,
+          ...Object.fromEntries(
+            Object.entries(flow.expected ?? {}).map(([key, value]) => [
+              `TOURNAMENT_TEXT_EXPECTED_${key}`,
+              value,
+            ]),
+          ),
+        },
+      });
+      if (result.status !== 0) {
+        throw new Error(
+          `Maestro failed for ${flow.language} tournament cards at ${Number(scale).toFixed(2)}× (exit code ${result.status ?? 'unknown'}).`,
+        );
+      }
     }
   }
 } catch (error) {

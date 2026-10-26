@@ -10,7 +10,7 @@ appId: host.exp.exponent
     text: "Tournament card fixture | font scale ${TOURNAMENT_TEXT_SCALE} | large"
 - extendedWaitUntil:
     visible:
-      text: "Tournament filters fit screen width at ${TOURNAMENT_TEXT_SCALE}x"
+      id: tournament-text-scale-layout-pass
     timeout: 10000
 
 - assertVisible:

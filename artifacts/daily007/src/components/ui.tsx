@@ -408,12 +408,29 @@ export function Chip({ label, color = C.gold, onPress, testID }: {
   );
 }
 
-export function Badge({ text, color = C.gold }: { text: string; color?: string }) {
+export function Badge({
+  text,
+  color = C.gold,
+  onTextScaleLayout,
+  textScaleLayoutKey,
+}: {
+  text: string;
+  color?: string;
+  onTextScaleLayout?: NativeTextScaleLayoutObserver;
+  textScaleLayoutKey?: string;
+}) {
   const adminSurface = useAdminSurface();
   const displayColor = swapThemeColor(color);
   return (
     <View style={[st.chip, adminSurface && adminSt.chip, { borderColor: displayColor, alignSelf: 'auto', backgroundColor: displayColor + '18' }, glow(displayColor, 4)]}>
-      <Text style={[st.chipText, adminSurface && adminSt.chipText, { color }]}>{text}</Text>
+      <Text
+        {...(textScaleLayoutKey
+          ? nativeTextScaleTextProps(textScaleLayoutKey, onTextScaleLayout)
+          : {})}
+        style={[st.chipText, adminSurface && adminSt.chipText, { color }]}
+      >
+        {text}
+      </Text>
     </View>
   );
 }
@@ -538,6 +555,7 @@ export function MatchCard({
   largeText = false,
   variant = 'default',
   testID,
+  onTextScaleLayout,
 }: {
   t: any;
   onPress?: () => void;
@@ -545,6 +563,7 @@ export function MatchCard({
   largeText?: boolean;
   variant?: 'default' | 'browse';
   testID?: string;
+  onTextScaleLayout?: NativeTextScaleLayoutObserver;
 }) {
   const { t: translate } = useTranslation();
   const [failedImageUrl, setFailedImageUrl] = useState('');
@@ -633,6 +652,10 @@ export function MatchCard({
   const playerFillPercent = safeTotalPlayers > 0
     ? Math.min(100, (safeFilledPlayers / safeTotalPlayers) * 100)
     : 0;
+  const textLayoutProps = (section: string) => nativeTextScaleTextProps(
+    `${testID || 'tournament-card'}:${section}`,
+    onTextScaleLayout,
+  );
   return (
     <GCard
       onPress={onPress}
@@ -660,7 +683,12 @@ export function MatchCard({
                   : formatPresentation.matchup.replace(' VS ', 'V')}
               </Text>
             </View>
-            <Badge text={bannerStatus} color={s.color} />
+             <Badge
+               text={bannerStatus}
+               color={s.color}
+               textScaleLayoutKey={testID ? `${testID}:status` : undefined}
+               onTextScaleLayout={onTextScaleLayout}
+             />
           </View>
         </View>
       ) : showBattleRoyalePoster ? (
@@ -719,12 +747,16 @@ export function MatchCard({
         {!showFormatBanner && !browse && <View style={mc.sep} />}
         {browse && (
           <View style={[mc.browseTitle, largeText && mc.nameWrapLarge]}>
-            <Text style={[mc.browseMode, largeText && mc.modeLarge]}>
+              <Text
+                {...textLayoutProps('mode')}
+                style={[mc.browseMode, largeText && mc.browseModeLarge]}
+              >
               {translate(modeDisplayName)}
             </Text>
             <Text
+                {...textLayoutProps('name')}
               testID={testID ? `${testID}-name` : undefined}
-              style={[mc.browseName, largeText && mc.nameLarge]}
+                style={[mc.browseName, largeText && mc.browseNameLarge]}
             >
               {t?.name || t?.title || 'Tournament'}
             </Text>
@@ -734,7 +766,11 @@ export function MatchCard({
           {browse ? (
             <View style={[mc.browseDateRow, largeText && mc.metaLarge]}>
               <Feather name="calendar" size={14} color={C.blue} />
-              <Text testID={testID ? `${testID}-date` : undefined} style={mc.meta}>
+              <Text
+                {...textLayoutProps('date')}
+                testID={testID ? `${testID}-date` : undefined}
+                style={[mc.meta, largeText && mc.browseDateTextLarge]}
+              >
                 {scheduledDate}{scheduledTime ? ' • ' : ''}
                 {scheduledTime ? <Text style={mc.metaTime}>{fmtTime12(scheduledTime)} IST</Text> : null}
               </Text>
@@ -753,7 +789,13 @@ export function MatchCard({
               testID={testID ? `${testID}-metric-prize-pool` : undefined}
               style={[mc.stat, mc.statDivider, largeText && mc.statLarge]}
             >
-              <Text style={mc.statK}>{translate('PRIZE POOL')}</Text>
+              <Text
+                {...textLayoutProps('metric-prize-pool-label')}
+                testID={testID ? `${testID}-metric-prize-pool-label` : undefined}
+                style={[mc.statK, largeText && mc.statKLarge]}
+              >
+                {translate('PRIZE POOL')}
+              </Text>
               <View style={mc.coinStatValue}>
                 <View style={mc.coinGlyph}><View style={mc.coinGlyphMark} /></View>
                 <Text style={[mc.statV, mc.browseStatV, { color: C.green }]}>{t?.prizePool ?? 0}</Text>
@@ -763,7 +805,13 @@ export function MatchCard({
               testID={testID ? `${testID}-metric-per-kill` : undefined}
               style={[mc.stat, mc.statDivider, largeText && mc.statLarge]}
             >
-              <Text style={mc.statK}>{translate('PER KILL')}</Text>
+              <Text
+                {...textLayoutProps('metric-per-kill-label')}
+                testID={testID ? `${testID}-metric-per-kill-label` : undefined}
+                style={[mc.statK, largeText && mc.statKLarge]}
+              >
+                {translate('PER KILL')}
+              </Text>
               <View style={mc.coinStatValue}>
                 {isKillEarn ? <View style={mc.coinGlyph}><View style={mc.coinGlyphMark} /></View> : null}
                 <Text style={[mc.statV, mc.browseStatV, { color: C.gold }]}>
@@ -775,7 +823,13 @@ export function MatchCard({
               testID={testID ? `${testID}-metric-entry` : undefined}
               style={[mc.stat, mc.statDivider, largeText && mc.statLarge]}
             >
-              <Text style={mc.statK}>{translate('ENTRY')}</Text>
+              <Text
+                {...textLayoutProps('metric-entry-label')}
+                testID={testID ? `${testID}-metric-entry-label` : undefined}
+                style={[mc.statK, largeText && mc.statKLarge]}
+              >
+                {translate('ENTRY')}
+              </Text>
               <View style={mc.coinStatValue}>
                 <View style={mc.coinGlyph}><View style={mc.coinGlyphMark} /></View>
                 <Text style={[mc.statV, mc.browseStatV, { color: C.gold }]}>{t?.entryCoins ?? 0}</Text>
@@ -811,14 +865,16 @@ export function MatchCard({
           >
             <View style={[mc.browseProgressHead, largeText && mc.browseProgressHeadLarge]}>
               <Text
+                {...textLayoutProps('progress-count')}
                 testID={testID ? `${testID}-progress-count` : undefined}
-                style={mc.browseProgressCount}
+                style={[mc.browseProgressCount, largeText && mc.browseProgressTextLarge]}
               >
                 {safeFilledPlayers}/{safeTotalPlayers} {translate('JOINED')}
               </Text>
               <Text
+                {...textLayoutProps('progress-spots')}
                 testID={testID ? `${testID}-progress-spots` : undefined}
-                style={[mc.browseSpots, spotsLeft === 0 && mc.browseSpotsFull]}
+                style={[mc.browseSpots, largeText && mc.browseProgressTextLarge, spotsLeft === 0 && mc.browseSpotsFull]}
               >
                 {safeTotalPlayers > 0 ? `${spotsLeft} ${translate('SPOTS LEFT')}` : translate('SLOTS NOT CONFIGURED')}
               </Text>
@@ -838,7 +894,13 @@ export function MatchCard({
           testID={testID ? `${testID}-join` : undefined}
           style={[mc.joinBtn, largeText && mc.joinBtnLarge, { backgroundColor: ctaBackground, borderColor: ctaBorder }]}
         >
-          <Text style={[mc.joinText, largeText && mc.joinTextLarge, { color: ctaColor }]}>{ctaText}</Text>
+          <Text
+            {...textLayoutProps('join')}
+            testID={testID ? `${testID}-join-label` : undefined}
+            style={[mc.joinText, largeText && mc.joinTextLarge, { color: ctaColor }]}
+          >
+            {ctaText}
+          </Text>
         </View>
       </View>
     </GCard>
@@ -879,7 +941,9 @@ const mc = StyleSheet.create({
   bannerBody: { padding: 14, paddingTop: 10 },
   browseTitle: { marginBottom: 8 },
   browseMode: { color: C.orange, fontSize: 10, fontWeight: '900', letterSpacing: 1.1 },
+  browseModeLarge: { width: '100%', maxWidth: '100%', flexShrink: 1, letterSpacing: 0.5 },
   browseName: { color: C.text, fontSize: 17, fontWeight: '900', marginTop: 2 },
+  browseNameLarge: { width: '100%', maxWidth: '100%', flexShrink: 1 },
   topRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start' },
   topRowLarge: { flexDirection: 'column', alignItems: 'stretch' },
   nameWrap: { flex: 1, minWidth: 0, marginRight: 8 },
@@ -893,6 +957,7 @@ const mc = StyleSheet.create({
   metaRowLarge: { flexDirection: 'column', alignItems: 'stretch', gap: 6 },
   meta: { color: C.sub, fontSize: 12, fontWeight: '600' },
   metaLarge: { width: '100%', minWidth: 0, flexShrink: 1 },
+  browseDateTextLarge: { flex: 1, minWidth: 0, flexShrink: 1 },
   metaTime: { color: C.gold, fontSize: 15, fontWeight: '900' },
   statRow: { flexDirection: 'row', borderRadius: 10, backgroundColor: C.bg2, borderWidth: 1, borderColor: C.border, overflow: 'hidden' },
   statRowLarge: { flexDirection: 'column' },
@@ -900,6 +965,7 @@ const mc = StyleSheet.create({
   statDivider: { borderLeftWidth: 1, borderLeftColor: C.border },
   statLarge: { flex: 0, width: '100%', minWidth: 0, borderLeftWidth: 0, borderRightWidth: 0, borderBottomWidth: 1, borderBottomColor: C.border },
   statK: { color: C.dim, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
+  statKLarge: { width: '100%', maxWidth: '100%', flexShrink: 1, textAlign: 'center', letterSpacing: 0 },
   statV: { fontSize: 14, fontWeight: '900', marginTop: 2 },
   statValueCompact: { fontSize: 12, letterSpacing: -0.3 },
   browseStatRow: { minHeight: 66 },
@@ -912,6 +978,7 @@ const mc = StyleSheet.create({
   browseProgressHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 7 },
   browseProgressHeadLarge: { flexDirection: 'column', alignItems: 'flex-start' },
   browseProgressCount: { color: C.text, fontSize: 12, fontWeight: '900', letterSpacing: 0.5 },
+  browseProgressTextLarge: { width: '100%', maxWidth: '100%', flexShrink: 1, textAlign: 'left', letterSpacing: 0 },
   browseSpots: { color: C.green, fontSize: 10, fontWeight: '900', letterSpacing: 0.8, flexShrink: 1, textAlign: 'right' },
   browseSpotsFull: { color: C.dim },
   browseProgressTrack: { height: 7, overflow: 'hidden', borderRadius: 4, backgroundColor: C.border },
