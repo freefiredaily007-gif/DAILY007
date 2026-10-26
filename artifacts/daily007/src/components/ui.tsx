@@ -986,7 +986,13 @@ const mc = StyleSheet.create({
   joinBtn: { marginTop: 10, borderRadius: 10, borderWidth: 1, alignItems: 'center', paddingVertical: 10 },
   joinBtnLarge: { alignSelf: 'stretch', paddingHorizontal: 12 },
   joinText: { fontWeight: '900', fontSize: 12, letterSpacing: 1.5 },
-  joinTextLarge: { letterSpacing: 0.5, flexShrink: 1, textAlign: 'center' },
+  joinTextLarge: {
+    width: '100%',
+    maxWidth: '100%',
+    letterSpacing: 0.5,
+    flexShrink: 1,
+    textAlign: 'center',
+  },
 });
 
 // ---------- glowing coin capsule (header) ----------

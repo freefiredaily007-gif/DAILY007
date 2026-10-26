@@ -23,7 +23,7 @@ test('the native fixture reuses real tournament cards, filters, progress, and re
   assert.match(fixture, /if \(!__DEV__\) return <Redirect href="\/" \/>/);
   assert.match(fixture, /<TournamentModeFilters[\s\S]*?filters=\{GAME_MODE_FILTERS\}/);
   assert.match(fixture, /<MatchCard[\s\S]*?variant="browse"[\s\S]*?testID=\{`tournament-card-/);
-  assert.match(fixture, /<RoomCredentialsPanel[\s\S]*?configured=\{tournament\.myRegistration\?\.roomPublished === true\}/);
+  assert.match(fixture, /<NavigationContext\.Provider[\s\S]*?<RoomCredentialsPanel[\s\S]*?configured=\{ROOM_TOURNAMENT\.myRegistration\.roomPublished\}/);
   assert.match(fixture, /ROOM-DETAILS-TEST-ID-0123456789/);
   assert.match(fixture, /TEST-PASSWORD-0123456789/);
   assert.match(fixture, /x \+ bounds\.width <= filterContainerWidth \+ 1/);

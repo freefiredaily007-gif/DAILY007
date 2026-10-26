@@ -286,20 +286,18 @@ function NativeFixture() {
             setTextLayouts((current) => mergeNativeTextScaleLayout(current, key, update));
           }}
           onPress={() => setOpenedTournament(tournament.id)}
-          roomDetails={
-            <NavigationContext.Provider value={FIXTURE_NAVIGATION as any}>
-              <RoomCredentialsPanel
-                startsAt={tournament.startsAt}
-                now={Date.now()}
-                configured={tournament.myRegistration?.roomPublished === true}
-                roomId={tournament.myRegistration?.roomId}
-                roomPassword={tournament.myRegistration?.roomPassword}
-                accessStatus={tournament.myRegistration?.status === 'approved' ? 'approved' : 'unregistered'}
-              />
-            </NavigationContext.Provider>
-          }
         />
       ))}
+      <NavigationContext.Provider value={FIXTURE_NAVIGATION as any}>
+        <RoomCredentialsPanel
+          startsAt={ROOM_TOURNAMENT.startsAt}
+          now={Date.now()}
+          configured={ROOM_TOURNAMENT.myRegistration.roomPublished}
+          roomId={ROOM_TOURNAMENT.myRegistration.roomId}
+          roomPassword={ROOM_TOURNAMENT.myRegistration.roomPassword}
+          accessStatus="approved"
+        />
+      </NavigationContext.Provider>
     </ScrollView>
   );
 }

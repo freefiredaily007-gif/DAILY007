@@ -68,3 +68,9 @@ description: CDP locator and value-assertion quirks for interactive Expo screens
 **Why:** A DAILY007 auth button stayed at its text height when its 56px style was returned from the animated Pressable callback; the static style path produced the intended tap target.
 
 **How to apply:** Keep the static-style path opt-in so other buttons retain their existing behavior, and verify the target's rendered bounds in Chromium.
+
+**Rule:** Do not nest interactive `Pressable` controls inside a clickable-card `Pressable` in React Native Web previews; keep independent copy or credential actions outside the clickable wrapper.
+
+**Why:** React Native Web renders pressables as HTML buttons, and nesting the room-copy controls inside a tournament card produced a browser runtime error overlay even though the native layout is valid.
+
+**How to apply:** In browser-only native fixtures, render independent action panels as separate siblings; if the actual web card needs nested actions, redesign its interaction semantics rather than suppressing the warning.
