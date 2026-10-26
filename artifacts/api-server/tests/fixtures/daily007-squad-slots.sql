@@ -149,6 +149,13 @@ CREATE TABLE daily007_v2_result_awards (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE daily007_knockout_events (
+  match_id uuid PRIMARY KEY REFERENCES daily007_v2_matches(id) ON DELETE CASCADE,
+  points_per_kill integer NOT NULL DEFAULT 1,
+  round1_eliminated integer NOT NULL DEFAULT 2,
+  round2_eliminated integer NOT NULL DEFAULT 2
+);
+
 CREATE TABLE daily007_knockout_round_results (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   match_id uuid NOT NULL REFERENCES daily007_v2_matches(id) ON DELETE CASCADE,
@@ -173,4 +180,21 @@ CREATE TABLE daily007_knockout_round_results (
   ),
   UNIQUE (match_id, round_name, team_number),
   UNIQUE (match_id, round_name, placement)
+);
+
+CREATE TABLE daily007_knockout_stage_progress (
+  match_id uuid NOT NULL REFERENCES daily007_knockout_events(match_id) ON DELETE CASCADE,
+  round_name text NOT NULL CHECK (round_name IN ('round_1', 'round_2', 'final')),
+  team_number integer NOT NULL CHECK (team_number BETWEEN 1 AND 12),
+  status text NOT NULL CHECK (status IN ('qualified', 'eliminated', 'winner', 'finalist')),
+  stage_rank integer NOT NULL CHECK (stage_rank BETWEEN 1 AND 12),
+  placement integer NOT NULL CHECK (placement BETWEEN 1 AND 12),
+  placement_points integer NOT NULL CHECK (placement_points BETWEEN 0 AND 12),
+  squad_kills integer NOT NULL CHECK (squad_kills BETWEEN 0 AND 100000),
+  round_points integer NOT NULL CHECK (round_points BETWEEN 0 AND 100000000),
+  decision_reason text,
+  decided_by_user_id uuid REFERENCES daily007_v2_users(id) ON DELETE SET NULL,
+  decided_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (match_id, round_name, team_number),
+  CHECK (decision_reason IS NULL OR length(decision_reason) BETWEEN 5 AND 500)
 );

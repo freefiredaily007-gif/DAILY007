@@ -1949,8 +1949,9 @@ components:
         squadKills: { type: integer, minimum: 0, maximum: 100000 }
         roundPoints: { type: integer, minimum: 0 }
         status: { type: string, enum: [qualified, eliminated, winner, finalist] }
+        resultStatus: { type: string, enum: [draft, published] }
         decisionReason: { type: ["string", "null"] }
-      required: [teamNumber, rank, placement, placementPoints, squadKills, roundPoints, status, decisionReason]
+      required: [teamNumber, rank, placement, placementPoints, squadKills, roundPoints, status, resultStatus, decisionReason]
     Daily007KnockoutStageProgression:
       type: object
       properties:

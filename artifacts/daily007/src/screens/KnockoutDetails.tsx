@@ -159,7 +159,15 @@ export default function KnockoutDetails() {
             </>
           ) : (
             <>
-              <SectionTitle accent={C.gold}>{translateExactText("OFFICIAL ROUND STANDINGS")}</SectionTitle>
+              <SectionTitle accent={C.gold}>{translateExactText("ROUND STANDINGS")}</SectionTitle>
+              <Card style={styles.progressCard}>
+                <Text style={styles.progressTitle}>
+                  {translateExactText(leaderboardQuery.data?.progressionStatus ?? "PROVISIONAL RESULTS")}
+                </Text>
+                <Text style={styles.progressMessage}>
+                  {translateExactText(leaderboardQuery.data?.message ?? "Scores remain provisional until every result is published and an admin confirms the round.")}
+                </Text>
+              </Card>
               <View style={styles.roundTabs}>
                 {([
                   ["round_1", "ROUND 1"],
@@ -188,23 +196,46 @@ export default function KnockoutDetails() {
                     <View style={styles.squadHeader}>
                       <View style={{ flex: 1 }}>
                         <Text style={styles.squadName}>
-                          {squad.officialRank ? `#${squad.officialRank} · ` : ""}{squad.teamName}
+                          {(squad.officialRank ?? squad.provisionalRank) ? `#${squad.officialRank ?? squad.provisionalRank} · ` : ""}{squad.teamName}
                         </Text>
                         <Text style={styles.squadCount}>
-                          {squad.confirmed ? translateExactText("CONFIRMED") : translateExactText("INCOMPLETE")}
-                          {" · "}{squad.registeredPlayers}/{event.playersPerSquad} {translateExactText("PLAYERS")}
+                          {translateExactText("CAPTAIN")}: {squad.captainName}
                         </Text>
                       </View>
-                      {squad.roundPoints !== null ? (
-                        <Text style={styles.scorePoints}>{squad.roundPoints} {translateExactText("ROUND POINTS")}</Text>
-                      ) : null}
+                      <View style={styles.rankStack}>
+                        {squad.finalRank !== null ? (
+                          <Text style={styles.finalRank}>FINAL #{squad.finalRank}</Text>
+                        ) : null}
+                        <Text style={[
+                          styles.resultBadge,
+                          squad.resultStatus === "OFFICIAL" ? styles.officialBadge : styles.provisionalBadge,
+                        ]}>
+                          {translateExactText(squad.resultStatus)}
+                        </Text>
+                      </View>
                     </View>
+                    <View style={styles.rankMetaRow}>
+                      <Text style={styles.roundStatus}>{translateExactText("ROUND")}: {translateExactText(squad.roundStatus)}</Text>
+                      <Text style={styles.roundStatus}>{translateExactText("STATUS")}: {translateExactText(squad.qualificationStatus)}</Text>
+                    </View>
+                    <Text style={styles.squadCount}>
+                      {squad.confirmed ? translateExactText("CONFIRMED") : translateExactText("INCOMPLETE")}
+                      {" · "}{squad.registeredPlayers}/{event.playersPerSquad} {translateExactText("PLAYERS")}
+                    </Text>
+                    {squad.roundPoints !== null ? (
+                      <View style={styles.scoreGrid}>
+                        <Score label="PLACEMENT" value={String(squad.placement ?? "—")} />
+                        <Score label="SQUAD KILLS" value={String(squad.squadKills ?? "—")} />
+                        <Score label="PLACEMENT POINTS" value={String(squad.placementPoints ?? "—")} />
+                        <Score label="TOTAL POINTS" value={String(squad.roundPoints)} />
+                      </View>
+                    ) : null}
                     {squad.roundPoints !== null ? (
                       <Text style={styles.scoreSummary}>
-                        {translateExactText("PLACEMENT")} {squad.placement} · {translateExactText("SQUAD KILLS")} {squad.squadKills}
-                        {" · "}{squad.placementPoints} + {squad.squadKills} × {squad.pointsPerKill}
+                        {squad.placementPoints} + {squad.squadKills} × {squad.pointsPerKill} = {squad.roundPoints}
                       </Text>
                     ) : null}
+                    {/* Player list and payment information are retained for transparency. */}
                     {squad.players.map((player) => (
                       <View key={`${squad.teamNumber}-${player.slotNumber}`} style={styles.playerRow}>
                         <Feather name="user" size={13} color={C.blue} />
@@ -222,7 +253,7 @@ export default function KnockoutDetails() {
                   </Card>
                 ))}
               <Text style={styles.resultNotice}>
-                {translateExactText("Only published results appear in official rankings. Drafts are not included.")}
+                {translateExactText("Draft and published scores remain provisional until an admin confirms the round.")}
               </Text>
             </>
           )}
@@ -278,6 +309,15 @@ function Info({ label, value }: { label: string; value: string }) {
   );
 }
 
+function Score({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.scoreBox}>
+      <Text style={styles.scoreLabel}>{translateExactText(label)}</Text>
+      <Text style={styles.scoreValue}>{value}</Text>
+    </View>
+  );
+}
+
 function Rule({ icon, text }: { icon: keyof typeof Feather.glyphMap; text: string }) {
   return (
     <View style={styles.rule}>
@@ -328,6 +368,9 @@ const styles = StyleSheet.create({
   tabText: { color: C.sub, fontSize: 10, fontWeight: "900", letterSpacing: 0.6 },
   activeTabText: { color: C.gold },
   rulesCard: { gap: 12 },
+  progressCard: { gap: 5, borderColor: C.blue + "55", paddingVertical: 11 },
+  progressTitle: { color: C.gold, fontSize: 10, fontWeight: "900", letterSpacing: 0.45 },
+  progressMessage: { color: C.sub, fontSize: 9, lineHeight: 14 },
   rule: { flexDirection: "row", alignItems: "center", gap: 9 },
   ruleText: { color: C.text, flex: 1, fontSize: 12, fontWeight: "700" },
   stageRule: { flexDirection: "row", alignItems: "center", gap: 10, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 10 },
@@ -344,7 +387,17 @@ const styles = StyleSheet.create({
   pendingResult: { color: C.dim, fontSize: 9, fontWeight: "800" },
   paidStatus: { color: C.green },
   unpaidStatus: { color: C.red },
-  scorePoints: { color: C.green, fontSize: 12, fontWeight: "900" },
+  rankStack: { alignItems: "flex-end", gap: 4, maxWidth: "46%" },
+  resultBadge: { fontSize: 7, fontWeight: "900", textAlign: "right" },
+  officialBadge: { color: C.green },
+  provisionalBadge: { color: C.orange },
+  finalRank: { color: C.gold, fontSize: 8, fontWeight: "900" },
+  rankMetaRow: { flexDirection: "row", justifyContent: "space-between", flexWrap: "wrap", gap: 5 },
+  roundStatus: { color: C.blue, fontSize: 8, fontWeight: "800", flexShrink: 1 },
+  scoreGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  scoreBox: { width: "48%", minHeight: 45, borderRadius: 9, padding: 8, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, justifyContent: "space-between" },
+  scoreLabel: { color: C.sub, fontSize: 7, fontWeight: "900" },
+  scoreValue: { color: C.gold, fontSize: 12, fontWeight: "900" },
   scoreSummary: { color: C.sub, fontSize: 10, fontWeight: "800" },
   resultNotice: { color: C.sub, fontSize: 11, textAlign: "center", paddingHorizontal: 10, paddingVertical: 6 },
 });

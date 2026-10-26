@@ -290,6 +290,14 @@ export const Daily007KnockoutStageRankingStatus = {
   finalist: 'finalist',
 } as const;
 
+export type Daily007KnockoutStageRankingResultStatus = typeof Daily007KnockoutStageRankingResultStatus[keyof typeof Daily007KnockoutStageRankingResultStatus];
+
+
+export const Daily007KnockoutStageRankingResultStatus = {
+  draft: 'draft',
+  published: 'published',
+} as const;
+
 export interface Daily007KnockoutStageRanking {
   /**
      * @minimum 1
@@ -319,6 +327,7 @@ export interface Daily007KnockoutStageRanking {
   /** @minimum 0 */
   roundPoints: number;
   status: Daily007KnockoutStageRankingStatus;
+  resultStatus: Daily007KnockoutStageRankingResultStatus;
   /** @nullable */
   decisionReason: string | null;
 }

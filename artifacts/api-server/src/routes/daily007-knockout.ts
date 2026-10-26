@@ -220,11 +220,14 @@ function stageContext(
   const priorStageConfirmed = previousRound === null ||
     (previousRows.length === previousSpec!.expectedSquads &&
       previousRows.filter((row) => row.status === "qualified").length === spec.expectedSquads);
-  const eligibleTeamNumbers = round === "round_1"
-    ? squads.filter((squad) => squad.confirmed).map((squad) => squad.teamNumber).sort((a, b) => a - b)
+  const qualifiedNumbers = round === "round_1"
+    ? squads.filter((squad) => squad.confirmed).map((squad) => squad.teamNumber)
     : priorStageConfirmed
-      ? previousRows.filter((row) => row.status === "qualified").map((row) => Number(row.team_number)).sort((a, b) => a - b)
+      ? previousRows.filter((row) => row.status === "qualified").map((row) => Number(row.team_number))
       : [];
+  const eligibleTeamNumbers = qualifiedNumbers
+    .filter((teamNumber) => squads.some((squad) => squad.teamNumber === teamNumber && squad.confirmed))
+    .sort((a, b) => a - b);
   return {
     spec,
     eligibleTeamNumbers,
@@ -249,7 +252,7 @@ function stageStatusForSquad(
   if (!context.priorStageConfirmed) return "AWAITING PRIOR ROUND";
   const previous = context.previousProgress.get(squad.teamNumber);
   if (previous?.status === "eliminated") return "ELIMINATED";
-  if (previous?.status === "qualified") return "ELIGIBLE";
+  if (previous?.status === "qualified") return squad.confirmed ? "ELIGIBLE" : "QUALIFIED · INCOMPLETE";
   return "NOT QUALIFIED";
 }
 
@@ -525,8 +528,12 @@ router.get(
           const eventResult = await client.query<{
             entry_coins: number;
             points_per_kill: number;
+            capacity: number;
+            round1_eliminated: number;
+            round2_eliminated: number;
           }>(
-            `SELECT m.entry_coins, settings.points_per_kill
+            `SELECT m.entry_coins, m.capacity, settings.points_per_kill,
+                    settings.round1_eliminated, settings.round2_eliminated
                FROM daily007_knockout_events settings
                JOIN daily007_v2_matches m ON m.id = settings.match_id
               WHERE m.id = $1`,
@@ -534,8 +541,14 @@ router.get(
           );
           const event = eventResult.rows[0];
           if (!event) throw Object.assign(new Error("Knockout tournament not found."), { status: 404 });
-          const [squads, results] = await Promise.all([
+          const config: KnockoutStageConfig = {
+            squadCount: Number(event.capacity),
+            round1Eliminated: Number(event.round1_eliminated),
+            round2Eliminated: Number(event.round2_eliminated),
+          };
+          const [squads, progressRows, results] = await Promise.all([
             listKnockoutSquads(client, matchId, Number(event.entry_coins)),
+            loadKnockoutProgress(client, matchId),
             client.query<{
               id: string;
               round_name: KnockoutRound;
@@ -559,11 +572,46 @@ router.get(
               [matchId, round],
             ),
           ]);
+          const context = stageContext(round, config, squads, progressRows);
+          const assessment = assessKnockoutProgression(
+            round,
+            config,
+            context.eligibleTeamNumbers,
+            results.rows.map((row) => ({
+              teamNumber: Number(row.team_number),
+              placement: Number(row.placement),
+              placementPoints: Number(row.placement_points),
+              squadKills: Number(row.squad_kills),
+              pointsPerKill: Number(row.points_per_kill),
+              roundPoints: Number(row.round_points),
+              status: row.status,
+            })),
+          );
+          const transitionConfirmed = context.currentProgress.size === context.spec.expectedSquads;
+          const progression = {
+            round,
+            expectedSquads: context.spec.expectedSquads,
+            eligibleSquadCount: context.eligibleTeamNumbers.length,
+            publishedResultCount: assessment.publishedResultCount,
+            advanceCount: context.spec.advanceCount,
+            eliminatedCount: context.spec.eliminatedCount,
+            finalistCount: context.spec.finalistCount,
+            transitionConfirmed,
+            priorStageConfirmed: context.priorStageConfirmed,
+            canConfirm: assessment.canConfirm && context.currentProgress.size === 0 && context.priorStageConfirmed,
+            boundaryTieTeamNumbers: assessment.boundaryTieTeamNumbers,
+            rankedResults: assessment.rankedResults,
+          };
           return {
             matchId,
             round,
             pointsPerKill: Number(event.points_per_kill),
-            squads,
+            squads: squads.map((squad) => ({
+              ...squad,
+              eligible: isTeamEligible(squad, context),
+              stageStatus: stageStatusForSquad(round, squad, context),
+            })),
+            progression,
             results: results.rows.map(serializeRoundResult),
           };
         },
@@ -599,10 +647,13 @@ router.put(
             entry_coins: number;
             points_per_kill: number;
             squad_count: number;
+            round1_eliminated: number;
+            round2_eliminated: number;
             status: string;
           }>(
-            `SELECT m.entry_coins, m.capacity AS squad_count,
-                    m.status, settings.points_per_kill
+            `SELECT m.entry_coins, m.capacity AS squad_count, m.status,
+                    settings.points_per_kill, settings.round1_eliminated,
+                    settings.round2_eliminated
                FROM daily007_knockout_events settings
                JOIN daily007_v2_matches m ON m.id = settings.match_id
               WHERE m.id = $1
@@ -617,14 +668,29 @@ router.put(
           if (input.teamNumber > Number(event.squad_count)) {
             throw Object.assign(new Error("The selected squad number is outside this tournament's capacity."), { status: 400 });
           }
-          const squads = await listKnockoutSquads(client, matchId, Number(event.entry_coins));
-          const confirmedSquads = squads.filter((squad) => squad.confirmed);
-          const squad = confirmedSquads.find((item) => item.teamNumber === input.teamNumber);
-          if (!squad) {
-            throw Object.assign(new Error("A squad must have four approved, fully paid players before results can be entered."), { status: 409 });
+          const config: KnockoutStageConfig = {
+            squadCount: Number(event.squad_count),
+            round1Eliminated: Number(event.round1_eliminated),
+            round2Eliminated: Number(event.round2_eliminated),
+          };
+          const [squads, progressRows] = await Promise.all([
+            listKnockoutSquads(client, matchId, Number(event.entry_coins)),
+            loadKnockoutProgress(client, matchId),
+          ]);
+          const context = stageContext(input.round, config, squads, progressRows);
+          if (context.currentProgress.size > 0) {
+            throw Object.assign(new Error("This round has already been confirmed and cannot be edited."), { status: 409 });
           }
-          if (input.placement > confirmedSquads.length) {
-            throw Object.assign(new Error(`Placement must be between 1 and ${confirmedSquads.length} for confirmed squads.`), { status: 400 });
+          if (!context.priorStageConfirmed || context.eligibleTeamNumbers.length !== context.spec.expectedSquads) {
+            throw Object.assign(new Error(`This round is locked until exactly ${context.spec.expectedSquads} squads qualify.`), { status: 409 });
+          }
+          const eligibleSquads = squads.filter((item) => isTeamEligible(item, context));
+          const squad = eligibleSquads.find((item) => item.teamNumber === input.teamNumber);
+          if (!squad) {
+            throw Object.assign(new Error("Only four-player, fully paid squads qualified for this round can receive results."), { status: 409 });
+          }
+          if (input.placement > eligibleSquads.length) {
+            throw Object.assign(new Error(`Placement must be between 1 and ${eligibleSquads.length} for this round.`), { status: 400 });
           }
 
           const duplicatePlacement = await client.query<{ id: string }>(
@@ -726,8 +792,15 @@ router.post(
         req.daily007Account!.id,
         "tournament_admin",
         async (client) => {
-          const eventResult = await client.query<{ entry_coins: number; status: string }>(
-            `SELECT m.entry_coins, m.status
+          const eventResult = await client.query<{
+            entry_coins: number;
+            status: string;
+            capacity: number;
+            round1_eliminated: number;
+            round2_eliminated: number;
+          }>(
+            `SELECT m.entry_coins, m.status, m.capacity,
+                    settings.round1_eliminated, settings.round2_eliminated
                FROM daily007_knockout_events settings
                JOIN daily007_v2_matches m ON m.id = settings.match_id
               WHERE m.id = $1
@@ -766,13 +839,28 @@ router.post(
           if (current.status === "published") {
             return { result: serializeRoundResult(current), alreadyPublished: true };
           }
-          const squads = await listKnockoutSquads(client, matchId, Number(event.entry_coins));
-          const confirmedSquads = squads.filter((squad) => squad.confirmed);
-          if (!confirmedSquads.some((squad) => squad.teamNumber === Number(current.team_number))) {
-            throw Object.assign(new Error("This squad no longer has four approved, fully paid players."), { status: 409 });
+          const config: KnockoutStageConfig = {
+            squadCount: Number(event.capacity),
+            round1Eliminated: Number(event.round1_eliminated),
+            round2Eliminated: Number(event.round2_eliminated),
+          };
+          const [squads, progressRows] = await Promise.all([
+            listKnockoutSquads(client, matchId, Number(event.entry_coins)),
+            loadKnockoutProgress(client, matchId),
+          ]);
+          const context = stageContext(current.round_name, config, squads, progressRows);
+          if (context.currentProgress.size > 0) {
+            throw Object.assign(new Error("This round has already been confirmed and cannot be changed."), { status: 409 });
           }
-          if (Number(current.placement) > confirmedSquads.length) {
-            throw Object.assign(new Error("The placement is outside the current confirmed-squad count."), { status: 409 });
+          if (!context.priorStageConfirmed || context.eligibleTeamNumbers.length !== context.spec.expectedSquads) {
+            throw Object.assign(new Error(`This round is locked until exactly ${context.spec.expectedSquads} squads qualify.`), { status: 409 });
+          }
+          const eligibleSquads = squads.filter((squad) => isTeamEligible(squad, context));
+          if (!eligibleSquads.some((squad) => squad.teamNumber === Number(current.team_number))) {
+            throw Object.assign(new Error("This squad has not qualified for this round."), { status: 409 });
+          }
+          if (Number(current.placement) > eligibleSquads.length) {
+            throw Object.assign(new Error("The placement is outside the current round's qualified squad count."), { status: 409 });
           }
           const published = await client.query<typeof current>(
             `UPDATE daily007_knockout_round_results
@@ -797,6 +885,191 @@ router.post(
       if (status) return fail(res, status, error instanceof Error ? error.message : "Could not publish the result.");
       console.error("[daily007] publish knockout result failed", error);
       fail(res, 500, "Could not publish the Knockout round result.");
+    }
+  },
+);
+
+router.post(
+  "/daily007/v2/admin/knockout/events/:id/progression",
+  authenticate,
+  async (req, res): Promise<void> => {
+    if (!requireTournamentAdmin(req, res)) return;
+    const matchId = String(req.params.id ?? "");
+    const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
+      ? req.body as Record<string, unknown>
+      : {};
+    const round = parseKnockoutRound(body.round);
+    if (!UUID_PATTERN.test(matchId)) return fail(res, 400, "Tournament id must be a UUID.");
+    if (!round || body.confirmed !== true) {
+      return fail(res, 400, "Select a round and explicitly confirm its progression.");
+    }
+    const hasTieDecision = body.tieBreakOrder !== undefined || body.decisionReason !== undefined;
+    const tieBreakOrder = body.tieBreakOrder;
+    const decisionReason = body.decisionReason;
+    if (
+      hasTieDecision &&
+      (!Array.isArray(tieBreakOrder) ||
+        tieBreakOrder.length < 2 ||
+        tieBreakOrder.length > 12 ||
+        tieBreakOrder.some((teamNumber) => typeof teamNumber !== "number" || !Number.isSafeInteger(teamNumber) || teamNumber < 1 || teamNumber > 12) ||
+        new Set(tieBreakOrder).size !== tieBreakOrder.length ||
+        typeof decisionReason !== "string" ||
+        decisionReason.trim().length < 5 ||
+        decisionReason.trim().length > 500)
+    ) {
+      return fail(res, 400, "Provide the complete tied-team order and a reason for the admin decision.");
+    }
+    const tieDecision: KnockoutTieDecision | undefined = hasTieDecision
+      ? { order: tieBreakOrder as number[], reason: decisionReason as string }
+      : undefined;
+    try {
+      const response = await withDaily007RoleTransaction(
+        req.daily007Account!.id,
+        "tournament_admin",
+        async (client) => {
+          const eventResult = await client.query<{
+            entry_coins: number;
+            capacity: number;
+            round1_eliminated: number;
+            round2_eliminated: number;
+            status: string;
+          }>(
+            `SELECT m.entry_coins, m.capacity, m.status,
+                    settings.round1_eliminated, settings.round2_eliminated
+               FROM daily007_knockout_events settings
+               JOIN daily007_v2_matches m ON m.id = settings.match_id
+              WHERE m.id = $1
+              FOR UPDATE OF m, settings`,
+            [matchId],
+          );
+          const event = eventResult.rows[0];
+          if (!event) throw Object.assign(new Error("Knockout tournament not found."), { status: 404 });
+          if (event.status === "cancelled") {
+            throw Object.assign(new Error("Cancelled tournaments cannot advance."), { status: 409 });
+          }
+          const config: KnockoutStageConfig = {
+            squadCount: Number(event.capacity),
+            round1Eliminated: Number(event.round1_eliminated),
+            round2Eliminated: Number(event.round2_eliminated),
+          };
+          const [squads, progressRows, results] = await Promise.all([
+            listKnockoutSquads(client, matchId, Number(event.entry_coins)),
+            loadKnockoutProgress(client, matchId),
+            client.query<KnockoutStageResult>(
+              `SELECT team_number AS "teamNumber", placement,
+                      placement_points AS "placementPoints", squad_kills AS "squadKills",
+                      points_per_kill AS "pointsPerKill", round_points AS "roundPoints", status
+                 FROM daily007_knockout_round_results
+                WHERE match_id = $1 AND round_name = $2
+                ORDER BY team_number`,
+              [matchId, round],
+            ),
+          ]);
+          const context = stageContext(round, config, squads, progressRows);
+          const existingProgress = [...context.currentProgress.values()];
+          if (existingProgress.length === context.spec.expectedSquads) {
+            const already = existingProgress.slice().sort((left, right) => left.stage_rank - right.stage_rank);
+            return {
+              matchId,
+              round,
+              alreadyConfirmed: true,
+              advancedTeamNumbers: already.filter((row) => row.status === "qualified").map((row) => Number(row.team_number)),
+              eliminatedTeamNumbers: already.filter((row) => row.status === "eliminated").map((row) => Number(row.team_number)),
+              winnerTeamNumbers: already.filter((row) => row.status === "winner").map((row) => Number(row.team_number)),
+              finalistTeamNumbers: already.filter((row) => row.status === "finalist").map((row) => Number(row.team_number)),
+            };
+          }
+          if (existingProgress.length) {
+            throw Object.assign(new Error("Stage progression records are incomplete; no new progression was applied."), { status: 409 });
+          }
+          if (!context.priorStageConfirmed || context.eligibleTeamNumbers.length !== context.spec.expectedSquads) {
+            throw Object.assign(new Error(`This stage requires exactly ${context.spec.expectedSquads} qualified squads.`), { status: 409 });
+          }
+          const preview = assessKnockoutProgression(
+            round,
+            config,
+            context.eligibleTeamNumbers,
+            results.rows,
+          );
+          if (!preview.allResultsPublished) {
+            throw Object.assign(new Error("Publish results for every qualified squad before confirming this stage."), { status: 409 });
+          }
+          if (preview.boundaryTieTeamNumbers.length && !tieDecision) {
+            throw Object.assign(new Error("A tied elimination boundary must be ordered by an admin with a recorded reason before continuing."), { status: 409 });
+          }
+          if (!preview.boundaryTieTeamNumbers.length && tieDecision) {
+            throw Object.assign(new Error("A tie-break decision was supplied, but no elimination boundary is tied."), { status: 400 });
+          }
+          let assessment = preview;
+          if (tieDecision) {
+            try {
+              assessment = assessKnockoutProgression(
+                round,
+                config,
+                context.eligibleTeamNumbers,
+                results.rows,
+                tieDecision,
+              );
+            } catch (cause) {
+              throw Object.assign(
+                new Error(cause instanceof Error ? cause.message : "Invalid tie-break decision."),
+                { status: 400 },
+              );
+            }
+          }
+          if (!assessment.canConfirm) {
+            throw Object.assign(new Error("A tied elimination boundary must be ordered by an admin with a recorded reason before continuing."), { status: 409 });
+          }
+          for (const ranked of assessment.rankedResults) {
+            await client.query(
+              `INSERT INTO daily007_knockout_stage_progress
+                 (match_id, round_name, team_number, status, stage_rank, placement,
+                  placement_points, squad_kills, round_points, decision_reason, decided_by_user_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+              [
+                matchId,
+                round,
+                ranked.teamNumber,
+                ranked.status,
+                ranked.rank,
+                ranked.placement,
+                ranked.placementPoints,
+                ranked.squadKills,
+                ranked.roundPoints,
+                ranked.decisionReason,
+                req.daily007Account!.id,
+              ],
+            );
+          }
+          if (round === "final") {
+            await client.query(
+              `UPDATE daily007_v2_matches
+                  SET status = 'completed', enabled = false
+                WHERE id = $1`,
+              [matchId],
+            );
+          }
+          return {
+            matchId,
+            round,
+            alreadyConfirmed: false,
+            advancedTeamNumbers: assessment.rankedResults.filter((row) => row.status === "qualified").map((row) => row.teamNumber),
+            eliminatedTeamNumbers: assessment.rankedResults.filter((row) => row.status === "eliminated").map((row) => row.teamNumber),
+            winnerTeamNumbers: assessment.rankedResults.filter((row) => row.status === "winner").map((row) => row.teamNumber),
+            finalistTeamNumbers: assessment.rankedResults.filter((row) => row.status === "finalist").map((row) => row.teamNumber),
+          };
+        },
+      );
+      res.setHeader("Cache-Control", "no-store");
+      res.json(response);
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      if (status) return fail(res, status, error instanceof Error ? error.message : "Could not confirm Knockout progression.");
+      if ((error as { code?: string }).code === "23505") {
+        return fail(res, 409, "This stage has already been advanced.");
+      }
+      console.error("[daily007] confirm knockout progression failed", error);
+      fail(res, 500, "Could not confirm Knockout progression.");
     }
   },
 );

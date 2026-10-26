@@ -22,6 +22,7 @@
  *
  * OpenAPI spec version: 0.1.0
  */
+import type { Daily007KnockoutStageRankingResultStatus } from './daily007KnockoutStageRankingResultStatus';
 import type { Daily007KnockoutStageRankingStatus } from './daily007KnockoutStageRankingStatus';
 
 export interface Daily007KnockoutStageRanking {
@@ -53,6 +54,7 @@ export interface Daily007KnockoutStageRanking {
   /** @minimum 0 */
   roundPoints: number;
   status: Daily007KnockoutStageRankingStatus;
+  resultStatus: Daily007KnockoutStageRankingResultStatus;
   /** @nullable */
   decisionReason: string | null;
 }

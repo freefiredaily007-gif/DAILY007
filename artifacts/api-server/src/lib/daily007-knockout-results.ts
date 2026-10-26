@@ -50,9 +50,10 @@ export type KnockoutTieDecision = {
   reason: string;
 };
 
-export type KnockoutStageRanking = KnockoutStageResult & {
+export type KnockoutStageRanking = Omit<KnockoutStageResult, "status"> & {
   rank: number;
   status: "qualified" | "eliminated" | "winner" | "finalist";
+  resultStatus: "draft" | "published";
   decisionReason: string | null;
 };
 
@@ -154,19 +155,42 @@ export function knockoutStageSpec(
   config: KnockoutStageConfig,
 ): Omit<KnockoutProgressionPreview, "eligibleTeamNumbers" | "publishedResultCount" | "allResultsPublished" | "boundaryTieTeamNumbers" | "canConfirm" | "rankedResults"> {
   if (
-    config.squadCount !== 12 ||
-    config.round1Eliminated !== 2 ||
-    config.round2Eliminated !== 2
+    !Number.isSafeInteger(config.squadCount) ||
+    config.squadCount < 4 ||
+    config.squadCount > 12 ||
+    !Number.isSafeInteger(config.round1Eliminated) ||
+    !Number.isSafeInteger(config.round2Eliminated) ||
+    config.round1Eliminated < 1 ||
+    config.round2Eliminated < 1 ||
+    config.squadCount - config.round1Eliminated - config.round2Eliminated < 2
   ) {
-    throw new Error("This Knockout flow requires 12 squads, with exactly 2 eliminated in each of the first two rounds.");
+    throw new Error("The saved Knockout stage settings cannot advance through all three rounds.");
   }
+  const round2Expected = config.squadCount - config.round1Eliminated;
+  const finalExpected = round2Expected - config.round2Eliminated;
   if (round === "round_1") {
-    return { expectedSquads: 12, advanceCount: 10, eliminatedCount: 2, finalistCount: 0 };
+    return {
+      expectedSquads: config.squadCount,
+      advanceCount: round2Expected,
+      eliminatedCount: config.round1Eliminated,
+      finalistCount: 0,
+    };
   }
   if (round === "round_2") {
-    return { expectedSquads: 10, advanceCount: 8, eliminatedCount: 2, finalistCount: 0 };
+    return {
+      expectedSquads: round2Expected,
+      advanceCount: finalExpected,
+      eliminatedCount: config.round2Eliminated,
+      finalistCount: 0,
+    };
   }
-  return { expectedSquads: 8, advanceCount: 3, eliminatedCount: 0, finalistCount: 5 };
+  const winnerCount = Math.min(3, finalExpected);
+  return {
+    expectedSquads: finalExpected,
+    advanceCount: winnerCount,
+    eliminatedCount: 0,
+    finalistCount: finalExpected - winnerCount,
+  };
 }
 
 function compareResults(left: KnockoutStageResult, right: KnockoutStageResult): number {
@@ -275,10 +299,12 @@ export function assessKnockoutProgression(
       const status = round === "final"
         ? index < spec.advanceCount ? "winner" : "finalist"
         : index < spec.advanceCount ? "qualified" : "eliminated";
+      const { status: resultStatus, ...score } = item;
       rankedResults.push({
-        ...item,
+        ...score,
         rank,
         status,
+        resultStatus,
         decisionReason: isResolvedBoundaryTie ? decisionReason : null,
       });
     }

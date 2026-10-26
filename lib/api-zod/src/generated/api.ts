@@ -848,6 +848,7 @@ export const Daily007AdminGetKnockoutRoundResultsResponse = zod.object({
   "squadKills": zod.number().int().min(daily007AdminGetKnockoutRoundResultsResponseProgressionRankedResultsItemSquadKillsMin).max(daily007AdminGetKnockoutRoundResultsResponseProgressionRankedResultsItemSquadKillsMax),
   "roundPoints": zod.number().int().min(daily007AdminGetKnockoutRoundResultsResponseProgressionRankedResultsItemRoundPointsMin),
   "status": zod.enum(['qualified', 'eliminated', 'winner', 'finalist']),
+  "resultStatus": zod.enum(['draft', 'published']),
   "decisionReason": zod.string().nullable()
 }))
 }),
