@@ -148,3 +148,29 @@ CREATE TABLE daily007_v2_result_awards (
   prize_coins integer NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE TABLE daily007_knockout_round_results (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  match_id uuid NOT NULL REFERENCES daily007_v2_matches(id) ON DELETE CASCADE,
+  round_name text NOT NULL CHECK (round_name IN ('round_1', 'round_2', 'final')),
+  team_number integer NOT NULL CHECK (team_number BETWEEN 1 AND 12),
+  placement integer NOT NULL CHECK (placement BETWEEN 1 AND 12),
+  placement_points integer NOT NULL CHECK (placement_points BETWEEN 0 AND 12),
+  squad_kills integer NOT NULL CHECK (squad_kills BETWEEN 0 AND 100000),
+  points_per_kill integer NOT NULL CHECK (points_per_kill BETWEEN 1 AND 1000),
+  round_points integer NOT NULL,
+  status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
+  created_by_user_id uuid REFERENCES daily007_v2_users(id) ON DELETE SET NULL,
+  updated_by_user_id uuid REFERENCES daily007_v2_users(id) ON DELETE SET NULL,
+  published_by_user_id uuid REFERENCES daily007_v2_users(id) ON DELETE SET NULL,
+  published_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (round_points = placement_points + squad_kills * points_per_kill),
+  CHECK (
+    (status = 'draft' AND published_at IS NULL AND published_by_user_id IS NULL)
+    OR (status = 'published' AND published_at IS NOT NULL)
+  ),
+  UNIQUE (match_id, round_name, team_number),
+  UNIQUE (match_id, round_name, placement)
+);

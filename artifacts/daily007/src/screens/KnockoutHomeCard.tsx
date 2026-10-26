@@ -58,6 +58,7 @@ export default function KnockoutHomeCard({
   const pointsPerKill = event?.pointsPerKill ?? defaults.pointsPerKill;
   const stages = event?.stages ?? defaults.stages;
   const registeredSquads = event?.registeredSquads ?? 0;
+  const incompleteSquads = event?.incompleteSquads ?? 0;
   const registeredPlayers = event?.registeredPlayers ?? 0;
   const matchId = event?.matchId ?? null;
   const canJoin = Boolean(event?.registrationOpen && matchId);
@@ -91,7 +92,8 @@ export default function KnockoutHomeCard({
           <Metric label="PRIZE POOL" value={`${inr(prizePool)} · ${prizePool} ${translateExactText("COINS")}`} primary />
           <Metric label="ENTRY FEE" value={`${entryCoins} ${translateExactText("COINS")} / ${translateExactText("PLAYER")}`} />
           <Metric label="SQUAD ENTRY" value={`${entryCoins * playersPerSquad} ${translateExactText("COINS")}`} />
-          <Metric label="REGISTERED SQUADS" value={`${registeredSquads}/${squadCount}`} />
+          <Metric label="CONFIRMED SQUADS" value={`${registeredSquads}/${squadCount}`} />
+          <Metric label="INCOMPLETE SQUADS" value={`${incompleteSquads}`} />
           <Metric label="TOTAL PLAYERS" value={`${registeredPlayers}/${squadCount * playersPerSquad}`} />
           <Metric label="POINTS PER KILL" value={`${pointsPerKill}`} />
         </View>

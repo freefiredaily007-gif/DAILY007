@@ -17,6 +17,7 @@ import {
 import { ReadableText as Text, ReadableTextInput as TextInput } from "../components/typography";
 import { A } from "../components/adminKit";
 import { inr } from "../lib/coins";
+import AdminKnockoutResults from "./AdminKnockoutResults";
 
 type Form = {
   title: string;
@@ -364,6 +365,7 @@ export default function AdminKnockout() {
       {sortedEvents.map((event) => (
         <EventCard key={event.matchId} event={event} onEdit={() => editEvent(event)} />
       ))}
+      <AdminKnockoutResults events={sortedEvents} />
     </ScrollView>
   );
 }
@@ -432,7 +434,7 @@ function EventCard({ event, onEdit }: { event: Daily007KnockoutEvent; onEdit: ()
         </View>
       </View>
       <Text style={styles.eventSummary}>
-        {event.registeredSquads}/{event.squadCount} squads · {event.registeredPlayers}/{event.totalPlayers} players · {event.entryCoins} coins/player
+        {event.registeredSquads}/{event.squadCount} confirmed squads · {event.incompleteSquads} incomplete · {event.registeredPlayers}/{event.totalPlayers} players · {event.entryCoins} coins/player
       </Text>
       <Text style={styles.eventSummary}>
         Prize {event.prizePool} coins ({inr(event.prizePool)}) · {event.pointsPerKill} point(s) per kill

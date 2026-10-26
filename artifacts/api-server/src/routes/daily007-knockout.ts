@@ -234,7 +234,7 @@ async function listKnockoutEvents(includeDrafts: boolean): Promise<ReturnType<ty
            ON member.team_id = team.id AND member.is_active = true
          LEFT JOIN daily007_v2_registrations registration
            ON registration.id = member.registration_id
-        GROUP BY team.match_id, team.id
+        GROUP BY team.match_id, team.id, m.entry_coins
      )
      SELECT m.id AS "matchId", m.title, m.starts_at AS "startsAt", m.status,
             m.enabled, m.is_full AS "isFull", m.capacity AS "squadCount",

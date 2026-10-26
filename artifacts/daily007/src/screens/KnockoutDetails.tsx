@@ -7,6 +7,7 @@ import {
   useDaily007ListPublicKnockoutEvents,
   type Daily007KnockoutDefaultSettings,
   type Daily007KnockoutEvent,
+  type Daily007KnockoutRound,
 } from "@workspace/api-client-react";
 import { ReadableText as Text } from "../components/typography";
 import { Btn, C, Card, Empty, Loading, SectionTitle } from "../components/ui";
@@ -36,6 +37,7 @@ export default function KnockoutDetails() {
   const requestedMatchId = typeof route.params?.matchId === "string" ? route.params.matchId : null;
   const initialSection: Section = route.params?.section === "leaderboard" ? "leaderboard" : "rules";
   const [section, setSection] = useState<Section>(initialSection);
+  const [selectedRound, setSelectedRound] = useState<Daily007KnockoutRound>("round_1");
   const eventQuery = useDaily007ListPublicKnockoutEvents({
     query: { queryKey: ["daily007", "knockout", "public"], staleTime: 0, gcTime: 0, refetchOnMount: "always" },
   });
@@ -64,9 +66,11 @@ export default function KnockoutDetails() {
     events[0] ??
     null
   ), [events, requestedMatchId]);
-  const leaderboardQuery = useDaily007GetKnockoutLeaderboard(event?.matchId ?? "", {
-    query: { queryKey: ["daily007", "knockout", "leaderboard", event?.matchId], enabled: Boolean(event?.matchId), staleTime: 0, gcTime: 0, refetchOnMount: "always" },
-  });
+  const leaderboardQuery = useDaily007GetKnockoutLeaderboard(
+    event?.matchId ?? "",
+    { round: selectedRound },
+    { query: { queryKey: ["daily007", "knockout", "leaderboard", event?.matchId, selectedRound], enabled: Boolean(event?.matchId), staleTime: 0, gcTime: 0, refetchOnMount: "always" } },
+  );
 
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.content}>
@@ -110,7 +114,8 @@ export default function KnockoutDetails() {
               <Info label="PRIZE POOL" value={`${inr(event.prizePool)} · ${event.prizePool} ${translateExactText("COINS")}`} />
               <Info label="ENTRY / PLAYER" value={`${event.entryCoins} ${translateExactText("COINS")}`} />
               <Info label="SQUAD ENTRY" value={`${event.squadEntryCoins} ${translateExactText("COINS")}`} />
-              <Info label="SQUADS" value={`${event.registeredSquads}/${event.squadCount}`} />
+              <Info label="CONFIRMED SQUADS" value={`${event.registeredSquads}/${event.squadCount}`} />
+              <Info label="INCOMPLETE SQUADS" value={`${event.incompleteSquads}`} />
               <Info label="PLAYERS" value={`${event.registeredPlayers}/${event.totalPlayers}`} />
               <Info label="POINTS PER KILL" value={`${event.pointsPerKill}`} />
             </View>
@@ -154,7 +159,21 @@ export default function KnockoutDetails() {
             </>
           ) : (
             <>
-              <SectionTitle accent={C.gold}>{translateExactText("REGISTERED SQUADS")}</SectionTitle>
+              <SectionTitle accent={C.gold}>{translateExactText("OFFICIAL ROUND STANDINGS")}</SectionTitle>
+              <View style={styles.roundTabs}>
+                {([
+                  ["round_1", "ROUND 1"],
+                  ["round_2", "ROUND 2"],
+                  ["final", "FINAL"],
+                ] as const).map(([round, label]) => (
+                  <SectionTab
+                    key={round}
+                    active={selectedRound === round}
+                    title={label}
+                    onPress={() => setSelectedRound(round)}
+                  />
+                ))}
+              </View>
               {leaderboardQuery.isLoading ? <Loading /> : null}
               {leaderboardQuery.isError ? (
                 <Empty text={translateExactText("Could not load the squad list. Please try again.")} />
@@ -167,20 +186,43 @@ export default function KnockoutDetails() {
                 (leaderboardQuery.data?.standings ?? []).map((squad) => (
                   <Card key={squad.teamNumber} style={styles.squadCard}>
                     <View style={styles.squadHeader}>
-                      <Text style={styles.squadName}>{squad.teamName}</Text>
-                      <Text style={styles.squadCount}>{squad.registeredPlayers}/{event.playersPerSquad} {translateExactText("PLAYERS")}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.squadName}>
+                          {squad.officialRank ? `#${squad.officialRank} · ` : ""}{squad.teamName}
+                        </Text>
+                        <Text style={styles.squadCount}>
+                          {squad.confirmed ? translateExactText("CONFIRMED") : translateExactText("INCOMPLETE")}
+                          {" · "}{squad.registeredPlayers}/{event.playersPerSquad} {translateExactText("PLAYERS")}
+                        </Text>
+                      </View>
+                      {squad.roundPoints !== null ? (
+                        <Text style={styles.scorePoints}>{squad.roundPoints} {translateExactText("ROUND POINTS")}</Text>
+                      ) : null}
                     </View>
+                    {squad.roundPoints !== null ? (
+                      <Text style={styles.scoreSummary}>
+                        {translateExactText("PLACEMENT")} {squad.placement} · {translateExactText("SQUAD KILLS")} {squad.squadKills}
+                        {" · "}{squad.placementPoints} + {squad.squadKills} × {squad.pointsPerKill}
+                      </Text>
+                    ) : null}
                     {squad.players.map((player) => (
                       <View key={`${squad.teamNumber}-${player.slotNumber}`} style={styles.playerRow}>
                         <Feather name="user" size={13} color={C.blue} />
-                        <Text style={styles.playerName}>{player.playerName}</Text>
-                        <Text style={styles.pendingResult}>{translateExactText("AWAITING RESULTS")}</Text>
+                        <Text style={styles.playerName} numberOfLines={1}>{player.playerName}</Text>
+                        <Text style={[
+                          styles.pendingResult,
+                          player.paymentStatus === "paid" && styles.paidStatus,
+                          player.paymentStatus === "unpaid" && styles.unpaidStatus,
+                        ]}>
+                          {translateExactText(player.paymentStatus.toUpperCase())}
+                          {player.paidByCaptain ? ` · ${translateExactText("CAPTAIN PAID")}` : ""}
+                        </Text>
                       </View>
                     ))}
                   </Card>
                 ))}
               <Text style={styles.resultNotice}>
-                {translateExactText("Stage points will be shown after tournament results are entered.")}
+                {translateExactText("Only published results appear in official rankings. Drafts are not included.")}
               </Text>
             </>
           )}
@@ -280,6 +322,7 @@ const styles = StyleSheet.create({
   infoLabel: { color: C.dim, fontSize: 8, fontWeight: "900", letterSpacing: 0.8 },
   infoValue: { color: C.text, fontSize: 11, fontWeight: "900", marginTop: 4 },
   tabs: { flexDirection: "row", padding: 4, gap: 4, borderRadius: 12, backgroundColor: C.card, borderWidth: 1, borderColor: C.border },
+  roundTabs: { flexDirection: "row", gap: 5, padding: 4, borderRadius: 12, backgroundColor: C.card, borderWidth: 1, borderColor: C.border },
   tab: { flex: 1, minHeight: 40, justifyContent: "center", alignItems: "center", borderRadius: 9 },
   activeTab: { backgroundColor: C.gold + "20", borderWidth: 1, borderColor: C.gold + "70" },
   tabText: { color: C.sub, fontSize: 10, fontWeight: "900", letterSpacing: 0.6 },
@@ -296,8 +339,12 @@ const styles = StyleSheet.create({
   squadHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderBottomWidth: 1, borderBottomColor: C.border, paddingBottom: 8 },
   squadName: { color: C.gold, fontSize: 14, fontWeight: "900" },
   squadCount: { color: C.sub, fontSize: 10, fontWeight: "800" },
-  playerRow: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 8 },
+  playerRow: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 8, borderTopWidth: 1, borderTopColor: C.border },
   playerName: { color: C.text, fontSize: 12, fontWeight: "700", flex: 1 },
   pendingResult: { color: C.dim, fontSize: 9, fontWeight: "800" },
+  paidStatus: { color: C.green },
+  unpaidStatus: { color: C.red },
+  scorePoints: { color: C.green, fontSize: 12, fontWeight: "900" },
+  scoreSummary: { color: C.sub, fontSize: 10, fontWeight: "800" },
   resultNotice: { color: C.sub, fontSize: 11, textAlign: "center", paddingHorizontal: 10, paddingVertical: 6 },
 });
