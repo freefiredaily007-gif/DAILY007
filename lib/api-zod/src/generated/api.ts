@@ -711,7 +711,7 @@ export const Daily007ListPublicKnockoutEventsResponse = zod.object({
 
 
 /**
- * @summary List official published Knockout round standings and squad payment status
+ * @summary List provisional and official Knockout round standings and squad progression status
  */
 export const Daily007GetKnockoutLeaderboardParams = zod.object({
   "id": zod.coerce.string().uuid()
@@ -728,6 +728,7 @@ export const Daily007GetKnockoutLeaderboardResponse = zod.object({
   "standings": zod.array(zod.object({
   "teamNumber": zod.number().int(),
   "teamName": zod.string(),
+  "captainName": zod.string(),
   "registeredPlayers": zod.number().int(),
   "confirmed": zod.boolean(),
   "players": zod.array(zod.object({
@@ -736,14 +737,19 @@ export const Daily007GetKnockoutLeaderboardResponse = zod.object({
   "paymentStatus": zod.enum(['paid', 'pending', 'unpaid', 'open']),
   "paidByCaptain": zod.boolean()
 })),
+  "provisionalRank": zod.number().int().nullable(),
   "officialRank": zod.number().int().nullable(),
+  "finalRank": zod.number().int().nullable(),
   "placement": zod.number().int().nullable(),
   "squadKills": zod.number().int().nullable(),
   "placementPoints": zod.number().int().nullable(),
   "pointsPerKill": zod.number().int().nullable(),
   "roundPoints": zod.number().int().nullable(),
-  "resultStatus": zod.string()
+  "resultStatus": zod.string(),
+  "roundStatus": zod.string(),
+  "qualificationStatus": zod.string()
 })),
+  "progressionStatus": zod.string(),
   "message": zod.string()
 })
 
@@ -770,6 +776,22 @@ export const daily007AdminGetKnockoutRoundResultsResponseSquadsItemPlayersItemSl
 
 export const daily007AdminGetKnockoutRoundResultsResponseSquadsItemPlayersItemEntryCoinsPaidMin = 0;
 
+export const daily007AdminGetKnockoutRoundResultsResponseProgressionBoundaryTieTeamNumbersItemMax = 12;
+
+export const daily007AdminGetKnockoutRoundResultsResponseProgressionRankedResultsItemTeamNumberMax = 12;
+
+export const daily007AdminGetKnockoutRoundResultsResponseProgressionRankedResultsItemRankMax = 12;
+
+export const daily007AdminGetKnockoutRoundResultsResponseProgressionRankedResultsItemPlacementMax = 12;
+
+export const daily007AdminGetKnockoutRoundResultsResponseProgressionRankedResultsItemPlacementPointsMin = 0;
+export const daily007AdminGetKnockoutRoundResultsResponseProgressionRankedResultsItemPlacementPointsMax = 12;
+
+export const daily007AdminGetKnockoutRoundResultsResponseProgressionRankedResultsItemSquadKillsMin = 0;
+export const daily007AdminGetKnockoutRoundResultsResponseProgressionRankedResultsItemSquadKillsMax = 100000;
+
+export const daily007AdminGetKnockoutRoundResultsResponseProgressionRankedResultsItemRoundPointsMin = 0;
+
 export const daily007AdminGetKnockoutRoundResultsResponseResultsItemTeamNumberMax = 12;
 
 export const daily007AdminGetKnockoutRoundResultsResponseResultsItemPlacementMax = 12;
@@ -793,8 +815,11 @@ export const Daily007AdminGetKnockoutRoundResultsResponse = zod.object({
   "squads": zod.array(zod.object({
   "teamNumber": zod.number().int().min(1).max(daily007AdminGetKnockoutRoundResultsResponseSquadsItemTeamNumberMax),
   "teamName": zod.string(),
+  "captainName": zod.string(),
   "registeredPlayers": zod.number().int().min(daily007AdminGetKnockoutRoundResultsResponseSquadsItemRegisteredPlayersMin).max(daily007AdminGetKnockoutRoundResultsResponseSquadsItemRegisteredPlayersMax),
   "confirmed": zod.boolean(),
+  "eligible": zod.boolean(),
+  "stageStatus": zod.string(),
   "players": zod.array(zod.object({
   "playerName": zod.string(),
   "slotNumber": zod.number().int().min(1).max(daily007AdminGetKnockoutRoundResultsResponseSquadsItemPlayersItemSlotNumberMax),
@@ -803,6 +828,29 @@ export const Daily007AdminGetKnockoutRoundResultsResponse = zod.object({
   "paidByCaptain": zod.boolean()
 }))
 })),
+  "progression": zod.object({
+  "round": zod.enum(['round_1', 'round_2', 'final']),
+  "expectedSquads": zod.number().int(),
+  "eligibleSquadCount": zod.number().int(),
+  "publishedResultCount": zod.number().int(),
+  "advanceCount": zod.number().int(),
+  "eliminatedCount": zod.number().int(),
+  "finalistCount": zod.number().int(),
+  "transitionConfirmed": zod.boolean(),
+  "priorStageConfirmed": zod.boolean(),
+  "canConfirm": zod.boolean(),
+  "boundaryTieTeamNumbers": zod.array(zod.number().int().min(1).max(daily007AdminGetKnockoutRoundResultsResponseProgressionBoundaryTieTeamNumbersItemMax)),
+  "rankedResults": zod.array(zod.object({
+  "teamNumber": zod.number().int().min(1).max(daily007AdminGetKnockoutRoundResultsResponseProgressionRankedResultsItemTeamNumberMax),
+  "rank": zod.number().int().min(1).max(daily007AdminGetKnockoutRoundResultsResponseProgressionRankedResultsItemRankMax),
+  "placement": zod.number().int().min(1).max(daily007AdminGetKnockoutRoundResultsResponseProgressionRankedResultsItemPlacementMax),
+  "placementPoints": zod.number().int().min(daily007AdminGetKnockoutRoundResultsResponseProgressionRankedResultsItemPlacementPointsMin).max(daily007AdminGetKnockoutRoundResultsResponseProgressionRankedResultsItemPlacementPointsMax),
+  "squadKills": zod.number().int().min(daily007AdminGetKnockoutRoundResultsResponseProgressionRankedResultsItemSquadKillsMin).max(daily007AdminGetKnockoutRoundResultsResponseProgressionRankedResultsItemSquadKillsMax),
+  "roundPoints": zod.number().int().min(daily007AdminGetKnockoutRoundResultsResponseProgressionRankedResultsItemRoundPointsMin),
+  "status": zod.enum(['qualified', 'eliminated', 'winner', 'finalist']),
+  "decisionReason": zod.string().nullable()
+}))
+}),
   "results": zod.array(zod.object({
   "id": zod.string().uuid(),
   "round": zod.enum(['round_1', 'round_2', 'final']),
@@ -919,6 +967,52 @@ export const Daily007AdminPublishKnockoutRoundResultResponse = zod.object({
   "publishedAt": zod.coerce.date().nullable()
 }),
   "alreadyPublished": zod.boolean()
+})
+
+
+/**
+ * Requires explicit admin confirmation. Resolves a cutoff tie only when the admin submits a full ordering and a recorded reason. A transition can be confirmed once.
+ * @summary Confirm elimination, qualification, or final winners after every stage result is published
+ */
+export const Daily007AdminConfirmKnockoutProgressionParams = zod.object({
+  "id": zod.coerce.string().uuid()
+})
+
+export const daily007AdminConfirmKnockoutProgressionBodyTieBreakOrderItemMax = 12;
+
+export const daily007AdminConfirmKnockoutProgressionBodyTieBreakOrderMin = 2;
+export const daily007AdminConfirmKnockoutProgressionBodyTieBreakOrderMax = 12;
+
+export const daily007AdminConfirmKnockoutProgressionBodyDecisionReasonMin = 5;
+export const daily007AdminConfirmKnockoutProgressionBodyDecisionReasonMax = 500;
+
+
+
+export const Daily007AdminConfirmKnockoutProgressionBody = zod.object({
+  "round": zod.enum(['round_1', 'round_2', 'final']),
+  "confirmed": zod.literal(true),
+  "tieBreakOrder": zod.array(zod.number().int().min(1).max(daily007AdminConfirmKnockoutProgressionBodyTieBreakOrderItemMax)).min(daily007AdminConfirmKnockoutProgressionBodyTieBreakOrderMin).max(daily007AdminConfirmKnockoutProgressionBodyTieBreakOrderMax).optional(),
+  "decisionReason": zod.string().min(daily007AdminConfirmKnockoutProgressionBodyDecisionReasonMin).max(daily007AdminConfirmKnockoutProgressionBodyDecisionReasonMax).optional()
+})
+
+export const daily007AdminConfirmKnockoutProgressionResponseAdvancedTeamNumbersItemMax = 12;
+
+export const daily007AdminConfirmKnockoutProgressionResponseEliminatedTeamNumbersItemMax = 12;
+
+export const daily007AdminConfirmKnockoutProgressionResponseWinnerTeamNumbersItemMax = 12;
+
+export const daily007AdminConfirmKnockoutProgressionResponseFinalistTeamNumbersItemMax = 12;
+
+
+
+export const Daily007AdminConfirmKnockoutProgressionResponse = zod.object({
+  "matchId": zod.string().uuid(),
+  "round": zod.enum(['round_1', 'round_2', 'final']),
+  "alreadyConfirmed": zod.boolean(),
+  "advancedTeamNumbers": zod.array(zod.number().int().min(1).max(daily007AdminConfirmKnockoutProgressionResponseAdvancedTeamNumbersItemMax)),
+  "eliminatedTeamNumbers": zod.array(zod.number().int().min(1).max(daily007AdminConfirmKnockoutProgressionResponseEliminatedTeamNumbersItemMax)),
+  "winnerTeamNumbers": zod.array(zod.number().int().min(1).max(daily007AdminConfirmKnockoutProgressionResponseWinnerTeamNumbersItemMax)),
+  "finalistTeamNumbers": zod.array(zod.number().int().min(1).max(daily007AdminConfirmKnockoutProgressionResponseFinalistTeamNumbersItemMax))
 })
 
 

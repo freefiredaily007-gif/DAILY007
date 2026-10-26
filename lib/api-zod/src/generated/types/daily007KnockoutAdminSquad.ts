@@ -31,11 +31,14 @@ export interface Daily007KnockoutAdminSquad {
      */
   teamNumber: number;
   teamName: string;
+  captainName: string;
   /**
      * @minimum 0
      * @maximum 4
      */
   registeredPlayers: number;
   confirmed: boolean;
+  eligible: boolean;
+  stageStatus: string;
   players: Daily007KnockoutAdminPlayer[];
 }

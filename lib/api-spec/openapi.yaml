@@ -368,13 +368,13 @@ paths:
   /daily007/v2/knockout/events/{id}/leaderboard:
     get:
       operationId: daily007GetKnockoutLeaderboard
-      summary: List official published Knockout round standings and squad payment status
+      summary: List provisional and official Knockout round standings and squad progression status
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: round, in: query, required: false, schema: { $ref: "#/components/schemas/Daily007KnockoutRound" } }
       responses:
         "200":
-          description: Registered rosters and published scores for the selected round; drafts are excluded
+          description: Registered rosters, provisional scores, published scores, and round qualification status
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Daily007KnockoutLeaderboardResponse" }
@@ -390,7 +390,7 @@ paths:
         - { name: round, in: query, required: true, schema: { $ref: "#/components/schemas/Daily007KnockoutRound" } }
       responses:
         "200":
-          description: Squad registration states and draft/published round results
+          description: Squad registration states, draft/published results, and progression readiness
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Daily007KnockoutAdminResultsResponse" }
@@ -436,6 +436,29 @@ paths:
         "403": { description: Tournament administrator required }
         "404": { description: Event or result not found }
         "409": { description: Squad is no longer confirmed or result is locked }
+  /daily007/v2/admin/knockout/events/{id}/progression:
+    post:
+      operationId: daily007AdminConfirmKnockoutProgression
+      summary: Confirm elimination, qualification, or final winners after every stage result is published
+      description: Requires explicit admin confirmation. Resolves a cutoff tie only when the admin submits a full ordering and a recorded reason. A transition can be confirmed once.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Daily007KnockoutProgressionBody" }
+      responses:
+        "200":
+          description: Stage outcome persisted or transition was already confirmed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Daily007KnockoutProgressionResponse" }
+        "400": { description: Invalid stage or tie decision }
+        "403": { description: Tournament administrator required }
+        "404": { description: Knockout event not found }
+        "409": { description: "Incomplete results, unresolved tie, or stage already advanced" }
   /daily007/v2/admin/knockout/events:
     get:
       operationId: daily007AdminListKnockoutEvents
@@ -1830,31 +1853,41 @@ components:
       properties:
         teamNumber: { type: integer }
         teamName: { type: string }
+        captainName: { type: string }
         registeredPlayers: { type: integer }
         confirmed: { type: boolean }
         players:
           type: array
           items: { $ref: "#/components/schemas/Daily007KnockoutLeaderboardPlayer" }
+        provisionalRank: { type: ["integer", "null"] }
         officialRank: { type: ["integer", "null"] }
+        finalRank: { type: ["integer", "null"] }
         placement: { type: ["integer", "null"] }
         squadKills: { type: ["integer", "null"] }
         placementPoints: { type: ["integer", "null"] }
         pointsPerKill: { type: ["integer", "null"] }
         roundPoints: { type: ["integer", "null"] }
         resultStatus: { type: string }
+        roundStatus: { type: string }
+        qualificationStatus: { type: string }
       required:
         - teamNumber
         - teamName
+        - captainName
         - registeredPlayers
         - confirmed
         - players
+        - provisionalRank
         - officialRank
+        - finalRank
         - placement
         - squadKills
         - placementPoints
         - pointsPerKill
         - roundPoints
         - resultStatus
+        - roundStatus
+        - qualificationStatus
     Daily007KnockoutLeaderboardResponse:
       type: object
       properties:
@@ -1864,8 +1897,9 @@ components:
         standings:
           type: array
           items: { $ref: "#/components/schemas/Daily007KnockoutLeaderboardSquad" }
+        progressionStatus: { type: string }
         message: { type: string }
-      required: [matchId, stage, round, standings, message]
+      required: [matchId, stage, round, standings, progressionStatus, message]
     Daily007KnockoutRoundResult:
       type: object
       properties:
@@ -1896,12 +1930,47 @@ components:
       properties:
         teamNumber: { type: integer, minimum: 1, maximum: 12 }
         teamName: { type: string }
+        captainName: { type: string }
         registeredPlayers: { type: integer, minimum: 0, maximum: 4 }
         confirmed: { type: boolean }
+        eligible: { type: boolean }
+        stageStatus: { type: string }
         players:
           type: array
           items: { $ref: "#/components/schemas/Daily007KnockoutAdminPlayer" }
-      required: [teamNumber, teamName, registeredPlayers, confirmed, players]
+      required: [teamNumber, teamName, captainName, registeredPlayers, confirmed, eligible, stageStatus, players]
+    Daily007KnockoutStageRanking:
+      type: object
+      properties:
+        teamNumber: { type: integer, minimum: 1, maximum: 12 }
+        rank: { type: integer, minimum: 1, maximum: 12 }
+        placement: { type: integer, minimum: 1, maximum: 12 }
+        placementPoints: { type: integer, minimum: 0, maximum: 12 }
+        squadKills: { type: integer, minimum: 0, maximum: 100000 }
+        roundPoints: { type: integer, minimum: 0 }
+        status: { type: string, enum: [qualified, eliminated, winner, finalist] }
+        decisionReason: { type: ["string", "null"] }
+      required: [teamNumber, rank, placement, placementPoints, squadKills, roundPoints, status, decisionReason]
+    Daily007KnockoutStageProgression:
+      type: object
+      properties:
+        round: { $ref: "#/components/schemas/Daily007KnockoutRound" }
+        expectedSquads: { type: integer }
+        eligibleSquadCount: { type: integer }
+        publishedResultCount: { type: integer }
+        advanceCount: { type: integer }
+        eliminatedCount: { type: integer }
+        finalistCount: { type: integer }
+        transitionConfirmed: { type: boolean }
+        priorStageConfirmed: { type: boolean }
+        canConfirm: { type: boolean }
+        boundaryTieTeamNumbers:
+          type: array
+          items: { type: integer, minimum: 1, maximum: 12 }
+        rankedResults:
+          type: array
+          items: { $ref: "#/components/schemas/Daily007KnockoutStageRanking" }
+      required: [round, expectedSquads, eligibleSquadCount, publishedResultCount, advanceCount, eliminatedCount, finalistCount, transitionConfirmed, priorStageConfirmed, canConfirm, boundaryTieTeamNumbers, rankedResults]
     Daily007KnockoutAdminResultsResponse:
       type: object
       properties:
@@ -1911,10 +1980,11 @@ components:
         squads:
           type: array
           items: { $ref: "#/components/schemas/Daily007KnockoutAdminSquad" }
+        progression: { $ref: "#/components/schemas/Daily007KnockoutStageProgression" }
         results:
           type: array
           items: { $ref: "#/components/schemas/Daily007KnockoutRoundResult" }
-      required: [matchId, round, pointsPerKill, squads, results]
+      required: [matchId, round, pointsPerKill, squads, progression, results]
     Daily007KnockoutRoundResultBody:
       type: object
       properties:
@@ -1929,6 +1999,38 @@ components:
         result: { $ref: "#/components/schemas/Daily007KnockoutRoundResult" }
         alreadyPublished: { type: boolean }
       required: [result, alreadyPublished]
+    Daily007KnockoutProgressionBody:
+      type: object
+      properties:
+        round: { $ref: "#/components/schemas/Daily007KnockoutRound" }
+        confirmed: { type: boolean, enum: [true] }
+        tieBreakOrder:
+          type: array
+          minItems: 2
+          maxItems: 12
+          uniqueItems: true
+          items: { type: integer, minimum: 1, maximum: 12 }
+        decisionReason: { type: string, minLength: 5, maxLength: 500 }
+      required: [round, confirmed]
+    Daily007KnockoutProgressionResponse:
+      type: object
+      properties:
+        matchId: { type: string, format: uuid }
+        round: { $ref: "#/components/schemas/Daily007KnockoutRound" }
+        alreadyConfirmed: { type: boolean }
+        advancedTeamNumbers:
+          type: array
+          items: { type: integer, minimum: 1, maximum: 12 }
+        eliminatedTeamNumbers:
+          type: array
+          items: { type: integer, minimum: 1, maximum: 12 }
+        winnerTeamNumbers:
+          type: array
+          items: { type: integer, minimum: 1, maximum: 12 }
+        finalistTeamNumbers:
+          type: array
+          items: { type: integer, minimum: 1, maximum: 12 }
+      required: [matchId, round, alreadyConfirmed, advancedTeamNumbers, eliminatedTeamNumbers, winnerTeamNumbers, finalistTeamNumbers]
     Daily007AdminTournament:
       type: object
       properties:

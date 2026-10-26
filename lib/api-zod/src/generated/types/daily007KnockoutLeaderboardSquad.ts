@@ -27,11 +27,16 @@ import type { Daily007KnockoutLeaderboardPlayer } from './daily007KnockoutLeader
 export interface Daily007KnockoutLeaderboardSquad {
   teamNumber: number;
   teamName: string;
+  captainName: string;
   registeredPlayers: number;
   confirmed: boolean;
   players: Daily007KnockoutLeaderboardPlayer[];
   /** @nullable */
+  provisionalRank: number | null;
+  /** @nullable */
   officialRank: number | null;
+  /** @nullable */
+  finalRank: number | null;
   /** @nullable */
   placement: number | null;
   /** @nullable */
@@ -43,4 +48,6 @@ export interface Daily007KnockoutLeaderboardSquad {
   /** @nullable */
   roundPoints: number | null;
   resultStatus: string;
+  roundStatus: string;
+  qualificationStatus: string;
 }

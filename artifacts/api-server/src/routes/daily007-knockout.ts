@@ -8,8 +8,13 @@ import {
   knockoutPaymentStatus,
   knockoutPlacementPoints,
   knockoutRoundLabel,
+  knockoutStageSpec,
+  assessKnockoutProgression,
   parseKnockoutRound,
   parseKnockoutRoundResult,
+  type KnockoutStageConfig,
+  type KnockoutStageResult,
+  type KnockoutTieDecision,
   type KnockoutRound,
 } from "../lib/daily007-knockout-results";
 import { authenticate, requireTournamentAdmin, withDaily007RoleTransaction } from "./daily007-v2";
@@ -41,6 +46,7 @@ type KnockoutQueryClient = {
 
 type KnockoutSlotRow = {
   teamNumber: number;
+  captainName: string | null;
   slotNumber: number;
   memberId: string | null;
   registrationId: string | null;
@@ -53,8 +59,11 @@ type KnockoutSlotRow = {
 type KnockoutSquad = {
   teamNumber: number;
   teamName: string;
+  captainName: string;
   registeredPlayers: number;
   confirmed: boolean;
+  eligible: boolean;
+  stageStatus: string;
   players: Array<{
     playerName: string;
     slotNumber: number;
@@ -75,6 +84,8 @@ async function listKnockoutSquads(
 ): Promise<KnockoutSquad[]> {
   const result = await client.query<KnockoutSlotRow>(
     `SELECT team.team_number AS "teamNumber", seat.slot_number AS "slotNumber",
+            COALESCE(NULLIF(captain_registration.captain_game_name, ''),
+                     NULLIF(captain_registration.captain_name, '')) AS "captainName",
             member.id AS "memberId", registration.id AS "registrationId",
             registration.status AS "registrationStatus",
             COALESCE(NULLIF(registration.captain_game_name, ''),
@@ -83,6 +94,8 @@ async function listKnockoutSquads(
             registration.added_by_captain AS "addedByCaptain"
        FROM daily007_v2_squad_teams team
        CROSS JOIN generate_series(1, 4) AS seat(slot_number)
+       LEFT JOIN daily007_v2_registrations captain_registration
+         ON captain_registration.id = team.captain_registration_id
        LEFT JOIN daily007_v2_squad_team_members member
          ON member.team_id = team.id AND member.slot_number = seat.slot_number
         AND member.is_active = true
@@ -108,8 +121,11 @@ async function listKnockoutSquads(
       squad = {
         teamNumber: Number(row.teamNumber),
         teamName: `Team ${String(row.teamNumber).padStart(2, "0")}`,
+        captainName: row.captainName?.trim() || "—",
         registeredPlayers: 0,
         confirmed: false,
+        eligible: false,
+        stageStatus: "AWAITING RESULTS",
         players: [],
       };
       grouped.set(squad.teamNumber, squad);
@@ -147,6 +163,98 @@ async function listKnockoutSquads(
         entryCoins,
       ),
     }));
+}
+
+type KnockoutProgressRow = {
+  round_name: KnockoutRound;
+  team_number: number;
+  status: "qualified" | "eliminated" | "winner" | "finalist";
+  stage_rank: number;
+  placement: number;
+  placement_points: number;
+  squad_kills: number;
+  round_points: number;
+  decision_reason: string | null;
+  decided_at: Date | string;
+};
+
+type KnockoutStageContext = {
+  spec: ReturnType<typeof knockoutStageSpec>;
+  eligibleTeamNumbers: number[];
+  priorStageConfirmed: boolean;
+  previousProgress: Map<number, KnockoutProgressRow>;
+  currentProgress: Map<number, KnockoutProgressRow>;
+};
+
+async function loadKnockoutProgress(
+  client: KnockoutQueryClient,
+  matchId: string,
+): Promise<KnockoutProgressRow[]> {
+  const { rows } = await client.query<KnockoutProgressRow>(
+    `SELECT round_name, team_number, status, stage_rank, placement,
+            placement_points, squad_kills, round_points, decision_reason, decided_at
+       FROM daily007_knockout_stage_progress
+      WHERE match_id = $1
+      ORDER BY round_name, stage_rank, team_number`,
+    [matchId],
+  );
+  return rows;
+}
+
+function stageContext(
+  round: KnockoutRound,
+  config: KnockoutStageConfig,
+  squads: KnockoutSquad[],
+  progressRows: KnockoutProgressRow[],
+): KnockoutStageContext {
+  const spec = knockoutStageSpec(round, config);
+  const previousRound: KnockoutRound | null =
+    round === "round_1" ? null : round === "round_2" ? "round_1" : "round_2";
+  const previousRows = previousRound
+    ? progressRows.filter((row) => row.round_name === previousRound)
+    : [];
+  const previousMap = new Map(previousRows.map((row) => [Number(row.team_number), row]));
+  const previousSpec = previousRound
+    ? knockoutStageSpec(previousRound, config)
+    : null;
+  const priorStageConfirmed = previousRound === null ||
+    (previousRows.length === previousSpec!.expectedSquads &&
+      previousRows.filter((row) => row.status === "qualified").length === spec.expectedSquads);
+  const eligibleTeamNumbers = round === "round_1"
+    ? squads.filter((squad) => squad.confirmed).map((squad) => squad.teamNumber).sort((a, b) => a - b)
+    : priorStageConfirmed
+      ? previousRows.filter((row) => row.status === "qualified").map((row) => Number(row.team_number)).sort((a, b) => a - b)
+      : [];
+  return {
+    spec,
+    eligibleTeamNumbers,
+    priorStageConfirmed,
+    previousProgress: previousMap,
+    currentProgress: new Map(
+      progressRows
+        .filter((row) => row.round_name === round)
+        .map((row) => [Number(row.team_number), row]),
+    ),
+  };
+}
+
+function stageStatusForSquad(
+  round: KnockoutRound,
+  squad: KnockoutSquad,
+  context: KnockoutStageContext,
+): string {
+  const current = context.currentProgress.get(squad.teamNumber);
+  if (current) return current.status.toUpperCase();
+  if (round === "round_1") return squad.confirmed ? "ELIGIBLE" : "INCOMPLETE";
+  if (!context.priorStageConfirmed) return "AWAITING PRIOR ROUND";
+  const previous = context.previousProgress.get(squad.teamNumber);
+  if (previous?.status === "eliminated") return "ELIMINATED";
+  if (previous?.status === "qualified") return "ELIGIBLE";
+  return "NOT QUALIFIED";
+}
+
+function isTeamEligible(squad: KnockoutSquad, context: KnockoutStageContext): boolean {
+  return context.eligibleTeamNumbers.includes(squad.teamNumber) && squad.confirmed;
 }
 
 function serializeRoundResult(row: {
@@ -291,62 +399,108 @@ router.get("/daily007/v2/knockout/events/:id/leaderboard", async (req, res): Pro
   const round = parseKnockoutRound(req.query.round ?? "round_1");
   if (!round) return fail(res, 400, "Choose Round 1, Round 2, or Final.");
   try {
-    const event = await pool.query<{ entry_coins: number }>(
-      `SELECT m.entry_coins
+    const event = await pool.query<{
+      entry_coins: number;
+      capacity: number;
+      round1_eliminated: number;
+      round2_eliminated: number;
+    }>(
+      `SELECT m.entry_coins, m.capacity,
+              settings.round1_eliminated, settings.round2_eliminated
          FROM daily007_knockout_events settings
          JOIN daily007_v2_matches m ON m.id = settings.match_id
         WHERE m.id = $1 AND (m.enabled = true OR m.status IN ('completed', 'cancelled'))`,
       [matchId],
     );
     if (!event.rows[0]) return fail(res, 404, "Knockout tournament not found.");
-    const squads = await listKnockoutSquads(pool, matchId, Number(event.rows[0].entry_coins));
-    const result = await pool.query<{
-      id: string; team_number: number; placement: number; placement_points: number;
-      squad_kills: number; points_per_kill: number; round_points: number;
-    }>(
-      `SELECT id, team_number, placement, placement_points, squad_kills,
-              points_per_kill, round_points
-         FROM daily007_knockout_round_results
-        WHERE match_id = $1 AND round_name = $2 AND status = 'published'
-        ORDER BY round_points DESC, placement ASC, team_number ASC`,
-      [matchId, round],
-    );
-    const publishedByTeam = new Map(result.rows.map((row, index) => [
-      Number(row.team_number),
-      { row, officialRank: index + 1 },
-    ]));
+    const config: KnockoutStageConfig = {
+      squadCount: Number(event.rows[0].capacity),
+      round1Eliminated: Number(event.rows[0].round1_eliminated),
+      round2Eliminated: Number(event.rows[0].round2_eliminated),
+    };
+    const [squads, progressRows, result] = await Promise.all([
+      listKnockoutSquads(pool, matchId, Number(event.rows[0].entry_coins)),
+      loadKnockoutProgress(pool, matchId),
+      pool.query<KnockoutStageResult>(
+        `SELECT team_number AS "teamNumber", placement,
+                placement_points AS "placementPoints", squad_kills AS "squadKills",
+                points_per_kill AS "pointsPerKill", round_points AS "roundPoints", status
+           FROM daily007_knockout_round_results
+          WHERE match_id = $1 AND round_name = $2`,
+        [matchId, round],
+      ),
+    ]);
+    const context = stageContext(round, config, squads, progressRows);
+    const assessment = assessKnockoutProgression(round, config, context.eligibleTeamNumbers, result.rows);
+    const currentProgress = progressRows.filter((row) => row.round_name === round);
+    const officialStage = currentProgress.length === assessment.expectedSquads;
+    const finalProgress = progressRows.filter((row) => row.round_name === "final");
+    const finalConfirmed = finalProgress.length === 8;
+    const resultByTeam = new Map(result.rows.map((row) => [row.teamNumber, row]));
+    const previewRankByTeam = new Map(assessment.rankedResults.map((row) => [row.teamNumber, row.rank]));
+    const currentProgressByTeam = new Map(currentProgress.map((row) => [Number(row.team_number), row]));
+    const finalRankByTeam = new Map(finalProgress.map((row) => [Number(row.team_number), Number(row.stage_rank)]));
     const standings = squads
       .map((squad) => {
-        const published = publishedByTeam.get(squad.teamNumber);
-        const row = published?.row;
+        const row = resultByTeam.get(squad.teamNumber);
+        const current = currentProgressByTeam.get(squad.teamNumber);
+        const previous = context.previousProgress.get(squad.teamNumber);
+        const resultStatus = !row
+          ? "AWAITING RESULTS"
+          : officialStage
+            ? "OFFICIAL"
+            : row.status === "draft"
+              ? "PROVISIONAL"
+              : "PUBLISHED · AWAITING CONFIRMATION";
+        const qualificationStatus = current?.status.toUpperCase() ??
+          (round === "round_1"
+            ? squad.confirmed ? "AWAITING ROUND CONFIRMATION" : "INCOMPLETE"
+            : previous?.status.toUpperCase() ?? "AWAITING PRIOR ROUND");
         return {
           teamNumber: squad.teamNumber,
           teamName: squad.teamName,
+          captainName: squad.captainName,
           registeredPlayers: squad.registeredPlayers,
           confirmed: squad.confirmed,
           players: squad.players.map(({ entryCoinsPaid: _entryCoinsPaid, ...player }) => player),
-          officialRank: published?.officialRank ?? null,
+          provisionalRank: officialStage ? null : previewRankByTeam.get(squad.teamNumber) ?? null,
+          officialRank: officialStage ? current?.stage_rank ?? null : null,
+          finalRank: finalConfirmed ? finalRankByTeam.get(squad.teamNumber) ?? null : null,
           placement: row ? Number(row.placement) : null,
-          squadKills: row ? Number(row.squad_kills) : null,
-          placementPoints: row ? Number(row.placement_points) : null,
-          pointsPerKill: row ? Number(row.points_per_kill) : null,
-          roundPoints: row ? Number(row.round_points) : null,
-          resultStatus: row ? "PUBLISHED" : "AWAITING RESULTS",
+          squadKills: row?.squadKills ?? null,
+          placementPoints: row?.placementPoints ?? null,
+          pointsPerKill: row?.pointsPerKill ?? null,
+          roundPoints: row?.roundPoints ?? null,
+          resultStatus,
+          roundStatus: current?.status.toUpperCase() ?? resultStatus,
+          qualificationStatus,
         };
       })
       .sort((left, right) => {
-        if (left.officialRank && right.officialRank) return left.officialRank - right.officialRank;
-        if (left.officialRank) return -1;
-        if (right.officialRank) return 1;
+        const leftRank = left.officialRank ?? left.provisionalRank;
+        const rightRank = right.officialRank ?? right.provisionalRank;
+        if (leftRank !== null && rightRank !== null && leftRank !== rightRank) return leftRank - rightRank;
+        if (leftRank !== null && rightRank === null) return -1;
+        if (rightRank !== null && leftRank === null) return 1;
         return left.teamNumber - right.teamNumber;
       });
+    const progressionStatus = officialStage
+      ? "OFFICIAL"
+      : assessment.boundaryTieTeamNumbers.length
+        ? "ADMIN TIE DECISION REQUIRED"
+        : assessment.allResultsPublished
+          ? "AWAITING ADMIN CONFIRMATION"
+          : "PROVISIONAL RESULTS";
     res.setHeader("Cache-Control", "no-store");
     res.json({
       matchId,
       round,
       stage: knockoutRoundLabel(round),
       standings,
-      message: "Only published results appear in official rankings. Drafts are not included.",
+      progressionStatus,
+      message: officialStage
+        ? "Official round rankings have been confirmed."
+        : "Scores remain provisional until every result is published and an admin confirms the round.",
     });
   } catch (error) {
     console.error("[daily007] knockout leaderboard failed", error);

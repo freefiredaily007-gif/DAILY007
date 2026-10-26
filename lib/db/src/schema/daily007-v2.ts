@@ -224,6 +224,34 @@ export const daily007KnockoutRoundResultsTable = pgTable("daily007_knockout_roun
   index("daily007_knockout_results_round_status_idx").on(table.matchId, table.roundName, table.status),
 ]);
 
+export const daily007KnockoutStageProgressTable = pgTable("daily007_knockout_stage_progress", {
+  matchId: uuid("match_id").notNull()
+    .references(() => daily007KnockoutEventsTable.matchId, { onDelete: "cascade" }),
+  roundName: text("round_name").notNull(),
+  teamNumber: integer("team_number").notNull(),
+  status: text("status").notNull(),
+  stageRank: integer("stage_rank").notNull(),
+  placement: integer("placement").notNull(),
+  placementPoints: integer("placement_points").notNull(),
+  squadKills: integer("squad_kills").notNull(),
+  roundPoints: integer("round_points").notNull(),
+  decisionReason: text("decision_reason"),
+  decidedByUserId: uuid("decided_by_user_id")
+    .references(() => daily007UsersTable.id, { onDelete: "set null" }),
+  decidedAt: timestamp("decided_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  unique("daily007_knockout_progress_team_round_unique")
+    .on(table.matchId, table.roundName, table.teamNumber),
+  check("daily007_knockout_progress_round_valid", sql`${table.roundName} IN ('round_1', 'round_2', 'final')`),
+  check("daily007_knockout_progress_status_valid", sql`${table.status} IN ('qualified', 'eliminated', 'winner', 'finalist')`),
+  check("daily007_knockout_progress_rank_valid", sql`${table.stageRank} BETWEEN 1 AND 12`),
+  check("daily007_knockout_progress_team_valid", sql`${table.teamNumber} BETWEEN 1 AND 12`),
+  check("daily007_knockout_progress_tie_reason_valid", sql`
+    ${table.decisionReason} IS NULL OR length(btrim(${table.decisionReason})) BETWEEN 5 AND 500
+  `),
+  index("daily007_knockout_progress_round_status_idx").on(table.matchId, table.roundName, table.status),
+]);
+
 export const daily007RegistrationsTable = pgTable("daily007_v2_registrations", {
   id: uuid("id").defaultRandom().primaryKey(),
   matchId: uuid("match_id").notNull().references(() => daily007MatchesTable.id, { onDelete: "cascade" }),

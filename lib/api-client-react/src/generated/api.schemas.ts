@@ -169,11 +169,16 @@ export interface Daily007KnockoutLeaderboardPlayer {
 export interface Daily007KnockoutLeaderboardSquad {
   teamNumber: number;
   teamName: string;
+  captainName: string;
   registeredPlayers: number;
   confirmed: boolean;
   players: Daily007KnockoutLeaderboardPlayer[];
   /** @nullable */
+  provisionalRank: number | null;
+  /** @nullable */
   officialRank: number | null;
+  /** @nullable */
+  finalRank: number | null;
   /** @nullable */
   placement: number | null;
   /** @nullable */
@@ -185,6 +190,8 @@ export interface Daily007KnockoutLeaderboardSquad {
   /** @nullable */
   roundPoints: number | null;
   resultStatus: string;
+  roundStatus: string;
+  qualificationStatus: string;
 }
 
 export interface Daily007KnockoutLeaderboardResponse {
@@ -192,6 +199,7 @@ export interface Daily007KnockoutLeaderboardResponse {
   stage: string;
   round: Daily007KnockoutRound;
   standings: Daily007KnockoutLeaderboardSquad[];
+  progressionStatus: string;
   message: string;
 }
 
@@ -260,13 +268,78 @@ export interface Daily007KnockoutAdminSquad {
      */
   teamNumber: number;
   teamName: string;
+  captainName: string;
   /**
      * @minimum 0
      * @maximum 4
      */
   registeredPlayers: number;
   confirmed: boolean;
+  eligible: boolean;
+  stageStatus: string;
   players: Daily007KnockoutAdminPlayer[];
+}
+
+export type Daily007KnockoutStageRankingStatus = typeof Daily007KnockoutStageRankingStatus[keyof typeof Daily007KnockoutStageRankingStatus];
+
+
+export const Daily007KnockoutStageRankingStatus = {
+  qualified: 'qualified',
+  eliminated: 'eliminated',
+  winner: 'winner',
+  finalist: 'finalist',
+} as const;
+
+export interface Daily007KnockoutStageRanking {
+  /**
+     * @minimum 1
+     * @maximum 12
+     */
+  teamNumber: number;
+  /**
+     * @minimum 1
+     * @maximum 12
+     */
+  rank: number;
+  /**
+     * @minimum 1
+     * @maximum 12
+     */
+  placement: number;
+  /**
+     * @minimum 0
+     * @maximum 12
+     */
+  placementPoints: number;
+  /**
+     * @minimum 0
+     * @maximum 100000
+     */
+  squadKills: number;
+  /** @minimum 0 */
+  roundPoints: number;
+  status: Daily007KnockoutStageRankingStatus;
+  /** @nullable */
+  decisionReason: string | null;
+}
+
+export interface Daily007KnockoutStageProgression {
+  round: Daily007KnockoutRound;
+  expectedSquads: number;
+  eligibleSquadCount: number;
+  publishedResultCount: number;
+  advanceCount: number;
+  eliminatedCount: number;
+  finalistCount: number;
+  transitionConfirmed: boolean;
+  priorStageConfirmed: boolean;
+  canConfirm: boolean;
+  /**
+     * @items.minimum 1
+     * @items.maximum 12
+     */
+  boundaryTieTeamNumbers: number[];
+  rankedResults: Daily007KnockoutStageRanking[];
 }
 
 export interface Daily007KnockoutAdminResultsResponse {
@@ -278,6 +351,7 @@ export interface Daily007KnockoutAdminResultsResponse {
      */
   pointsPerKill: number;
   squads: Daily007KnockoutAdminSquad[];
+  progression: Daily007KnockoutStageProgression;
   results: Daily007KnockoutRoundResult[];
 }
 
@@ -303,6 +377,49 @@ export interface Daily007KnockoutRoundResultBody {
 export interface Daily007KnockoutRoundResultResponse {
   result: Daily007KnockoutRoundResult;
   alreadyPublished: boolean;
+}
+
+export interface Daily007KnockoutProgressionBody {
+  round: Daily007KnockoutRound;
+  confirmed: true;
+  /**
+     * @minItems 2
+     * @maxItems 12
+     * @items.minimum 1
+     * @items.maximum 12
+     */
+  tieBreakOrder?: number[];
+  /**
+     * @minLength 5
+     * @maxLength 500
+     */
+  decisionReason?: string;
+}
+
+export interface Daily007KnockoutProgressionResponse {
+  matchId: string;
+  round: Daily007KnockoutRound;
+  alreadyConfirmed: boolean;
+  /**
+     * @items.minimum 1
+     * @items.maximum 12
+     */
+  advancedTeamNumbers: number[];
+  /**
+     * @items.minimum 1
+     * @items.maximum 12
+     */
+  eliminatedTeamNumbers: number[];
+  /**
+     * @items.minimum 1
+     * @items.maximum 12
+     */
+  winnerTeamNumbers: number[];
+  /**
+     * @items.minimum 1
+     * @items.maximum 12
+     */
+  finalistTeamNumbers: number[];
 }
 
 export type Daily007AdminTournamentSlotUnit = typeof Daily007AdminTournamentSlotUnit[keyof typeof Daily007AdminTournamentSlotUnit];

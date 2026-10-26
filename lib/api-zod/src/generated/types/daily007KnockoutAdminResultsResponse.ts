@@ -25,6 +25,7 @@
 import type { Daily007KnockoutAdminSquad } from './daily007KnockoutAdminSquad';
 import type { Daily007KnockoutRound } from './daily007KnockoutRound';
 import type { Daily007KnockoutRoundResult } from './daily007KnockoutRoundResult';
+import type { Daily007KnockoutStageProgression } from './daily007KnockoutStageProgression';
 
 export interface Daily007KnockoutAdminResultsResponse {
   matchId: string;
@@ -35,5 +36,6 @@ export interface Daily007KnockoutAdminResultsResponse {
      */
   pointsPerKill: number;
   squads: Daily007KnockoutAdminSquad[];
+  progression: Daily007KnockoutStageProgression;
   results: Daily007KnockoutRoundResult[];
 }

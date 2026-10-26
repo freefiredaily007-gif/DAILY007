@@ -78,6 +78,8 @@ import type {
   Daily007KnockoutAdminResultsResponse,
   Daily007KnockoutEventsResponse,
   Daily007KnockoutLeaderboardResponse,
+  Daily007KnockoutProgressionBody,
+  Daily007KnockoutProgressionResponse,
   Daily007KnockoutRoundResultBody,
   Daily007KnockoutRoundResultResponse,
   Daily007KnockoutSettingsBody,
@@ -1892,7 +1894,7 @@ export const getDaily007GetKnockoutLeaderboardUrl = (id: string,
 }
 
 /**
- * @summary List official published Knockout round standings and squad payment status
+ * @summary List provisional and official Knockout round standings and squad progression status
  */
 export const daily007GetKnockoutLeaderboard = async (id: string,
     params?: Daily007GetKnockoutLeaderboardParams, options?: Parameters<typeof customFetch>[1]): Promise<Daily007KnockoutLeaderboardResponse> => {
@@ -1942,7 +1944,7 @@ export type Daily007GetKnockoutLeaderboardQueryError = ErrorType<void>
 
 
 /**
- * @summary List official published Knockout round standings and squad payment status
+ * @summary List provisional and official Knockout round standings and squad progression status
  */
 
 export function useDaily007GetKnockoutLeaderboard<TData = Awaited<ReturnType<typeof daily007GetKnockoutLeaderboard>>, TError = ErrorType<void>>(
@@ -2217,6 +2219,96 @@ export const useDaily007AdminPublishKnockoutRoundResult = <TError = ErrorType<vo
         TContext
       > => {
       return useMutation(getDaily007AdminPublishKnockoutRoundResultMutationOptions(options));
+    }
+
+export const getDaily007AdminConfirmKnockoutProgressionUrl = (id: string,) => {
+
+
+
+
+  return `/api/daily007/v2/admin/knockout/events/${id}/progression`
+}
+
+/**
+ * Requires explicit admin confirmation. Resolves a cutoff tie only when the admin submits a full ordering and a recorded reason. A transition can be confirmed once.
+ * @summary Confirm elimination, qualification, or final winners after every stage result is published
+ */
+export const daily007AdminConfirmKnockoutProgression = async (id: string,
+    daily007KnockoutProgressionBody: Daily007KnockoutProgressionBody, options?: Parameters<typeof customFetch>[1]): Promise<Daily007KnockoutProgressionResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Daily007KnockoutProgressionResponse>(getDaily007AdminConfirmKnockoutProgressionUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(daily007KnockoutProgressionBody)
+  }
+);}
+
+
+
+
+
+export const getDaily007AdminConfirmKnockoutProgressionMutationKey = () => ['daily007AdminConfirmKnockoutProgression'] as const;
+
+export const getDaily007AdminConfirmKnockoutProgressionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminConfirmKnockoutProgression>>, TError,Daily007AdminConfirmKnockoutProgressionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof daily007AdminConfirmKnockoutProgression>>, TError,Daily007AdminConfirmKnockoutProgressionMutationVariables, TContext> => {
+
+const mutationKey = getDaily007AdminConfirmKnockoutProgressionMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof daily007AdminConfirmKnockoutProgression>>, Daily007AdminConfirmKnockoutProgressionMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  daily007AdminConfirmKnockoutProgression(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type Daily007AdminConfirmKnockoutProgressionMutationResult = NonNullable<Awaited<ReturnType<typeof daily007AdminConfirmKnockoutProgression>>>
+    export type Daily007AdminConfirmKnockoutProgressionMutationBody = BodyType<Daily007KnockoutProgressionBody>
+    export type Daily007AdminConfirmKnockoutProgressionMutationError = ErrorType<void>
+    export type Daily007AdminConfirmKnockoutProgressionMutationVariables = {id: string;data: BodyType<Daily007KnockoutProgressionBody>}
+
+    /**
+ * @summary Confirm elimination, qualification, or final winners after every stage result is published
+ */
+export const useDaily007AdminConfirmKnockoutProgression = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof daily007AdminConfirmKnockoutProgression>>, TError,Daily007AdminConfirmKnockoutProgressionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof daily007AdminConfirmKnockoutProgression>>,
+        TError,
+        Daily007AdminConfirmKnockoutProgressionMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDaily007AdminConfirmKnockoutProgressionMutationOptions(options));
     }
 
 export const getDaily007AdminListKnockoutEventsUrl = () => {

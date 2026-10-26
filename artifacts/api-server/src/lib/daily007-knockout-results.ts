@@ -29,6 +29,46 @@ export type KnockoutSquadSlotPayment = {
   entryCoinsPaid: number;
 };
 
+export type KnockoutStageConfig = {
+  squadCount: number;
+  round1Eliminated: number;
+  round2Eliminated: number;
+};
+
+export type KnockoutStageResult = {
+  teamNumber: number;
+  placement: number;
+  placementPoints: number;
+  squadKills: number;
+  pointsPerKill: number;
+  roundPoints: number;
+  status: "draft" | "published";
+};
+
+export type KnockoutTieDecision = {
+  order: number[];
+  reason: string;
+};
+
+export type KnockoutStageRanking = KnockoutStageResult & {
+  rank: number;
+  status: "qualified" | "eliminated" | "winner" | "finalist";
+  decisionReason: string | null;
+};
+
+export type KnockoutProgressionPreview = {
+  expectedSquads: number;
+  advanceCount: number;
+  eliminatedCount: number;
+  finalistCount: number;
+  eligibleTeamNumbers: number[];
+  publishedResultCount: number;
+  allResultsPublished: boolean;
+  boundaryTieTeamNumbers: number[];
+  canConfirm: boolean;
+  rankedResults: KnockoutStageRanking[];
+};
+
 export function parseKnockoutRound(value: unknown): KnockoutRound | null {
   return typeof value === "string" && KNOCKOUT_ROUNDS.includes(value as KnockoutRound)
     ? value as KnockoutRound
@@ -107,6 +147,153 @@ export function isKnockoutSquadConfirmed(
       slot.entryCoinsPaid >= entryCoins
     );
   });
+}
+
+export function knockoutStageSpec(
+  round: KnockoutRound,
+  config: KnockoutStageConfig,
+): Omit<KnockoutProgressionPreview, "eligibleTeamNumbers" | "publishedResultCount" | "allResultsPublished" | "boundaryTieTeamNumbers" | "canConfirm" | "rankedResults"> {
+  if (
+    config.squadCount !== 12 ||
+    config.round1Eliminated !== 2 ||
+    config.round2Eliminated !== 2
+  ) {
+    throw new Error("This Knockout flow requires 12 squads, with exactly 2 eliminated in each of the first two rounds.");
+  }
+  if (round === "round_1") {
+    return { expectedSquads: 12, advanceCount: 10, eliminatedCount: 2, finalistCount: 0 };
+  }
+  if (round === "round_2") {
+    return { expectedSquads: 10, advanceCount: 8, eliminatedCount: 2, finalistCount: 0 };
+  }
+  return { expectedSquads: 8, advanceCount: 3, eliminatedCount: 0, finalistCount: 5 };
+}
+
+function compareResults(left: KnockoutStageResult, right: KnockoutStageResult): number {
+  return right.roundPoints - left.roundPoints ||
+    right.squadKills - left.squadKills ||
+    left.placement - right.placement ||
+    left.teamNumber - right.teamNumber;
+}
+
+function sameRankKey(left: KnockoutStageResult, right: KnockoutStageResult): boolean {
+  return left.roundPoints === right.roundPoints &&
+    left.squadKills === right.squadKills &&
+    left.placement === right.placement;
+}
+
+export function assessKnockoutProgression(
+  round: KnockoutRound,
+  config: KnockoutStageConfig,
+  eligibleTeamNumbers: number[],
+  results: KnockoutStageResult[],
+  tieDecision?: KnockoutTieDecision,
+): KnockoutProgressionPreview {
+  const spec = knockoutStageSpec(round, config);
+  const uniqueEligible = [...new Set(eligibleTeamNumbers)].sort((a, b) => a - b);
+  if (uniqueEligible.length !== eligibleTeamNumbers.length) {
+    throw new Error("The stage contains duplicate eligible squads.");
+  }
+  const resultByTeam = new Map<number, KnockoutStageResult>();
+  for (const result of results) {
+    if (resultByTeam.has(result.teamNumber)) throw new Error("A squad has more than one result in this round.");
+    if (result.roundPoints !== calculateKnockoutRoundPoints(result.placement, result.squadKills, result.pointsPerKill)) {
+      throw new Error("A saved result has an invalid points total.");
+    }
+    resultByTeam.set(result.teamNumber, result);
+  }
+  const eligibleSet = new Set(uniqueEligible);
+  const matchingResults = results.filter((result) => eligibleSet.has(result.teamNumber));
+  const allResultsPublished =
+    uniqueEligible.length === spec.expectedSquads &&
+    matchingResults.length === spec.expectedSquads &&
+    uniqueEligible.every((teamNumber) => resultByTeam.get(teamNumber)?.status === "published") &&
+    results.length === spec.expectedSquads;
+  const publishedResultCount = matchingResults.filter((result) => result.status === "published").length;
+  const rankedBase = matchingResults.slice().sort(compareResults);
+
+  let boundaryTieTeamNumbers: number[] = [];
+  if (allResultsPublished) {
+    let start = 0;
+    while (start < rankedBase.length) {
+      let end = start + 1;
+      while (end < rankedBase.length && sameRankKey(rankedBase[start]!, rankedBase[end]!)) end++;
+      if (start < spec.advanceCount && end > spec.advanceCount) {
+        boundaryTieTeamNumbers = rankedBase.slice(start, end).map((result) => result.teamNumber);
+        break;
+      }
+      start = end;
+    }
+  }
+
+  let decisionReason: string | null = null;
+  let rankedForOutcomes = rankedBase;
+  if (boundaryTieTeamNumbers.length) {
+    if (tieDecision) {
+      const reason = tieDecision.reason.trim();
+      const ordered = tieDecision.order;
+      const candidateSet = new Set(boundaryTieTeamNumbers);
+      if (
+        reason.length < 5 ||
+        reason.length > 500 ||
+        ordered.length !== boundaryTieTeamNumbers.length ||
+        new Set(ordered).size !== ordered.length ||
+        ordered.some((teamNumber) => !candidateSet.has(teamNumber))
+      ) {
+        throw new Error("Resolve the tied squads in order and enter a reason of 5–500 characters.");
+      }
+      const orderIndex = new Map(ordered.map((teamNumber, index) => [teamNumber, index]));
+      rankedForOutcomes = rankedBase.slice().sort((left, right) => {
+        if (boundaryTieTeamNumbers.includes(left.teamNumber) && boundaryTieTeamNumbers.includes(right.teamNumber)) {
+          return orderIndex.get(left.teamNumber)! - orderIndex.get(right.teamNumber)!;
+        }
+        return compareResults(left, right);
+      });
+      decisionReason = reason;
+    } else if (tieDecision) {
+      throw new Error("A tie-break decision was supplied when no elimination boundary is tied.");
+    }
+  } else if (tieDecision) {
+    throw new Error("A tie-break decision was supplied when no elimination boundary is tied.");
+  }
+
+  let groupStart = 0;
+  const rankedResults: KnockoutStageRanking[] = [];
+  while (groupStart < rankedForOutcomes.length) {
+    let groupEnd = groupStart + 1;
+    while (groupEnd < rankedForOutcomes.length && sameRankKey(rankedForOutcomes[groupStart]!, rankedForOutcomes[groupEnd]!)) {
+      groupEnd++;
+    }
+    const isResolvedBoundaryTie =
+      boundaryTieTeamNumbers.length > 0 &&
+      groupEnd - groupStart === boundaryTieTeamNumbers.length &&
+      boundaryTieTeamNumbers.includes(rankedForOutcomes[groupStart]!.teamNumber) &&
+      Boolean(tieDecision);
+    for (let index = groupStart; index < groupEnd; index++) {
+      const item = rankedForOutcomes[index]!;
+      const rank = isResolvedBoundaryTie ? index + 1 : groupStart + 1;
+      const status = round === "final"
+        ? index < spec.advanceCount ? "winner" : "finalist"
+        : index < spec.advanceCount ? "qualified" : "eliminated";
+      rankedResults.push({
+        ...item,
+        rank,
+        status,
+        decisionReason: isResolvedBoundaryTie ? decisionReason : null,
+      });
+    }
+    groupStart = groupEnd;
+  }
+
+  return {
+    ...spec,
+    eligibleTeamNumbers: uniqueEligible,
+    publishedResultCount,
+    allResultsPublished,
+    boundaryTieTeamNumbers,
+    canConfirm: allResultsPublished && (!boundaryTieTeamNumbers.length || Boolean(tieDecision)),
+    rankedResults,
+  };
 }
 
 export function knockoutRoundLabel(round: KnockoutRound): string {

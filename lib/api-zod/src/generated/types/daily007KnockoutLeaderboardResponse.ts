@@ -30,5 +30,6 @@ export interface Daily007KnockoutLeaderboardResponse {
   stage: string;
   round: Daily007KnockoutRound;
   standings: Daily007KnockoutLeaderboardSquad[];
+  progressionStatus: string;
   message: string;
 }
