@@ -155,7 +155,7 @@ cat "$DIAG_DIR/metro-status.txt"
 # Query from Android through adb reverse, not only from the host.
 PHASE="probe Metro from emulator through adb reverse on port ${METRO_PORT}"
 run_logged emulator-metro-status adb shell \
-  "printf 'GET /status HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' | toybox nc -w 5 127.0.0.1 ${METRO_PORT}"
+  "printf 'GET /status HTTP/1.1\\r\\nHost: localhost:${METRO_PORT}\\r\\nConnection: close\\r\\n\\r\\n' | toybox nc -v -w 5 127.0.0.1 ${METRO_PORT}"
 PHASE="validate emulator Metro response"
 if ! grep -q "packager-status:running" "$DIAG_DIR/emulator-metro-status.log"; then
   emulator_response="$(tr '\r\n' '  ' < "$DIAG_DIR/emulator-metro-status.log" | cut -c 1-400)"

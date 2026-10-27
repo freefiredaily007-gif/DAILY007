@@ -306,6 +306,7 @@ for (const api of [35, 36]) {
     assert.match(result.calls, /NODE_OPTIONS .*--dns-result-order=ipv4first/);
     assert.match(result.calls, new RegExp(`curl --noproxy \\* --fail --silent http://localhost:${metroPort}/status`));
     assert.match(result.calls, new RegExp(`adb shell .*127\\.0\\.0\\.1 ${metroPort}`));
+    assert.match(result.calls, /GET \/status HTTP\/1\.1.*Host: localhost:.*Connection: close.*toybox nc -v -w 5/);
     assert.match(result.calls, /test:android-join-form-accessibility/);
     const suites = result.calls.split("\n").filter((line) => line.startsWith("pnpm") && line.includes(" run "));
     assert.equal(suites.length, api === 35 ? 14 : 2);
