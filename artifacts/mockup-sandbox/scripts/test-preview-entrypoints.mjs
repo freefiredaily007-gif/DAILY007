@@ -420,10 +420,13 @@ async function checkPreviewDependencyBoundary() {
     path.join(sandboxRoot, ".preview-dependency-boundary-fixture-"),
   );
   const previousDependencyCheck = process.env.DAILY007_CHECK_PREVIEW_DEPENDENCIES;
+  const workspaceManifestPath = path.join(workspaceRoot, "package.json");
+  const workspaceManifestBefore = await readFile(workspaceManifestPath, "utf8");
   const fixtureDirectory = path.join(fixtureRoot, "package");
   const fixturePackageName = "@workspace/preview-dependency-boundary-fixture";
   const importer = path.join(fixtureDirectory, "entry.mjs");
   const manifestPath = path.join(fixtureDirectory, "package.json");
+  const scopedPackageName = "@radix-ui/react-accordion";
 
   try {
     process.env.DAILY007_CHECK_PREVIEW_DEPENDENCIES = "1";
@@ -433,27 +436,42 @@ async function checkPreviewDependencyBoundary() {
       JSON.stringify({
         name: fixturePackageName,
         private: true,
-        dependencies: { zod: "*" },
+        dependencies: { zod: "*", [scopedPackageName]: "*" },
       }),
     );
-    await writeFile(importer, 'import "zod";\n');
+    await writeFile(importer, `import "zod";\nimport "${scopedPackageName}";\n`);
 
-    const resolvedId = createRequire(importer).resolve("zod");
+    const requireFromFixture = createRequire(importer);
+    const resolvedId = requireFromFixture.resolve("zod");
+    const resolvedScopedId = requireFromFixture.resolve(scopedPackageName);
     assert.ok(resolvedId, "zod must resolve from the fixture workspace");
-    const plugin = previewDependencyBoundaryPlugin();
-    const result = await plugin.resolveId.call(
-      {
-        async resolve() {
-          return { id: resolvedId, external: false };
-        },
-        error(message) {
-          throw new Error(message);
-        },
-      },
-      "zod",
-      importer,
+    assert.ok(
+      resolvedScopedId,
+      `${scopedPackageName} must resolve from the fixture workspace`,
     );
-    assert.equal(result, null, "a declared package must pass the boundary check");
+    const plugin = previewDependencyBoundaryPlugin();
+    for (const [packageName, packageId] of [
+      ["zod", resolvedId],
+      [scopedPackageName, resolvedScopedId],
+    ]) {
+      const result = await plugin.resolveId.call(
+        {
+          async resolve() {
+            return { id: packageId, external: false };
+          },
+          error(message) {
+            throw new Error(message);
+          },
+        },
+        packageName,
+        importer,
+      );
+      assert.equal(
+        result,
+        null,
+        `declared package ${packageName} must pass the boundary check`,
+      );
+    }
 
     await writeFile(
       manifestPath,
@@ -471,30 +489,54 @@ async function checkPreviewDependencyBoundary() {
       )};
 
       const importer = process.env.PREVIEW_BOUNDARY_FIXTURE_IMPORTER;
-      const resolvedId = createRequire(importer).resolve("zod");
-      assert.ok(resolvedId, "zod must remain resolvable after its declaration is removed");
+      const fixturePackageName = ${JSON.stringify(fixturePackageName)};
+      const requireFromFixture = createRequire(importer);
+      const packages = [
+        { name: "zod", external: false },
+        { name: "@radix-ui/react-accordion", external: true },
+      ].map((dependency) => ({
+        ...dependency,
+        resolvedId: requireFromFixture.resolve(dependency.name),
+      }));
       const plugin = previewDependencyBoundaryPlugin();
-      const outcome = await plugin.resolveId.call(
-        {
-          async resolve() {
-            return { id: resolvedId, external: false };
+      for (const dependency of packages) {
+        assert.ok(
+          dependency.resolvedId,
+          dependency.name + " must remain resolvable after its declaration is removed",
+        );
+        const outcome = await plugin.resolveId.call(
+          {
+            async resolve() {
+              return { id: dependency.resolvedId, external: dependency.external };
+            },
+            error(message) {
+              throw new Error(message);
+            },
           },
-          error(message) {
-            throw new Error(message);
-          },
-        },
-        "zod",
-        importer,
-      ).then(
-        () => ({ blocked: false, message: "" }),
-        (error) => ({ blocked: true, message: error.message }),
+          dependency.name,
+          importer,
+        ).then(
+          () => ({ blocked: false, message: "" }),
+          (error) => ({ blocked: true, message: error.message }),
+        );
+        assert.equal(
+          outcome.blocked,
+          true,
+          "undeclared package " + dependency.name + " must be rejected",
+        );
+        assert.ok(
+          outcome.message.includes(
+            "Preview dependency boundary violation: " + fixturePackageName
+              + " imports " + JSON.stringify(dependency.name),
+          ) && outcome.message.includes(
+            "does not declare resolved package " + JSON.stringify(dependency.name),
+          ),
+          "the boundary diagnostic must name " + dependency.name + ": " + outcome.message,
+        );
+      }
+      console.log(
+        "PASS preview dependency boundary rejects resolvable unscoped and scoped packages after declaration removal.",
       );
-      assert.equal(outcome.blocked, true, "the undeclared package must be rejected");
-      assert.match(
-        outcome.message,
-        /Preview dependency boundary violation: @workspace\\/preview-dependency-boundary-fixture imports "zod".*does not declare resolved package "zod"/s,
-      );
-      console.log("PASS preview dependency boundary rejects a resolvable package after declaration removal.");
     `;
     const child = spawn(
       process.execPath,
@@ -527,6 +569,11 @@ async function checkPreviewDependencyBoundary() {
       process.env.DAILY007_CHECK_PREVIEW_DEPENDENCIES = previousDependencyCheck;
     }
     await rm(fixtureRoot, { recursive: true, force: true });
+    assert.equal(
+      await readFile(workspaceManifestPath, "utf8"),
+      workspaceManifestBefore,
+      "the preview dependency fixture must not modify the workspace manifest",
+    );
   }
 }
 

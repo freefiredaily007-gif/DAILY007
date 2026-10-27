@@ -17,6 +17,7 @@
 - [Expo fixture component imports](expo-fixture-component-imports.md) — native test routes should import standalone UI components, not screens that pull in the app root.
 - [Expo Metro during API codegen](expo-metro-codegen.md) — confirm generated files and a later bundle before treating transient missing-module logs as a persistent failure.
 - [Mockup sandbox typecheck conflicts](mockup-sandbox-typecheck.md) — unrelated React type-version conflicts in shared sandbox UI can fail typecheck while an isolated Vite browser test passes.
+- [Inline child-process test scripts](inline-child-process-test-scripts.md) — embed dynamic fixture values with `JSON.stringify`; nested template syntax is easy to break.
 - [Daily007 browser preview mocks](daily007-browser-preview-mocks.md) — Vite scans off-route screen modules too; keep local API mock exports complete across the preview import graph.
 - [Expo native-module preview shims](mockup-sandbox-expo-shims.md) — prioritize `.web` resolution in both Vite and esbuild optimization; keep Metro browser globals scoped to the preview.
 - [Admin large-text preview checks](daily007-admin-large-text-preview.md) — distinguish input scrolling from layout clipping; wrap status chips so enlarged text cannot widen the Admin content.
