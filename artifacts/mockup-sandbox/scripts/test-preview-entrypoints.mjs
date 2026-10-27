@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -326,6 +326,35 @@ async function checkPreviewEntrypointCoverage() {
   console.log(
     `PASS preview entrypoint coverage — ${discoveredHtmlEntries.length} HTML files, ` +
       `${discoveredViteConfigs.length} Vite configs.`,
+  );
+}
+
+async function checkPreviewDependencyBoundaryPlugin() {
+  const configs = [...new Set(previewGroups.map((group) => group.config))].sort();
+  const errors = [];
+
+  for (const config of configs) {
+    const source = await readFile(path.join(sandboxRoot, config), "utf8");
+    const importsPlugin =
+      /import\s*\{\s*previewDependencyBoundaryPlugin\s*\}\s*from\s*["']\.\/scripts\/previewDependencyBoundary\.mjs["']/.test(source);
+    const installsPlugin =
+      /plugins\s*:\s*\[[^\]]*\bpreviewDependencyBoundaryPlugin\s*\(\s*\)/.test(source);
+
+    if (!importsPlugin || !installsPlugin) {
+      const missing = [
+        ...(!importsPlugin ? ["import previewDependencyBoundaryPlugin"] : []),
+        ...(!installsPlugin ? ["install previewDependencyBoundaryPlugin() in the Vite plugins array"] : []),
+      ];
+      errors.push(`${config} must ${missing.join(" and ")}.`);
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`Preview dependency-boundary plugin check failed:\n${errors.join("\n")}`);
+  }
+
+  console.log(
+    `PASS preview dependency-boundary plugin — ${configs.length} Vite configs.`,
   );
 }
 
@@ -1154,6 +1183,7 @@ let temporaryRoot;
 try {
   await checkPreviewDependencyBoundary();
   await checkPreviewEntrypointCoverage();
+  await checkPreviewDependencyBoundaryPlugin();
 
   if (!process.argv.includes("--check-entrypoints-only")) {
     temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "daily007-preview-entrypoints-"));
