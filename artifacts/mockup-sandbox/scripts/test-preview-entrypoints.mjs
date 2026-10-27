@@ -229,20 +229,23 @@ const previewGroups = [
       {
         path: "/player-largest-text-preview.html?screen=Home",
         screen: "Player Home",
+        fontScale: 2,
         markers: ["GAME MODES", 'data-testid="home-mode-battle-royale"'],
         phoneMarkers: ['data-testid="home-mode-battle-royale"'],
       },
       {
         path: "/player-largest-text-preview.html?screen=Video",
         screen: "Player Video",
+        fontScale: 2,
         markers: [
-          "Tutorial Videos (2)",
-          'data-testid="video-catalog-search"',
-          'data-testid="video-catalog-card-large-video-01"',
+          "VIDEO LIBRARY",
+          "DAILY007 APPLICATION RELATED VIDEO",
+          "YOUTUBE VIDEOS",
         ],
         phoneMarkers: [
-          'data-testid="video-catalog-search"',
-          'data-testid="video-catalog-card-large-video-01"',
+          "VIDEO LIBRARY",
+          "DAILY007 APPLICATION RELATED VIDEO",
+          "YOUTUBE VIDEOS",
         ],
       },
     ],
@@ -253,6 +256,7 @@ const previewGroups = [
       {
         path: "/player-join-form-largest-text-preview.html",
         screen: "Player Join Form",
+        fontScale: 2,
         markers: ["Daily007 Squad Finals", 'data-testid="join-form-submit"'],
         phoneMarkers: ["Daily007 Squad Finals", 'data-testid="join-form-submit"'],
       },
@@ -1019,7 +1023,7 @@ try {
 
     for (const entry of entries) {
       const variants = [
-        { viewport: entry.viewport ?? phoneViewport, fontScale: null },
+        { viewport: entry.viewport ?? phoneViewport, fontScale: entry.fontScale ?? null },
         ...(entry.largeTextScales ?? []).map((fontScale) => ({
           viewport: entry.largeTextViewport ?? entry.viewport ?? phoneViewport,
           fontScale,

@@ -39,6 +39,9 @@ const noQuery = <T,>(data: T) => ({
   refetch: async () => ({ data }),
 });
 
+export function setBaseUrl(_url: string | null) {}
+export function setAuthExpiredHandler(_handler: unknown) {}
+
 export const getDaily007AdminListTournamentsQueryKey = () => ["isolated-preview", "admin-tournaments"];
 export function useDaily007AdminListTournaments() {
   return {
@@ -81,8 +84,69 @@ export function useDaily007AdminListKnockoutEvents() {
   return noQuery({ events: [] });
 }
 
+export function useDaily007AdminGetKnockoutRoundResults(
+  _matchId: string,
+  _params?: unknown,
+  _options?: unknown,
+) {
+  return noQuery({
+    matchId: "",
+    round: "round_1",
+    pointsPerKill: 1,
+    squads: [],
+    progression: null,
+    results: [],
+  });
+}
+
+export function useDaily007AdminGetKnockoutPrizeStatus(_matchId: string, _options?: unknown) {
+  return noQuery({
+    matchId: "",
+    tournamentName: "",
+    prizePool: 0,
+    status: "awaiting_final",
+    message: "No knockout prize record.",
+    totalCoins: 0,
+    canApprove: false,
+    approvedAt: null,
+    awards: [],
+  });
+}
+
+export function useDaily007AdminGetKnockoutAudit(_matchId: string, _options?: unknown) {
+  return noQuery({ matchId: "", entries: [] });
+}
+
+export function useDaily007AdminSaveKnockoutRoundResult() {
+  return noMutation();
+}
+
+export function useDaily007AdminPublishKnockoutRoundResult() {
+  return noMutation();
+}
+
+export function useDaily007AdminConfirmKnockoutProgression() {
+  return noMutation();
+}
+
+export function useDaily007AdminApproveKnockoutPrizes() {
+  return noMutation();
+}
+
 export function useDaily007AdminCreateKnockoutEvent() {
   return noMutation();
+}
+
+export const getGetTournamentLiveCountsQueryKey = () => ["isolated-preview", "live-counts"];
+
+export function useGetTournamentLiveCounts(_options?: unknown) {
+  const modeCounts = { solo: 0, duo: 0, trio: 0, squad: 0 };
+  return noQuery({
+    battle_royale: modeCounts,
+    battle_royale_kill_earn: modeCounts,
+    clash_squad: modeCounts,
+    lone_wolf: modeCounts,
+  });
 }
 
 export function useDaily007AdminUpdateKnockoutEvent() {
@@ -568,7 +632,21 @@ export function useDaily007GetYoutubeSubscribeTask() {
   });
 }
 
+export function useDaily007GetInstagramFollowTask() {
+  return noQuery({
+    enabled: true,
+    rewardCoins: 3,
+    accountUrl: "https://www.instagram.com/",
+    completed: false,
+    claim: null,
+  });
+}
+
 export function useDaily007SubmitYoutubeSubscribeClaim() {
+  return noMutation();
+}
+
+export function useDaily007SubmitInstagramFollowClaim() {
   return noMutation();
 }
 
@@ -896,15 +974,32 @@ const squadSlotLayoutPreview = {
   }],
 };
 
+const emptySquadSlotPreview = {
+  tournamentId: "preview-tournament",
+  teamSize: 4,
+  capacity: 0,
+  filledTeams: 0,
+  filledPlayers: 0,
+  registrationClosed: false,
+  alreadyRegistered: false,
+  myTeamNumber: null,
+  mySlotNumber: null,
+  teams: [],
+};
+
 export function useDaily007V2GetSquadSlots(_tournamentId: string, _options?: unknown) {
   const showLayoutFixture = Boolean(
     (globalThis as typeof globalThis & { __daily007SquadSlotsLayoutPreview?: boolean })
       .__daily007SquadSlotsLayoutPreview,
   );
-  return noQuery(showLayoutFixture ? squadSlotLayoutPreview : { slots: [] });
+  return noQuery(showLayoutFixture ? squadSlotLayoutPreview : emptySquadSlotPreview);
 }
 
 export function useDaily007V2JoinSquadSlot() {
+  return noMutation();
+}
+
+export function useDaily007V2AddSquadTeammate() {
   return noMutation();
 }
 

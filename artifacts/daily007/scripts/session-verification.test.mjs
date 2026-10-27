@@ -360,6 +360,7 @@ function createProfileScreen(
     Card,
     Btn: Button,
     KV: KeyValue,
+    LanguageSelector: () => null,
     GoogleSSOButton: () => null,
     useWindowDimensions: () => ({ width, fontScale }),
     Platform: { OS: "android" },
@@ -1498,7 +1499,10 @@ test("startup discards damaged saved sessions without verification, then restore
   assert.match(authSource, /testID="auth-session-notice"/);
   assert.match(authSource, /accessibilityLabel=\{notice\}/);
   assert.match(authSource, /Platform\.OS === 'ios' && notice/);
-  assert.match(authSource, /AccessibilityInfo\.announceForAccessibility\(notice\)/);
+  assert.match(
+    authSource,
+    /AccessibilityInfo\.announceForAccessibility\(translateExactText\(notice\)\)/,
+  );
   assert.match(authSource, /accessibilityLiveRegion=\{Platform\.OS === 'ios' \? undefined : 'polite'\}/);
   assert.match(
     appSource,

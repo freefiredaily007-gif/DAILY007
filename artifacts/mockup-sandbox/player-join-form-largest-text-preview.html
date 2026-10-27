@@ -28,6 +28,32 @@
       }
     </style>
     <script>
+      class PreviewExpoEventEmitter {
+        constructor() {
+          this.listeners = new Map();
+        }
+        addListener(eventName, listener) {
+          const listeners = this.listeners.get(eventName) ?? new Set();
+          listeners.add(listener);
+          this.listeners.set(eventName, listeners);
+          return { remove: () => listeners.delete(listener) };
+        }
+        removeListener(eventName, listener) {
+          this.listeners.get(eventName)?.delete(listener);
+        }
+        removeAllListeners(eventName) {
+          if (eventName) this.listeners.delete(eventName);
+          else this.listeners.clear();
+        }
+        emit(eventName, ...args) {
+          for (const listener of this.listeners.get(eventName) ?? []) listener(...args);
+        }
+      }
+      window.expo = window.expo ?? {};
+      window.expo.EventEmitter = window.expo.EventEmitter ?? PreviewExpoEventEmitter;
+      window.expo.NativeModule = window.expo.NativeModule
+        ?? class PreviewExpoNativeModule extends PreviewExpoEventEmitter {};
+      window.expo.modules = window.expo.modules ?? {};
       window.__daily007LargeTextScale = 2;
       window.__joinFormCancelCount = 0;
       window.require = () => ({ default: null });
