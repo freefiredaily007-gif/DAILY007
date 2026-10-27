@@ -250,6 +250,10 @@ test("the Android regression route uses only local fixtures and is dev-only", ()
   assert.match(insufficientBalanceFlow, /join-form-player-game-name/);
   assert.match(insufficientBalanceFlow, /text: "Native Test Player"/);
   assert.match(insufficientBalanceFlow, /join-form-player-game-uid/);
+  for (const flow of [insufficientBalanceFlow, localValidationFlow, lastSlotFlow]) {
+    assert.match(flow, /visible: "Pixel Launcher isn't responding"[\s\S]*?id: android:id\/aerr_close/);
+    assert.match(flow, /visible: Open React Native dev menu[\s\S]*?pressKey: BACK/);
+  }
   assert.doesNotMatch(insufficientBalanceFlow, /join-form-captain-game-name|join-form-team-name|join-form-teammate/);
   assert.match(insufficientBalanceFlow, /Registration confirmed after simulated wallet top-up/);
   assert.match(localValidationFlow, /join-form-error/);

@@ -237,6 +237,8 @@ test('Android checks every refund detail at 1.5× text and restores the original
     largeTextMaestroFlow,
     /id: android:id\/aerr_wait\n\s+optional: true\n\s+waitUntilVisible: true/,
   );
+  assert.match(largeTextMaestroFlow, /visible: "Pixel Launcher isn't responding"[\s\S]*?id: android:id\/aerr_close/);
+  assert.match(largeTextMaestroFlow, /visible: Open React Native dev menu[\s\S]*?pressKey: BACK/);
   assert.match(largeTextMaestroFlow, /id: wallet-cancellation-refund-fixture-banner\n\s+timeout: 60000/);
   assert.match(largeTextMaestroFlow, /Entry fee refunded — Legacy Clash Cup \(tournament cancelled\)\. \+27 coins credited\. Date: 2030-02-03 10:20\. Balance after: 155 coins\./);
   assert.match(largeTextMaestroFlow, /Every refund detail is visible without clipping or overlap at 1\.5×/);

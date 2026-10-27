@@ -2,13 +2,19 @@ appId: host.exp.exponent
 ---
 - openLink:
     link: ${EXPO_DEV_URL}/--/wallet-cancellation-refund-test
-# Expo Go can show delayed system prompts after the large-text runner restarts it.
+# Expo Go can show delayed startup prompts and background Pixel Launcher ANRs.
 - repeat:
     times: 12
     while:
       notVisible:
         id: wallet-cancellation-refund-fixture-banner
     commands:
+      - runFlow:
+          when:
+            visible: "Pixel Launcher isn't responding"
+          commands:
+            - tapOn:
+                id: android:id/aerr_close
       - tapOn:
           id: android:id/aerr_wait
           optional: true
@@ -17,6 +23,11 @@ appId: host.exp.exponent
           text: Continue
           optional: true
           waitUntilVisible: true
+      - runFlow:
+          when:
+            visible: Open React Native dev menu
+          commands:
+            - pressKey: BACK
       - runFlow:
           when:
             visible: Continue
