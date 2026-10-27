@@ -50,10 +50,15 @@ test('Home, Wallet, and Profile Maestro flows verify 2× text, full-width conten
 
   assert.match(walletFlow, /wallet-text-scale-test/);
   assert.match(walletFlow, /Wallet key text fits available widths at 2\.00×/);
+  assert.match(walletFlow, /id: wallet-open-recharge\n\s+enabled: true/);
+  assert.match(walletFlow, /id: wallet-utr/);
+  assert.doesNotMatch(walletFlow, /wallet-transaction-id/);
   for (const control of ['wallet-open-recharge', 'wallet-open-withdraw', 'wallet-history-filter-withdrawals']) {
     assert.match(walletFlow, new RegExp(`id: ${control}`));
   }
   assert.match(walletFixture, /withdrawalEnabled: true/);
+  assert.match(walletFixture, /historyTestApi=\{historyTestApi\}/);
+  assert.match(walletFixture, /rechargeEnabled: true/);
   assert.match(walletFixture, /nativeTextScaleLayoutsFit/);
   assert.match(walletFixture, /wallet:action:add/);
   assert.match(walletFixture, /wallet:action:withdraw/);

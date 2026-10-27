@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Redirect } from 'expo-router';
 import { NavigationContainer, NavigationIndependentTree } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -6,13 +6,13 @@ import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Ctx, type Ctx as AppContext } from '../App';
 import { ReadableText as Text } from '../components/typography';
 import { C } from '../components/ui';
-import { Api, type User } from '../lib/api';
+import { type User } from '../lib/api';
 import {
   mergeNativeTextScaleLayout,
   nativeTextScaleLayoutsFit,
   type NativeTextScaleLayout,
 } from '../lib/nativeTextScaleLayout';
-import Wallet from './Wallet';
+import Wallet, { type WalletHistoryTestApi } from './Wallet';
 
 const Stack = createNativeStackNavigator();
 
@@ -53,18 +53,11 @@ function WalletTextScaleFixture() {
   const [layouts, setLayouts] = useState<Record<string, NativeTextScaleLayout>>({});
   const layoutVerified = fontScale >= 2 &&
     nativeTextScaleLayoutsFit(layouts, REQUIRED_LAYOUTS);
-  const [apiOriginals] = useState(() => {
-    const originals = {
-      transactionsPage: Api.transactionsPage,
-      myPaymentsPage: Api.myPaymentsPage,
-      myWithdrawals: Api.myWithdrawals,
-      settings: Api.settings,
-    };
-
-    (Api as any).transactionsPage = async () => ({ items: [], nextCursor: null });
-    (Api as any).myPaymentsPage = async () => ({ items: [], nextCursor: null });
-    (Api as any).myWithdrawals = async () => [];
-    (Api as any).settings = async () => ({
+  const historyTestApi = useMemo<WalletHistoryTestApi>(() => ({
+    transactionsPage: async () => ({ items: [], nextCursor: null }),
+    myPaymentsPage: async () => ({ items: [], nextCursor: null }),
+    myWithdrawals: async () => [],
+    settings: async () => ({
       settings: {
         upiId: 'daily007-test@upi',
         upiQrUrl: 'https://daily007.invalid/test-qr.png',
@@ -76,16 +69,8 @@ function WalletTextScaleFixture() {
         maxWithdrawal: 5000,
         coinToMoneyRate: 1,
       },
-    });
-    return originals;
-  });
-
-  useEffect(() => () => {
-    Api.transactionsPage = apiOriginals.transactionsPage;
-    Api.myPaymentsPage = apiOriginals.myPaymentsPage;
-    Api.myWithdrawals = apiOriginals.myWithdrawals;
-    Api.settings = apiOriginals.settings;
-  }, [apiOriginals]);
+    }),
+  }), []);
 
   const context = useMemo<AppContext>(() => ({
     user: testUser,
@@ -98,8 +83,13 @@ function WalletTextScaleFixture() {
     setLayouts((current) => mergeNativeTextScaleLayout(current, key, update));
   }, []);
   const renderWallet = useCallback(
-    () => <Wallet onTextScaleLayout={observeLayout} />,
-    [observeLayout],
+    () => (
+      <Wallet
+        historyTestApi={historyTestApi}
+        onTextScaleLayout={observeLayout}
+      />
+    ),
+    [historyTestApi, observeLayout],
   );
 
   return (

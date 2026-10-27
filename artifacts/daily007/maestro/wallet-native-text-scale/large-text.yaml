@@ -21,14 +21,19 @@ appId: host.exp.exponent
     element:
       id: wallet-open-recharge
     direction: DOWN
+- extendedWaitUntil:
+    visible:
+      id: wallet-open-recharge
+      enabled: true
+    timeout: 10000
 - tapOn:
     id: wallet-open-recharge
 - scrollUntilVisible:
     element:
-      id: wallet-transaction-id
+      id: wallet-utr
     direction: DOWN
 - assertVisible:
-    id: wallet-transaction-id
+    id: wallet-utr
 - scrollUntilVisible:
     element:
       id: wallet-close-form
