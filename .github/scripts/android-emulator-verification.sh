@@ -249,6 +249,11 @@ configure_maestro_flow_environment() {
 set -Eeuo pipefail
 if [ "${1:-}" = test ] && [ -n "${EXPO_DEV_URL:-}" ]; then
   shift
+  for argument in "$@"; do
+    if [[ "$argument" == EXPO_DEV_URL=* ]]; then
+      exec "${MAESTRO_REAL_BIN:?MAESTRO_REAL_BIN is required}" test "$@"
+    fi
+  done
   exec "${MAESTRO_REAL_BIN:?MAESTRO_REAL_BIN is required}" test -e "EXPO_DEV_URL=${EXPO_DEV_URL}" "$@"
 fi
 exec "${MAESTRO_REAL_BIN:?MAESTRO_REAL_BIN is required}" "$@"

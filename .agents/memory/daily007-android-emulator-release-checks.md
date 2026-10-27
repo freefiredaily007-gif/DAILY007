@@ -32,3 +32,11 @@ Environment variables in the CI shell are not automatically available as Maestro
 **Why:** The Android workflow reached Metro successfully, but `openLink` received `undefined` for the Expo URL and Android could not resolve the intent.
 
 **How to apply:** When Maestro tests run through package scripts or Node helpers, ensure the CLI invocation receives the flow variables, not merely the parent process environment.
+
+## Expo Go cold-start UI checks
+
+Run Maestro flows serially on a single emulator. On a cold Expo Go launch, dismiss the first-run developer prompt and allow time for Metro to finish bundling before asserting app content.
+
+**Why:** Concurrent flows competed for one emulator, while the initial bundle was still loading and Expo Go’s “Continue” prompt covered the fixture screen.
+
+**How to apply:** Avoid passing a directory of stateful flows to one emulator test command; invoke each flow in sequence and give the first route load a cold-start timeout.

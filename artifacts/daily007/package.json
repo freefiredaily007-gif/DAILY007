@@ -41,7 +41,7 @@
     "test:tournament-capacity": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test scripts/tournament-capacity.test.mjs",
     "test:squad-slot-layout": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/squad-slot-layout.test.mjs",
     "test:tournament-seat-layout": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test scripts/tournament-seat-layout.test.mjs",
-    "test:android-join-recovery": "maestro test --test-output-dir=\"${MAESTRO_TEST_OUTPUT_DIR:-$HOME/.maestro/tests}\" maestro/join-recovery",
+    "test:android-join-recovery": "maestro test -e \"EXPO_DEV_URL=$EXPO_DEV_URL\" --test-output-dir=\"${MAESTRO_TEST_OUTPUT_DIR:-$HOME/.maestro/tests}\" maestro/join-recovery/insufficient-balance.yaml && maestro test -e \"EXPO_DEV_URL=$EXPO_DEV_URL\" --test-output-dir=\"${MAESTRO_TEST_OUTPUT_DIR:-$HOME/.maestro/tests}\" maestro/join-recovery/last-slot-taken.yaml && maestro test -e \"EXPO_DEV_URL=$EXPO_DEV_URL\" --test-output-dir=\"${MAESTRO_TEST_OUTPUT_DIR:-$HOME/.maestro/tests}\" maestro/join-recovery/local-validation.yaml",
     "test:android-join-form-accessibility": "node scripts/run-android-join-form-accessibility.mjs",
     "test:android-home-match-back": "maestro test --test-output-dir=\"${MAESTRO_TEST_OUTPUT_DIR:-$HOME/.maestro/tests}\" maestro/home-match-back",
     "test:android-tournament-pull-refresh": "maestro test --test-output-dir=\"${MAESTRO_TEST_OUTPUT_DIR:-$HOME/.maestro/tests}\" maestro/tournament-pull-refresh",

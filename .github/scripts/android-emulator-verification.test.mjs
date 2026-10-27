@@ -11,8 +11,27 @@ const require = createRequire(import.meta.url);
 const { installCiDevToolsShellOverride } = require("./disable-rn-devtools-shell.cjs");
 const workflow = await readFile(join(root, ".github/workflows/android-release-verification.yml"), "utf8");
 const emulatorScript = await readFile(join(root, ".github/scripts/android-emulator-verification.sh"), "utf8");
+const daily007Package = JSON.parse(await readFile(join(root, "artifacts/daily007/package.json"), "utf8"));
 const commands = [...workflow.matchAll(/^ {10}script:\s*(.+)$/gm)].map((match) => match[1]);
 const setupDiagnosticsScript = join(root, ".github/scripts/android-emulator-setup-diagnostics.sh");
+
+test("join-recovery flows run serially and handle Expo Go cold starts", async () => {
+  const command = daily007Package.scripts["test:android-join-recovery"];
+  assert.equal((command.match(/maestro test/g) ?? []).length, 3);
+  assert.match(
+    command,
+    /insufficient-balance\.yaml[\s\S]*&& maestro test[\s\S]*last-slot-taken\.yaml[\s\S]*&& maestro test[\s\S]*local-validation\.yaml/,
+  );
+  assert.equal((command.match(/EXPO_DEV_URL=\$EXPO_DEV_URL/g) ?? []).length, 3);
+  for (const flowName of ["insufficient-balance", "last-slot-taken", "local-validation"]) {
+    const flow = await readFile(
+      join(root, `artifacts/daily007/maestro/join-recovery/${flowName}.yaml`),
+      "utf8",
+    );
+    assert.match(flow, /text: Continue\n\s+optional: true/);
+    assert.match(flow, /id: join-recovery-fixture-banner\n\s+timeout: 60000/);
+  }
+});
 
 test("each emulator action invokes one persistent Bash process, not independent input lines", () => {
   assert.deepEqual(commands, [
@@ -245,6 +264,7 @@ fi
 [ "$EXPO_DEV_URL" = "exp://127.0.0.1:$METRO_PORT" ] || exit 24
 [ -d "$MAESTRO_TEST_OUTPUT_DIR" ] || exit 25
 maestro test sample-flow.yaml
+maestro test -e "EXPO_DEV_URL=$EXPO_DEV_URL" sample-flow-with-env.yaml
 [ "$FAIL_STAGE" != maestro ] || {
   mkdir -p "$MAESTRO_TEST_OUTPUT_DIR/join-recovery/logs" "$MAESTRO_TEST_OUTPUT_DIR/join-recovery/screen-hierarchy"
   echo 'Maestro failure: join-recovery fixture not visible' > "$MAESTRO_TEST_OUTPUT_DIR/join-recovery/logs/maestro.log"
@@ -315,6 +335,8 @@ for (const api of [35, 36]) {
     assert.match(result.calls, new RegExp(`curl --noproxy \\* --fail --silent http://localhost:${metroPort}/status`));
     assert.doesNotMatch(result.calls, /toybox nc/);
     assert.match(result.calls, new RegExp(`maestro test -e EXPO_DEV_URL=exp:\\/\\/127\\.0\\.0\\.1:${metroPort} sample-flow\\.yaml`));
+    assert.match(result.calls, new RegExp(`maestro test -e EXPO_DEV_URL=exp:\\/\\/127\\.0\\.0\\.1:${metroPort} sample-flow-with-env\\.yaml`));
+    assert.doesNotMatch(result.calls, /maestro test -e EXPO_DEV_URL=[^\\s]+ -e EXPO_DEV_URL=/);
     assert.match(result.calls, /test:android-join-form-accessibility/);
     const suites = result.calls.split("\n").filter((line) => line.startsWith("pnpm") && line.includes(" run "));
     assert.equal(suites.length, api === 35 ? 14 : 2);
