@@ -6,10 +6,15 @@ appId: host.exp.exponent
     visible:
       id: home-match-back-test-fixture
     timeout: 15000
+- extendedWaitUntil:
+    visible:
+      id: home-upcoming-carousel
+    timeout: 30000
 - scrollUntilVisible:
     element:
       id: home-upcoming-card-home-back-match-one
-    direction: DOWN
+    direction: UP
+    timeout: 15000
 - extendedWaitUntil:
     visible:
       id: home-upcoming-card-home-back-match-one
