@@ -190,6 +190,8 @@ run_maestro_suite() {
   local suite_status
   local reverse_mappings
   local suite_details
+  local result_files
+  local result_diagnostics
   PHASE="Maestro suite ${suite_name}"
   echo "Running Android API level ${ANDROID_API_LEVEL} Maestro suite: ${suite_name}"
   if EXPO_DEV_URL="exp://127.0.0.1:${METRO_PORT}" \
@@ -200,11 +202,16 @@ run_maestro_suite() {
     cat "$suite_log"
     reverse_mappings="$(adb reverse --list 2>&1 | tr '\r\n' ' ' | cut -c 1-400)"
     [ -n "$reverse_mappings" ] || reverse_mappings="<no reverse mappings>"
-    suite_details="$(tail -n 50 "$suite_log" | tr '\r\n' ' ' | cut -c 1-2200)"
+    suite_details="$(tail -n 20 "$suite_log" | tr '\r\n' ' ' | cut -c 1-800)"
     [ -n "$suite_details" ] || suite_details="<empty Maestro output>"
+    result_files="$(find "$MAESTRO_TEST_OUTPUT_DIR" -type f -printf '%P ' 2>/dev/null | tr '\r\n' ' ' | cut -c 1-400 || true)"
+    [ -n "$result_files" ] || result_files="<no test output files>"
+    result_diagnostics="$(grep -R -n -I -i -E 'failed|failure|error|exception|not found|not visible|timed out|timeout|expected|actual|assert' \
+      "$MAESTRO_TEST_OUTPUT_DIR" 2>/dev/null | tail -n 15 | tr '\r\n' ' ' | cut -c 1-1200 || true)"
+    [ -n "$result_diagnostics" ] || result_diagnostics="<no failure text in test output files>"
     echo "Android API level ${ANDROID_API_LEVEL} Maestro suite ${suite_name} failed with exit code ${suite_status}." >&2
     report_failure "$suite_status" "$LINENO" \
-      "Maestro output: ${suite_details}; ADB reverse mappings: ${reverse_mappings}."
+      "Maestro output: ${suite_details}; test output files: ${result_files}; test diagnostics: ${result_diagnostics}; ADB reverse mappings: ${reverse_mappings}."
     return "$suite_status"
   fi
 }

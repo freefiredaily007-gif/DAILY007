@@ -244,7 +244,12 @@ if [ "$3" = exec ]; then
 fi
 [ "$EXPO_DEV_URL" = "exp://127.0.0.1:$METRO_PORT" ] || exit 24
 [ -d "$MAESTRO_TEST_OUTPUT_DIR" ] || exit 25
-[ "$FAIL_STAGE" != maestro ] || { echo 'mock Maestro could not load Expo Go URL' >&2; exit 26; }
+[ "$FAIL_STAGE" != maestro ] || {
+  mkdir -p "$MAESTRO_TEST_OUTPUT_DIR/join-recovery"
+  echo 'Failure: expected fixture-banner but not found in rendered screen' > "$MAESTRO_TEST_OUTPUT_DIR/join-recovery/failure.log"
+  echo 'mock Maestro could not load Expo Go URL' >&2
+  exit 26
+}
 echo 'mock suite passed'
 `,
     curl: `#!/usr/bin/env bash
@@ -345,7 +350,8 @@ for (const stage of ["host", "maestro"]) {
     } else {
       assert.match(result.summary, /Host Metro reached `packager-status:running`/);
       assert.match(result.output, /mock Maestro could not load Expo Go URL/);
-      assert.match(result.failureDetails, /Maestro output: mock Maestro could not load Expo Go URL/);
+      assert.match(result.failureDetails, /test output files: join-recovery\/failure\.log/);
+      assert.match(result.failureDetails, /Failure: expected fixture-banner but not found in rendered screen/);
       assert.match(result.failureDetails, /ADB reverse mappings: emulator-5554 tcp:40000 tcp:40000/);
       assert.match(result.calls, /adb reverse --list/);
       assert.match(result.calls, /test:android-join-recovery/);
