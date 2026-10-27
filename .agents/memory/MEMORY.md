@@ -73,6 +73,7 @@
 - [Daily007 manual tournament cancellation](daily007-auto-cancellation.md) — cancellation and refunds are admin-only; never run automatic cancellation or refund sweeps.
 - [Daily007 tournament retention](daily007-expired-match-cleanup.md) — keep tournaments until an admin explicitly cancels, refunds, or deletes them.
 - [Daily007 room credential release](daily007-room-credentials.md) — saving credentials schedules access at five minutes before the tournament’s scheduled start, for approved registrants only.
+- [Daily007 detail large text](daily007-detail-large-text.md) — at 1.5×+, stack room values and wrap four-slot rows on narrow phones so credentials and team names retain space.
 - [Daily007 public participant rosters](daily007-public-participant-roster.md) — show team names and Free Fire handles only; keep account details and UIDs private.
 - [Daily007 payer UPI for recharges](daily007-payer-upi.md) — collect the payer's UPI ID separately from the configured receiving UPI ID and transaction reference.
 - [Daily007 withdrawal UPI copying](daily007-withdrawal-upi-copy.md) — preserve exact payout IDs; TalkBack on iQOO Neo 10 / Android 16 confirmed polite copy-success feedback.

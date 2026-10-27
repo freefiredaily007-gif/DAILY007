@@ -26,12 +26,13 @@ test("squad team cards render each team with four equal, responsive slot columns
   assert.match(screenSource, /slots\.teams\.map\(\(team\) => \{/);
   assert.match(screenSource, /team\.slots\.map\(\(slot\) => \{/);
   assert.match(screenSource, /joinedCount = team\.slots\.filter\(\(slot\) => slot\.occupied\)\.length/);
-  assert.match(screenSource, /\{joinedCount\}\/4 JOINED/);
+  assert.match(screenSource, /\{joinedCount\}\/\{slots\.teamSize\} JOINED/);
 
   const gridStyle = screenSource.match(/squadSlotsRow:\s*\{([^}]+)\}/)?.[1] ?? "";
   const columnStyle = screenSource.match(/squadSlotColumn:\s*\{([^}]+)\}/)?.[1] ?? "";
   const slotStyle = screenSource.match(/squadSlot:\s*\{([\s\S]*?)\n\s*\},/)?.[1] ?? "";
   const compactRowStyle = screenSource.match(/squadSlotsRowCompact:\s*\{([^}]+)\}/)?.[1] ?? "";
+  const compactColumnStyle = screenSource.match(/squadSlotColumnCompact:\s*\{([^}]+)\}/)?.[1] ?? "";
   const compactSlotStyle = screenSource.match(/squadSlotCompact:\s*\{([^}]+)\}/)?.[1] ?? "";
   const compactActionAreaStyle = screenSource.match(/squadSlotActionAreaCompact:\s*\{([^}]+)\}/)?.[1] ?? "";
   const compactJoinStyle = screenSource.match(/squadSlotJoinButtonCompact:\s*\{([^}]+)\}/)?.[1] ?? "";
@@ -43,10 +44,11 @@ test("squad team cards render each team with four equal, responsive slot columns
   assert.match(columnStyle, /minWidth:\s*0/);
   assert.match(slotStyle, /height:\s*76/);
   assert.match(slotStyle, /width:\s*'100%'/);
-  assert.match(screenSource, /const \{ width \} = useWindowDimensions\(\)/);
-  assert.match(screenSource, /PixelRatio\.getFontScale\(\) >= 1\.5/);
-  assert.match(screenSource, /width <= 400 && PixelRatio\.getFontScale\(\) >= 1\.5/);
-  assert.match(compactRowStyle, /gap:\s*6/);
+  assert.match(screenSource, /const \{ width, fontScale \} = useWindowDimensions\(\)/);
+  assert.match(screenSource, /width <= 400 && fontScale >= 1\.5/);
+  assert.match(compactRowStyle, /flexWrap:\s*'wrap'/);
+  assert.match(compactRowStyle, /gap:\s*8/);
+  assert.match(compactColumnStyle, /flexBasis:\s*'47%'/);
   assert.match(compactSlotStyle, /height:\s*92/);
   assert.match(compactActionAreaStyle, /height:\s*68/);
   assert.match(compactJoinStyle, /minHeight:\s*62/);
@@ -81,7 +83,7 @@ test("open and occupied slots use live green and red availability styles", () =>
   )?.[1] ?? "";
 
   assert.match(screenSource, /const slotIsOccupied = Boolean\(slot\.occupied\)/);
-  assert.match(screenSource, /const canSelectSlot = !slotIsOccupied && slot\.canJoin/);
+  assert.match(screenSource, /const canSelectSlot = !slotIsOccupied && \(slot\.canJoin \|\| slot\.canAddTeammate\)/);
   assert.match(screenSource, /slotIsOccupied \? s\.squadSlotOccupied : s\.squadSlotAvailable/);
   assert.match(
     screenSource,
@@ -116,11 +118,11 @@ test("selected open slots keep the green glow while the surrounding Squad palett
 });
 
 test("BR Solo uses a readable responsive seat grid without changing seat selection behavior", () => {
-  assert.match(modeSeatPanelSource, /const individualGridBasis = width >= 800 \? '23%' : width >= 520 \? '31%' : '48%'/);
+  assert.match(modeSeatPanelSource, /const individualGridBasis = '23%'/);
   assert.match(modeSeatPanelSource, /individual && \(layout\.directDuel \? styles\.duelSeatCard : individualGridSeatStyle\)/);
   assert.match(modeSeatPanelSource, /individualGridSlot:\s*\{[\s\S]*?height:\s*84,[\s\S]*?minHeight:\s*84/);
-  assert.match(modeSeatPanelSource, /individualGridLabel:\s*\{[^}]*fontSize:\s*12/);
-  assert.match(modeSeatPanelSource, /individualGridStatus:\s*\{[^}]*fontSize:\s*10/);
+  assert.match(modeSeatPanelSource, /individualGridLabel:\s*\{[^}]*fontSize:\s*10/);
+  assert.match(modeSeatPanelSource, /individualGridStatus:\s*\{[^}]*fontSize:\s*8/);
   assert.match(modeSeatPanelSource, /onPress=\{\(\) => \{\s*if \(!occupied && canSelect\) setSelectedSeat\(\{ groupNumber, slotIndex \}\);/);
   assert.match(modeSeatPanelSource, /selected \? \([\s\S]*?onPress=\{\(\) => onJoinSlot\(groupNumber, slotIndex \+ 1\)\}/);
   assert.match(modeSeatPanelSource, /occupied \? styles\.occupied : styles\.open/);

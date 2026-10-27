@@ -1,0 +1,140 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/tournament-detail-text-scale-test
+- extendedWaitUntil:
+    visible:
+      id: tournament-detail-text-fixture
+    timeout: 15000
+- assertVisible:
+    text: "Tournament detail large-text test"
+
+- tapOn:
+    id: tournament-detail-open-solo
+- extendedWaitUntil:
+    visible:
+      id: tournament-detail-hero
+    timeout: 15000
+- assertVisible:
+    text: "Solo Tournament Detail Large Text Check"
+- assertVisible:
+    id: tournament-detail-stats
+- assertVisible:
+    text: "MATCH INFO"
+- scrollUntilVisible:
+    element:
+      text: "TOURNAMENT SLOTS"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      id: mode-seat-large-text-solo-detail-1-1
+    direction: DOWN
+- assertVisible:
+    text: "PLAYER 01"
+- tapOn:
+    id: mode-seat-large-text-solo-detail-1-1
+- scrollUntilVisible:
+    element:
+      id: mode-seat-join-1-1
+    direction: DOWN
+- assertVisible:
+    id: mode-seat-join-1-1
+- scrollUntilVisible:
+    element:
+      id: tournament-detail-join
+    direction: DOWN
+- assertVisible:
+    id: tournament-detail-join
+- tapOn:
+    id: tournament-detail-join
+- assertVisible:
+    text: "Join action opened"
+- back
+- back
+
+- tapOn:
+    id: tournament-detail-open-team-join
+- extendedWaitUntil:
+    visible:
+      id: tournament-detail-hero
+    timeout: 15000
+- assertVisible:
+    text: "Joinable Squad Team Detail Large Text Check"
+- scrollUntilVisible:
+    element:
+      text: "SQUAD TEAM SLOTS"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      id: squad-slot-1-3
+    direction: DOWN
+- tapOn:
+    id: squad-slot-1-3
+- scrollUntilVisible:
+    element:
+      id: squad-join-select-01-3
+    direction: DOWN
+- tapOn:
+    id: squad-join-select-01-3
+- assertVisible:
+    id: squad-game-name
+- assertVisible:
+    id: squad-game-uid
+- assertVisible:
+    id: squad-join-confirm
+- assertVisible:
+    id: squad-join-cancel
+- tapOn:
+    id: squad-join-cancel
+- back
+
+- tapOn:
+    id: tournament-detail-open-team
+- extendedWaitUntil:
+    visible:
+      id: tournament-detail-hero
+    timeout: 15000
+- assertVisible:
+    text: "Team Tournament Detail Large Text Check"
+- scrollUntilVisible:
+    element:
+      id: squad-registration-status
+    direction: DOWN
+- assertVisible:
+    text: "Your registration: Team 01, slot 1."
+- scrollUntilVisible:
+    element:
+      text: "ROOM DETAILS"
+    direction: UP
+- assertVisible:
+    id: room-credential-value-room-id
+- assertVisible:
+    id: room-credential-value-password
+- assertVisible:
+    text: "Room ID: DETAIL-ROOM-0123456789"
+- assertVisible:
+    text: "Password: DETAIL-PASSWORD-0123456789"
+- assertVisible:
+    id: room-credential-copy-room-id
+- tapOn:
+    id: room-credential-copy-room-id
+- extendedWaitUntil:
+    visible:
+      text: "Room ID copied to clipboard."
+    timeout: 5000
+- scrollUntilVisible:
+    element:
+      text: "SQUAD TEAM SLOTS"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      id: squad-slots-row
+    direction: DOWN
+- assertVisible:
+    text: "01"
+- assertVisible:
+    text: "Captain Player"
+- assertVisible:
+    text: "Second Team Player"
+- assertVisible:
+    text: "OPEN • SELECT"

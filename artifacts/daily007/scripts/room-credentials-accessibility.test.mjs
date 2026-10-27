@@ -243,7 +243,8 @@ test("large text on a narrow phone stacks each full-width value above its copy b
   assert.equal(shouldStackRoomCredentialRows(1.49, 320), false);
   assert.equal(shouldStackRoomCredentialRows(1.5, 320), true);
   assert.equal(shouldStackRoomCredentialRows(1.8, 380), true);
-  assert.equal(shouldStackRoomCredentialRows(1.5, 381), false);
+  assert.equal(shouldStackRoomCredentialRows(1.5, 393), true);
+  assert.equal(shouldStackRoomCredentialRows(2, 440), true);
 
   assert.match(panelSource, /useWindowDimensions/);
   assert.match(

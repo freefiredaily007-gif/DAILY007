@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, ScrollView, StyleSheet, RefreshControl, ActivityIndicator, AccessibilityInfo, Platform, AppState, PixelRatio, Pressable, useWindowDimensions, Modal, KeyboardAvoidingView } from 'react-native';
+import { View, ScrollView, StyleSheet, RefreshControl, ActivityIndicator, AccessibilityInfo, Platform, AppState, Pressable, useWindowDimensions, Modal, KeyboardAvoidingView } from 'react-native';
 import {
   getGetTournamentParticipantsQueryKey,
   getGetTournamentResultsQueryKey,
@@ -71,8 +71,8 @@ function SquadSlotsPanel({
   const [hoveredSlotKey, setHoveredSlotKey] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-  const { width } = useWindowDimensions();
-  const compactLargeText = width <= 400 && PixelRatio.getFontScale() >= 1.5;
+  const { width, fontScale } = useWindowDimensions();
+  const compactLargeText = width <= 400 && fontScale >= 1.5;
   const slotsQuery = useDaily007V2GetSquadSlots(tournamentId, {
     query: {
       queryKey: getDaily007V2GetSquadSlotsQueryKey(tournamentId),
@@ -214,6 +214,17 @@ function SquadSlotsPanel({
         <Text style={s.squadCapacity}>
           {slots.filledPlayers}/{slots.capacity * slots.teamSize} PLAYERS · {slots.filledTeams}/{slots.capacity} TEAMS
         </Text>
+        {slots.alreadyRegistered ? (
+          <Text
+            accessibilityRole="text"
+            testID="squad-registration-status"
+            style={s.squadRegistrationStatus}
+          >
+            {slots.myTeamNumber && slots.mySlotNumber
+              ? `Your registration: Team ${String(slots.myTeamNumber).padStart(2, '0')}, slot ${slots.mySlotNumber}.`
+              : 'Your registration is confirmed.'}
+          </Text>
+        ) : null}
         <Text style={s.squadNotice}>
           Players can join open slots and pay individually. Captains can pay for teammates from their wallet. Removing a player does not refund the entry fee.
         </Text>
@@ -257,7 +268,10 @@ function SquadSlotsPanel({
                   ? slot.gameName || 'Registered player'
                   : 'OPEN • SELECT';
                 return (
-                  <View key={slot.slotNumber} style={s.squadSlotColumn}>
+                  <View
+                    key={slot.slotNumber}
+                    style={[s.squadSlotColumn, compactLargeText && s.squadSlotColumnCompact]}
+                  >
                     <Pressable
                       onHoverIn={() => {
                         if (canSelectSlot) setHoveredSlotKey(slotKey);
@@ -550,6 +564,9 @@ export default function TDetail() {
   const nav: any = useNavigation();
   const route: any = useRoute();
   const isFocused = useIsFocused();
+  const { width: detailWidth, fontScale: detailFontScale } = useWindowDimensions();
+  const detailLargeText = detailFontScale >= 1.5;
+  const stackedDetailHeader = detailLargeText && detailWidth <= 440;
   const [isAppActive, setIsAppActive] = useState(AppState.currentState === 'active');
   const id = route?.params?.id;
   const { user } = useApp();
@@ -846,37 +863,49 @@ export default function TDetail() {
   };
 
   return (
-    <ScrollView style={s.root} contentContainerStyle={{ padding: 14, paddingBottom: 40 }}
+    <ScrollView
+      testID="tournament-detail-scroll"
+      style={s.root}
+      contentContainerStyle={{ padding: 14, paddingBottom: 40 }}
       refreshControl={<RefreshControl
         refreshing={loading || participantsQuery.isFetching || (isCompleted && resultsQuery.isFetching)}
         onRefresh={refreshAll}
         tintColor={C.neon}
       />}>
       {/* HERO */}
-      <GCard glowColor={st.key === 'ongoing' ? C.neon : C.orange} style={{ marginBottom: 14 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-          <View style={{ flex: 1, marginRight: 8 }}>
+      <GCard
+        glowColor={st.key === 'ongoing' ? C.neon : C.orange}
+        style={{ marginBottom: 14 }}
+        testID="tournament-detail-hero"
+      >
+        <View style={[s.heroRow, stackedDetailHeader && s.heroRowStacked]}>
+          <View style={[s.heroDetails, stackedDetailHeader && s.heroDetailsStacked]}>
             <Text style={s.mode}>{(t.mode || 'BATTLE ROYALE').toUpperCase()}</Text>
             <Text style={s.name}>{t.name || t.title}</Text>
             <Text style={s.meta}>SCHEDULED START: {scheduledStart}</Text>
           </View>
-          <Badge text={st.label} color={st.color} />
+          <View style={[s.heroBadge, stackedDetailHeader && s.heroBadgeStacked]}>
+            <Badge text={st.label} color={st.color} />
+          </View>
         </View>
       </GCard>
 
       {/* STATS */}
-      <View style={s.statRow}>
-        <View style={s.stat}>
+      <View style={[s.statRow, detailLargeText && s.statRowLarge]} testID="tournament-detail-stats">
+        <View style={[s.stat, detailLargeText && s.statLarge]}>
           <Text style={s.statK}>ENTRY</Text>
           <Text style={[s.statV, { color: C.gold }]}>🪙 {t.entryCoins}</Text>
           <Text style={s.statSub}>{inr(t.entryCoins)}</Text>
         </View>
-        <View style={[s.stat, { borderLeftWidth: 1, borderLeftColor: C.border, borderRightWidth: 1, borderRightColor: C.border }]}>
+        <View style={[
+          s.stat,
+          detailLargeText ? s.statLarge : s.statDivider,
+        ]}>
           <Text style={s.statK}>PRIZE POOL</Text>
           <Text style={[s.statV, { color: C.green }]}>🪙 {t.prizePool}</Text>
           <Text style={s.statSub}>{inr(t.prizePool)}</Text>
         </View>
-        <View style={s.stat}>
+        <View style={[s.stat, detailLargeText && s.statLarge]}>
            <Text style={s.statK}>{individualSquad || individualPlayerSlots ? 'PLAYER SLOTS' : 'TEAM SLOTS'}</Text>
            <Text style={[s.statV, { color: C.blue }]}>{individualSquad ? `${filledPlayers}/${totalPlayers}` : `${filledSlots}/${totalSlots}`}</Text>
            <Text
@@ -893,7 +922,7 @@ export default function TDetail() {
       </View>
 
       <SectionTitle accent={C.orange}>MATCH INFO</SectionTitle>
-      <Card>
+      <Card testID="tournament-match-info">
         <KV k="Mode" v={t.mode || '—'} />
         <KV k="Format" v={t.teamType || '—'} />
         <KV k="Map" v={t.map || '—'} />
@@ -1158,7 +1187,12 @@ export default function TDetail() {
             <Btn title="GO TO WALLET →" kind="gold" onPress={() => nav.navigate('Wallet')} style={{ marginTop: 10 }} />
           </>
         ) : (
-          <Btn title={`JOIN NOW — 🪙 ${t.entryCoins} (${inr(t.entryCoins)})`} onPress={join} loading={busy} />
+          <Btn
+            title={`JOIN NOW — 🪙 ${t.entryCoins} (${inr(t.entryCoins)})`}
+            onPress={join}
+            loading={busy}
+            testID="tournament-detail-join"
+          />
         )}
       </View>
     </ScrollView>
@@ -1167,12 +1201,24 @@ export default function TDetail() {
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
+  heroRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  heroRowStacked: { flexDirection: 'column', alignItems: 'stretch', gap: 8 },
+  heroDetails: { flex: 1, minWidth: 0, marginRight: 8 },
+  heroDetailsStacked: { marginRight: 0, width: '100%' },
+  heroBadge: { flexShrink: 0, alignSelf: 'flex-start' },
+  heroBadgeStacked: { alignSelf: 'flex-start' },
   mode: { color: C.orange, fontSize: 10, fontWeight: '900', letterSpacing: 1.5 },
   name: { color: C.text, fontSize: 20, fontWeight: '900', marginTop: 2 },
   meta: { color: C.sub, fontSize: 12, marginTop: 6, fontWeight: '600' },
   timeMeta: { color: C.gold, fontSize: 15, fontWeight: '900' },
   statRow: { flexDirection: 'row', borderRadius: 14, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, marginBottom: 6, overflow: 'hidden' },
   stat: { flex: 1, alignItems: 'center', paddingVertical: 12 },
+  statRowLarge: { flexDirection: 'column' },
+  statLarge: {
+    flex: 0, alignItems: 'flex-start', paddingHorizontal: 12, paddingVertical: 10,
+    borderLeftWidth: 0, borderRightWidth: 0, borderBottomWidth: 1, borderBottomColor: C.border,
+  },
+  statDivider: { borderLeftWidth: 1, borderLeftColor: C.border, borderRightWidth: 1, borderRightColor: C.border },
   statK: { color: C.dim, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
   statV: { fontSize: 17, fontWeight: '900', marginTop: 3 },
   statSub: { color: C.dim, fontSize: 9, marginTop: 2 },
@@ -1211,6 +1257,7 @@ const s = StyleSheet.create({
   winnerPrizeLabel: { color: C.dim, fontSize: 8, fontWeight: '900', letterSpacing: 0.7, marginTop: 3 },
   winnerPrizeValue: { color: C.text, fontSize: 10, fontWeight: '800', marginTop: 2 },
   squadCapacity: { color: C.squadAccent, fontSize: 12, fontWeight: '900', letterSpacing: 0.7 },
+  squadRegistrationStatus: { color: C.green, fontSize: 12, fontWeight: '800', lineHeight: 18, marginTop: 5 },
   squadNotice: { color: C.sub, fontSize: 11, lineHeight: 16, marginTop: 6 },
   squadTeamCard: {
     marginBottom: 10, padding: 12, backgroundColor: C.squadPanel,
@@ -1244,7 +1291,8 @@ const s = StyleSheet.create({
   squadSlotOccupied: {
     borderColor: '#e74c3c', backgroundColor: 'rgba(231, 76, 60, 0.14)',
   },
-  squadSlotsRowCompact: { gap: 6 },
+  squadSlotsRowCompact: { flexWrap: 'wrap', gap: 8 },
+  squadSlotColumnCompact: { flexGrow: 0, flexBasis: '47%' },
   squadSlotCompact: { height: 92 },
   squadSlotSelected: {
     borderColor: '#2ecc71', borderWidth: 2, backgroundColor: 'rgba(46, 204, 113, 0.24)',
