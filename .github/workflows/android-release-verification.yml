@@ -39,6 +39,9 @@ jobs:
           node-version: 24
           cache: pnpm
 
+      - name: Check preview entrypoint coverage
+        run: pnpm --filter @workspace/mockup-sandbox run test:preview-coverage
+
       - name: Install Chromium
         id: chromium
         uses: browser-actions/setup-chrome@v1
