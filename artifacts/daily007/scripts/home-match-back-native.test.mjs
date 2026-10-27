@@ -44,6 +44,7 @@ test('Maestro exercises two Home cards with native Android Back between details'
   assert.match(flow, /Home Back Test Match Two/);
   assert.equal((flow.match(/pressKey: BACK/g) ?? []).length, 2);
   assert.match(flow, /direction: LEFT/);
+  assert.match(flow, /- assertVisible:\s*\n\s+id: home-upcoming-card-home-back-match-two\s*$/);
 });
 
 test('the Android release emulator workflow runs the Home-to-match Back flow', async () => {

@@ -42,4 +42,4 @@ appId: host.exp.exponent
       id: home-upcoming-card-home-back-match-two
     timeout: 10000
 - assertVisible:
-    id: home-upcoming-card-home-back-match-one
+    id: home-upcoming-card-home-back-match-two
