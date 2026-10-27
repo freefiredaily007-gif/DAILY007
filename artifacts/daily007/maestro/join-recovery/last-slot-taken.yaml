@@ -35,6 +35,11 @@ appId: host.exp.exponent
     id: join-recovery-scenario-last-slot
 - assertVisible:
     text: "47/48 players"
+- scrollUntilVisible:
+    element:
+      id: join-form-player-game-name
+    direction: DOWN
+    centerElement: true
 - tapOn:
     id: join-form-player-game-name
 - inputText: "Native Test Player"
@@ -42,6 +47,7 @@ appId: host.exp.exponent
     element:
       id: join-form-player-game-uid
     direction: DOWN
+    centerElement: true
 - tapOn:
     id: join-form-player-game-uid
 - inputText: "987654321"
