@@ -35,8 +35,8 @@ Environment variables in the CI shell are not automatically available as Maestro
 
 ## Expo Go cold-start UI checks
 
-Run Maestro flows serially on a single emulator. On a cold Expo Go launch, dismiss the first-run developer prompt, wait for Metro's `Bundling` indicator to disappear, and handle the emulator's Pixel Launcher ANR prompt before asserting app content.
+Run Maestro flows serially on one emulator. Metro reporting `Android Bundled` only confirms host bundling; assert client readiness from the actual fixture UI. If Expo Go stays on its native splash with no runtime error, collect the screen hierarchy and screenshot instead of assuming the bundle or an optional `Wait` tap fixed it.
 
-**Why:** The first Android bundle took about 57 seconds in CI and the emulator displayed “Pixel Launcher isn’t responding”; short fixed waits inspected a system dialog instead of the fixture.
+**Why:** Hosted runs completed Metro bundling in roughly 42–55 seconds but still showed Expo Go's “Splash Screen Image”; later runs had no Pixel Launcher dialog or matching runtime errors. A successful host bundle does not prove the app executed.
 
-**How to apply:** Avoid passing a directory of stateful flows to one emulator test command; invoke each flow in sequence and wait for bundle completion before checking test IDs.
+**How to apply:** Keep flows serial, but use the first failed test's screenshot, screen hierarchy, Metro tail, and device logcat to diagnose a splash-only launch. Do not treat a bundle-complete message as a passed UI test.
