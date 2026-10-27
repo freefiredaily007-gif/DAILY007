@@ -25,7 +25,7 @@ const appConfig = JSON.parse(
 );
 export const EXPECTED_DAILY007_WEB_RELEASE_MARKER =
   appConfig.expo?.extra?.daily007WebReleaseMarker;
-export const EXPECTED_DAILY007_PWA_NAME = appConfig.expo?.displayName;
+export const EXPECTED_DAILY007_PWA_NAME = appConfig.expo?.extra?.daily007DisplayName;
 if (
   typeof EXPECTED_DAILY007_WEB_RELEASE_MARKER !== 'string'
   || !EXPECTED_DAILY007_WEB_RELEASE_MARKER.trim()
@@ -40,7 +40,7 @@ if (!EXPECTED_DAILY007_WEB_RELEASE_MARKER.startsWith(`${appConfig.expo?.version}
   );
 }
 if (typeof EXPECTED_DAILY007_PWA_NAME !== 'string' || !EXPECTED_DAILY007_PWA_NAME.trim()) {
-  throw new Error('PWA smoke check failed: app.json must define expo.displayName.');
+  throw new Error('PWA smoke check failed: app.json must define expo.extra.daily007DisplayName.');
 }
 
 const EXPECTED_PWA_ICON_ASSETS = new Map([
@@ -275,7 +275,7 @@ function validateInstallManifest(manifest, manifestUrl) {
       throw new Error(
         `PWA smoke check failed for release "${EXPECTED_DAILY007_WEB_RELEASE_MARKER}": ` +
         `manifest field "${field}" is "${value}", expected "${EXPECTED_DAILY007_PWA_NAME}" ` +
-        'from app.json expo.displayName.',
+        'from app.json expo.extra.daily007DisplayName.',
       );
     }
   }
