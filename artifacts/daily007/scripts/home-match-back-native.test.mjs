@@ -15,7 +15,7 @@ test('Home-to-match native fixture is dev-only and mounts the real screens with 
   assert.match(fixture, /import Home from '\.\/Home'/);
   assert.match(fixture, /import TDetail from '\.\/TDetail'/);
   assert.match(fixture, /NavigationIndependentTree/);
-  assert.match(fixture, /<Tab\.Screen name="Home" component=\{Home\}/);
+  assert.match(fixture, /<Tab\.Screen name="Home">\s*\{\(\) => <Home disableAutoCarousel \/>/);
   assert.match(fixture, /<Stack\.Screen name="TDetail" component=\{TDetail\}/);
   assert.match(fixture, /native-home-back-test-player/);
   assert.match(fixture, /Home Back Test Match One/);

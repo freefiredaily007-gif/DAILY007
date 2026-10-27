@@ -57,7 +57,9 @@ const testUser = {
 function HomeTab() {
   return (
     <Tab.Navigator screenOptions={{ headerShown: false }}>
-      <Tab.Screen name="Home" component={Home} />
+      <Tab.Screen name="Home">
+        {() => <Home disableAutoCarousel />}
+      </Tab.Screen>
     </Tab.Navigator>
   );
 }

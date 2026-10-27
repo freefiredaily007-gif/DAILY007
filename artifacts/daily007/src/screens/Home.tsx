@@ -132,7 +132,7 @@ const HOME_KNOCKOUT_DEFAULTS: Daily007KnockoutDefaultSettings = {
   ],
 };
 
-export default function Home() {
+export default function Home({ disableAutoCarousel = false }: { disableAutoCarousel?: boolean } = {}) {
   const { width, fontScale } = useWindowDimensions();
   const largeModeCard = fontScale >= 1.5;
   const narrowLargeText = fontScale >= 1.5 && width <= 340;
@@ -372,13 +372,13 @@ export default function Home() {
   };
   // auto-scroll every 3.5s when more than one match
   React.useEffect(() => {
-    if (upcomingItems.length <= 1 || screenReaderEnabled !== false) return;
+    if (disableAutoCarousel || upcomingItems.length <= 1 || screenReaderEnabled !== false) return;
     const iv = setInterval(() => {
       const next = (pageRef.current + 1) % Math.min(upcomingItems.length, 8);
       try { carouselRef.current?.scrollTo({ x: next * carouselPageSize, animated: true }); } catch {}
     }, 3500);
     return () => clearInterval(iv);
-  }, [upcomingItems.length, carouselPageSize, screenReaderEnabled]);
+  }, [upcomingItems.length, carouselPageSize, screenReaderEnabled, disableAutoCarousel]);
   const onRefresh = async () => {
     setRefreshing(true);
     await load();
