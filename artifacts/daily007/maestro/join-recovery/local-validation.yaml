@@ -31,10 +31,13 @@ appId: host.exp.exponent
     visible:
       id: join-recovery-fixture-banner
     timeout: 60000
+- tapOn:
+    id: join-recovery-scenario-insufficient-balance
 - scrollUntilVisible:
     element:
       id: join-form-submit
     direction: DOWN
+    centerElement: true
 - tapOn:
     id: join-form-submit
 - extendedWaitUntil:

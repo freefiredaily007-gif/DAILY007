@@ -39,6 +39,7 @@
 - [Daily007 invite recovery accessibility](daily007-invite-recovery-talkback.md) — Android TalkBack and iPhone VoiceOver were confirmed on failed-open recovery and successful-open silence.
 - [Daily007 Android distribution](daily007-android-distribution.md) — the user targets Google Play; each client release needs a new native build and higher versionCode.
 - [Daily007 Android emulator release checks](daily007-android-emulator-release-checks.md) — action runs each input line in a fresh shell; invoke one Bash script and verify hosted milestones.
+- [Expo Go LogBox in Maestro flows](expo-go-logbox-maestro.md) — center lower form targets before tapping; a warning overlay can replace the route while selectors still find the underlying field.
 - [Daily007 installed app metadata](daily007-app-metadata.md) — use expo-application for native version/build readouts; config values are only a fallback, not proof of an installed binary.
 - [Daily007 production tournament data](daily007-production-tournament-data.md) — replace only production matches with the current development set; do not overwrite unrelated production data.
 - [Daily007 browser referral links](daily007-referral-links.md) — referral URLs must load the web app at the public root, not an Expo Go launcher page.
