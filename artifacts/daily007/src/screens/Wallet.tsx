@@ -63,6 +63,11 @@ export type WalletHistoryTestObserver = (
   cursors: { transactionCursor: string | null; paymentCursor: string | null },
 ) => void;
 
+export type WalletHistoryTestApi = Pick<
+  typeof Api,
+  'transactionsPage' | 'myPaymentsPage' | 'myWithdrawals' | 'settings'
+>;
+
 function normalizeWalletPaymentReference(reference: unknown): string {
   return typeof reference === 'string'
     ? reference.normalize('NFKC').trim().toLocaleUpperCase('en-US')
@@ -116,11 +121,14 @@ function formatWalletCoins(value: unknown, allowBreaks: boolean) {
 
 export default function Wallet({
   onHistoryChange,
+  historyTestApi,
   onTextScaleLayout,
 }: {
   onHistoryChange?: WalletHistoryTestObserver;
+  historyTestApi?: WalletHistoryTestApi;
   onTextScaleLayout?: NativeTextScaleLayoutObserver;
 } = {}) {
+  const historyApi = __DEV__ && historyTestApi ? historyTestApi : Api;
   const { width, fontScale } = useWindowDimensions();
   const narrowLargeText = fontScale >= 1.5 && width <= 340;
   const navigation: any = useNavigation();
@@ -218,10 +226,10 @@ export default function Wallet({
         settingsResult,
       ] = await Promise.allSettled([
         Promise.resolve().then(refresh),
-        Promise.resolve().then(() => Api.transactionsPage()),
-        Promise.resolve().then(() => Api.myPaymentsPage()),
-        Promise.resolve().then(() => Api.myWithdrawals()),
-        Promise.resolve().then(() => Api.settings()),
+        Promise.resolve().then(() => historyApi.transactionsPage()),
+        Promise.resolve().then(() => historyApi.myPaymentsPage()),
+        Promise.resolve().then(() => historyApi.myWithdrawals()),
+        Promise.resolve().then(() => historyApi.settings()),
       ]);
       if (!requestIsCurrent()) return null;
       const transactionPage = transactionResult.status === 'fulfilled' ? transactionResult.value : null;
@@ -352,7 +360,7 @@ export default function Wallet({
     } finally {
       if (requestIsCurrent()) setLoading(false);
     }
-  }, [refresh, walletUserId]);
+  }, [historyApi, refresh, walletUserId]);
 
   const refreshHistory = useCallback(() => {
     setHistoryRetryStatus('');
@@ -397,8 +405,8 @@ export default function Wallet({
     setError('');
     try {
       const [transactionPage, paymentPage] = await Promise.all([
-        transactionCursor ? Api.transactionsPage(transactionCursor) : Promise.resolve(null),
-        paymentCursor ? Api.myPaymentsPage(paymentCursor) : Promise.resolve(null),
+        transactionCursor ? historyApi.transactionsPage(transactionCursor) : Promise.resolve(null),
+        paymentCursor ? historyApi.myPaymentsPage(paymentCursor) : Promise.resolve(null),
       ]);
       if (!requestIsCurrent()) return;
       if (transactionPage && !Array.isArray(transactionPage.items)) {
@@ -446,7 +454,7 @@ export default function Wallet({
     } finally {
       if (requestIsCurrent()) setLoadingMoreHistory(false);
     }
-  }, [loadingMoreHistory, paymentHistoryCursor, transactionHistoryCursor, walletUserId]);
+  }, [historyApi, loadingMoreHistory, paymentHistoryCursor, transactionHistoryCursor, walletUserId]);
 
   const openSheet = (t: 'add' | 'withdraw') => {
     if (t === 'add' && (!rechargeEnabled || !paymentUpi || !paymentQr)) {

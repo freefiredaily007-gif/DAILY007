@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Redirect } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 import {
@@ -9,8 +9,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ctx, type Ctx as AppContext } from '../App';
 import { ReadableText as Text } from '../components/typography';
 import { C } from '../components/ui';
-import { Api } from '../lib/api';
-import type { WalletHistoryTestObserver } from './Wallet';
+import type { WalletHistoryTestApi, WalletHistoryTestObserver } from './Wallet';
 import Wallet from './Wallet';
 
 const PAYMENT_COUNT = 45;
@@ -83,28 +82,6 @@ export default function WalletPaymentHistoryNativeTest() {
 
 function WalletPaymentHistoryFixture() {
   const [verification, setVerification] = useState(`Loading ${PAYMENT_COUNT} payment requests`);
-  const [apiOriginals] = useState(() => {
-    const originals = {
-      transactionsPage: Api.transactionsPage,
-      myPaymentsPage: Api.myPaymentsPage,
-      myWithdrawals: Api.myWithdrawals,
-      settings: Api.settings,
-    };
-
-    (Api as any).transactionsPage = async () => ({ items: [], nextCursor: null });
-    (Api as any).myPaymentsPage = async (cursor?: string) => getPage(cursor);
-    (Api as any).myWithdrawals = async () => [];
-    (Api as any).settings = async () => ({ settings: {} });
-    return originals;
-  });
-
-  useEffect(() => () => {
-    Api.transactionsPage = apiOriginals.transactionsPage;
-    Api.myPaymentsPage = apiOriginals.myPaymentsPage;
-    Api.myWithdrawals = apiOriginals.myWithdrawals;
-    Api.settings = apiOriginals.settings;
-  }, [apiOriginals]);
-
   const context = useMemo<AppContext>(() => ({
     user: testUser,
     refresh: async () => testUser,
@@ -115,9 +92,15 @@ function WalletPaymentHistoryFixture() {
   const observeHistory = useCallback<WalletHistoryTestObserver>((items, cursors) => {
     setVerification(verifyWalletHistory(items, cursors));
   }, []);
+  const historyTestApi = useMemo<WalletHistoryTestApi>(() => ({
+    transactionsPage: async () => ({ items: [], nextCursor: null }),
+    myPaymentsPage: async (cursor?: string) => getPage(cursor),
+    myWithdrawals: async () => [],
+    settings: async () => ({ settings: {} }),
+  }), []);
   const renderWallet = useCallback(
-    () => <Wallet onHistoryChange={observeHistory} />,
-    [observeHistory],
+    () => <Wallet historyTestApi={historyTestApi} onHistoryChange={observeHistory} />,
+    [historyTestApi, observeHistory],
   );
 
   return (
