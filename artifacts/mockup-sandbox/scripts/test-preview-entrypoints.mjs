@@ -580,6 +580,209 @@ exit 0
   }
 }
 
+async function runPreviewProcessCleanupFixture(scenario) {
+  const reportPath = process.env.DAILY007_PREVIEW_PROCESS_REPORT;
+  assert.ok(reportPath, "the process cleanup fixture requires a report path");
+  const workerPort = await getFreePort();
+  const workerScript = [
+    'const http = require("node:http");',
+    'const mode = process.env.DAILY007_PREVIEW_WORKER_MODE;',
+    'if (mode === "startup-failure") process.exit(17);',
+    'if (mode === "browser-failure" || mode === "browser-ready" || mode === "vite-ready") {',
+    '  const server = http.createServer((_request, response) => {',
+    '    response.statusCode = mode === "browser-failure" ? 503 : 200;',
+    '    response.end(JSON.stringify({ Browser: "fixture" }));',
+    '  });',
+    '  server.listen(Number(process.env.DAILY007_PREVIEW_WORKER_PORT), "127.0.0.1");',
+    '  process.on("SIGTERM", () => server.close(() => process.exit(0)));',
+    '}',
+    'setInterval(() => {}, 1000);',
+  ].join("\n");
+  const startWorker = (mode, port) => spawn(
+    process.execPath,
+    ["-e", workerScript],
+    {
+      env: {
+        ...process.env,
+        DAILY007_PREVIEW_WORKER_MODE: mode,
+        DAILY007_PREVIEW_WORKER_PORT: String(port),
+      },
+      stdio: "ignore",
+    },
+  );
+  const processes = [];
+  let safeLaterGroupRan = false;
+
+  try {
+    activeChromium = startWorker(
+      scenario === "browser-failure" ? "browser-failure" : "browser-ready",
+      workerPort,
+    );
+    activeChromium.executable = "fixture-chromium";
+    processes.push({ name: "Chromium", child: activeChromium });
+
+    if (scenario !== "browser-failure") {
+      await waitForBrowser(
+        `http://127.0.0.1:${workerPort}/json/version`,
+        activeChromium,
+        () => "",
+        1_500,
+      );
+    }
+
+    const vitePort = await getFreePort();
+    activeVite = startWorker(
+      scenario === "vite-startup-failure" ? "startup-failure" : "vite-ready",
+      vitePort,
+    );
+    processes.push({ name: "Vite", child: activeVite });
+
+    const failures = await runPreviewEntries({
+      config: `vite.${scenario}.config.ts`,
+      entries: [{ path: "/failure-fixture", screen: "Controlled failure" }],
+      runEntry: async () => {
+        if (scenario === "browser-failure") {
+          await waitForBrowser(
+            `http://127.0.0.1:${workerPort}/json/version`,
+            activeChromium,
+            () => "",
+            300,
+          );
+          return;
+        }
+        if (scenario === "vite-startup-failure") {
+          await waitForPreview(
+            `http://127.0.0.1:${vitePort}/`,
+            "Fixture Vite startup",
+            activeVite,
+            () => "",
+            1_500,
+          );
+          return;
+        }
+
+        await waitForPreview(
+          `http://127.0.0.1:${vitePort}/`,
+          "Fixture Vite runtime",
+          activeVite,
+          () => "",
+          1_500,
+        );
+        activeVite.kill("SIGTERM");
+        await new Promise((resolve) => activeVite.once("exit", resolve));
+        await waitForPreview(
+          `http://127.0.0.1:${vitePort}/`,
+          "Fixture Vite runtime",
+          activeVite,
+          () => "",
+          300,
+        );
+      },
+      getDiagnostics: () => ({ viteOutput: "", browserOutput: "" }),
+      shouldStopAfterFailure: () =>
+        activeVite.exitCode !== null || scenario === "browser-failure",
+    });
+
+    assert.equal(failures.length, 1, `${scenario} must be recorded as a preview failure`);
+    await stopProcess(activeVite);
+    activeVite = undefined;
+
+    if (scenario !== "browser-failure") {
+      const safePort = await getFreePort();
+      activeVite = startWorker("vite-ready", safePort);
+      processes.push({ name: "later Vite", child: activeVite });
+      await waitForPreview(
+        `http://127.0.0.1:${safePort}/`,
+        "Safe later preview group",
+        activeVite,
+        () => "",
+        1_500,
+      );
+      safeLaterGroupRan = true;
+      await stopProcess(activeVite);
+      activeVite = undefined;
+    }
+  } finally {
+    await cleanupPreviewProcesses();
+    await writeFile(
+      reportPath,
+      JSON.stringify({
+        scenario,
+        safeLaterGroupRan,
+        processes: processes.map(({ name, child }) => ({
+          name,
+          pid: child.pid,
+          exitCode: child.exitCode,
+          signalCode: child.signalCode,
+        })),
+      }, null, 2),
+    );
+  }
+}
+
+async function testPreviewProcessCleanup() {
+  const fixtureRoot = await mkdtemp(path.join(os.tmpdir(), "daily007-preview-process-cleanup-"));
+
+  try {
+    for (const scenario of ["vite-startup-failure", "vite-runtime-failure", "browser-failure"]) {
+      const reportPath = path.join(fixtureRoot, `${scenario}.json`);
+      const childOutput = [];
+      const child = spawn(
+        process.execPath,
+        [fileURLToPath(import.meta.url), "--test-preview-process-cleanup-fixture", scenario],
+        {
+          cwd: workspaceRoot,
+          env: { ...process.env, DAILY007_PREVIEW_PROCESS_REPORT: reportPath },
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+      child.stdout.on("data", (chunk) => { childOutput.push(chunk.toString()); });
+      child.stderr.on("data", (chunk) => { childOutput.push(chunk.toString()); });
+      const result = await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          child.kill("SIGKILL");
+          reject(new Error(`${scenario} cleanup fixture timed out.`));
+        }, 8_000);
+        child.once("error", (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        });
+        child.once("close", (code, signal) => {
+          clearTimeout(timeout);
+          resolve({ code, signal });
+        });
+      });
+
+      assert.equal(
+        result.code,
+        0,
+        `${scenario} fixture failed (${result.signal ?? "no signal"}):\n${childOutput.join("")}`,
+      );
+      const report = JSON.parse(await readFile(reportPath, "utf8"));
+      assert.equal(report.scenario, scenario);
+      assert.ok(report.processes.some(({ name }) => name === "Vite"));
+      assert.ok(report.processes.some(({ name }) => name === "Chromium"));
+      for (const processReport of report.processes) {
+        assert.ok(
+          processReport.exitCode !== null || processReport.signalCode !== null,
+          `${scenario} left ${processReport.name} running (pid ${processReport.pid})`,
+        );
+        assert.throws(
+          () => process.kill(processReport.pid, 0),
+          { code: "ESRCH" },
+          `${scenario} left ${processReport.name} process ${processReport.pid} alive`,
+        );
+      }
+      if (scenario !== "browser-failure") {
+        assert.equal(report.safeLaterGroupRan, true, "a safe later preview group must still run");
+      }
+    }
+    console.log("PASS preview Vite and Chromium processes close after controlled failures.");
+  } finally {
+    await rm(fixtureRoot, { recursive: true, force: true });
+  }
+}
+
 async function checkPreviewDependencyBoundaryPlugin() {
   const configs = [...new Set(previewGroups.map((group) => group.config))].sort();
   const errors = [];
@@ -787,8 +990,8 @@ async function getFreePort() {
   return address.port;
 }
 
-async function waitForPreview(url, label, server, getServerOutput) {
-  const deadline = Date.now() + 30_000;
+async function waitForPreview(url, label, server, getServerOutput, timeoutMs = 30_000) {
+  const deadline = Date.now() + timeoutMs;
   let lastError;
   while (Date.now() < deadline) {
     if (server.spawnError) {
@@ -813,8 +1016,8 @@ async function waitForPreview(url, label, server, getServerOutput) {
   );
 }
 
-async function waitForBrowser(url, browser, getBrowserOutput) {
-  const deadline = Date.now() + 15_000;
+async function waitForBrowser(url, browser, getBrowserOutput, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
   let lastError;
   const throwIfSpawnFailed = () => {
     if (browser.spawnError) {
@@ -1496,17 +1699,37 @@ let activeViteOutput = "";
 let temporaryRoot;
 const previewFailures = [];
 
+async function cleanupPreviewProcesses() {
+  socket?.close();
+  await stopProcess(activeChromium);
+  await stopProcess(activeVite);
+  if (temporaryRoot) {
+    await rm(temporaryRoot, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
+  }
+}
+
 try {
   const duplicateTestOnly = process.argv.includes("--test-preview-duplicates-only");
   const failureSummaryOnly = process.argv.includes("--test-preview-failure-summary-only");
   const chromiumPreflightTestOnly = process.argv.includes("--test-chromium-preflight-only");
   const chromiumPreflightFixtureOnly = process.argv.includes("--test-chromium-preflight-fixture");
+  const processCleanupTestOnly = process.argv.includes("--test-preview-process-cleanup-only");
+  const processCleanupFixtureOnly = process.argv.includes("--test-preview-process-cleanup-fixture");
   if (failureSummaryOnly) {
     await testPreviewFailureSummary();
   } else if (duplicateTestOnly) {
     await testPreviewEntrypointDuplicates();
   } else if (chromiumPreflightTestOnly) {
     await testChromiumPreflightFailure();
+  } else if (processCleanupTestOnly) {
+    await testPreviewProcessCleanup();
+  } else if (processCleanupFixtureOnly) {
+    await runPreviewProcessCleanupFixture(process.argv.at(-1));
   } else if (!chromiumPreflightFixtureOnly) {
     await checkPreviewDependencyBoundary();
     await checkPreviewEntrypointCoverage();
@@ -1517,6 +1740,8 @@ try {
     !duplicateTestOnly
     && !failureSummaryOnly
     && !chromiumPreflightTestOnly
+    && !processCleanupTestOnly
+    && !processCleanupFixtureOnly
     && !process.argv.includes("--check-entrypoints-only")
   ) {
     temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "daily007-preview-entrypoints-"));
@@ -1648,15 +1873,5 @@ try {
   }
   process.exitCode = 1;
 } finally {
-  socket?.close();
-  await stopProcess(activeChromium);
-  await stopProcess(activeVite);
-  if (temporaryRoot) {
-    await rm(temporaryRoot, {
-      recursive: true,
-      force: true,
-      maxRetries: 5,
-      retryDelay: 100,
-    });
-  }
+  await cleanupPreviewProcesses();
 }
