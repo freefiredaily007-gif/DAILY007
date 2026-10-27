@@ -200,7 +200,7 @@ run_maestro_suite() {
     cat "$suite_log"
     reverse_mappings="$(adb reverse --list 2>&1 | tr '\r\n' ' ' | cut -c 1-400)"
     [ -n "$reverse_mappings" ] || reverse_mappings="<no reverse mappings>"
-    suite_details="$(tail -n 12 "$suite_log" | tr '\r\n' ' ' | cut -c 1-700)"
+    suite_details="$(tail -n 50 "$suite_log" | tr '\r\n' ' ' | cut -c 1-2200)"
     [ -n "$suite_details" ] || suite_details="<empty Maestro output>"
     echo "Android API level ${ANDROID_API_LEVEL} Maestro suite ${suite_name} failed with exit code ${suite_status}." >&2
     report_failure "$suite_status" "$LINENO" \
