@@ -24,3 +24,11 @@ Keep additional local-fixture health probes after Metro has started and passed i
 **Why:** A pre-Metro curl call deadlocks the mocked release script even when the fixture server itself is healthy.
 
 **How to apply:** Select and export fixture configuration before starting Metro, but launch the fixture server and probe it only after Metro readiness.
+
+## Maestro flow variable forwarding
+
+Environment variables in the CI shell are not automatically available as Maestro flow variables. Pass values referenced as `${NAME}` in flow YAML explicitly with Maestro's `-e NAME=value` option.
+
+**Why:** The Android workflow reached Metro successfully, but `openLink` received `undefined` for the Expo URL and Android could not resolve the intent.
+
+**How to apply:** When Maestro tests run through package scripts or Node helpers, ensure the CLI invocation receives the flow variables, not merely the parent process environment.

@@ -192,6 +192,7 @@ run_maestro_suite() {
   local suite_details
   local result_files
   local result_diagnostics
+  local screen_text
   local screen_diagnostics
   PHASE="Maestro suite ${suite_name}"
   echo "Running Android API level ${ANDROID_API_LEVEL} Maestro suite: ${suite_name}"
@@ -220,8 +221,13 @@ run_maestro_suite() {
       find "$MAESTRO_TEST_OUTPUT_DIR" -type f -path '*/screen-hierarchy/*' -print0 2>/dev/null |
         while IFS= read -r -d '' screen; do
           printf '%s: ' "${screen#"$MAESTRO_TEST_OUTPUT_DIR"/}"
-          grep -oE '(text|content-desc)="[^"]+"' "$screen" 2>/dev/null |
-            grep -vE '=""' | tr '\r\n' ' ' | cut -c 1-500 || true
+          if [[ "$screen" == *.json ]]; then
+            screen_text="$(node "$(dirname "${BASH_SOURCE[0]}")/maestro-screen-hierarchy-text.mjs" "$screen" 2>/dev/null | cut -c 1-500 || true)"
+          else
+            screen_text="$(grep -oE '(text|content-desc)="[^"]+"' "$screen" 2>/dev/null |
+              grep -vE '=""' | tr '\r\n' ' ' | cut -c 1-500 || true)"
+          fi
+          printf '%s' "${screen_text:-<no screen text extracted>}"
           printf '; '
         done | cut -c 1-1200
     )"
