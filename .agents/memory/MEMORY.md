@@ -26,7 +26,7 @@
 - [RN Web keyboard event typing](rnw-keyboard-event-types.md) — package-root types may omit runtime key handlers; guard web behavior and keep the handler narrowly typed.
 - [Daily007 Android Back behavior](daily007-android-back.md) — hardware Back first hides the keyboard in Wallet/Edit Profile; values and second-Back behavior were confirmed on Android.
 - [Daily007 signup keyboard](daily007-signup-keyboard.md) — iQOO Neo 10 / Android 16 confirmed Next navigation through signup fields and Done leaving Create Account reachable.
-- [Expo Go and CLI startup diagnosis](expo-go-loading-diagnosis.md) — distinguish Metro readiness from UI-tree visibility; clear launcher ANR, onboarding, and native developer-menu overlays.
+- [Expo Go and CLI startup diagnosis](expo-go-loading-diagnosis.md) — separate Metro/UI-tree issues from emulator background-ANR dialogs and Expo Go startup overlays.
 - [API test execution](api-test-execution.md) — bundle API TypeScript tests through workspace esbuild as CommonJS; keep application imports extensionless.
 - [Daily007 API client tests](daily007-api-client-tests.md) — Node 24 tests that import the Expo API client need native module mocks and an extensionless TypeScript resolver.
 - [Daily007 UI asset test isolation](daily007-ui-asset-tests.md) — test selectors as pure TypeScript with injected sources; separately guard Metro asset wiring without importing React Native UI into Node.

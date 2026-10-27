@@ -66,6 +66,17 @@ run_logged() {
   fi
 }
 
+PHASE="suppress background ANR dialogs in the headless emulator"
+run_logged background-anr-setting adb shell settings put global anr_show_background 0
+run_logged verify-background-anr-setting adb shell settings get global anr_show_background
+background_anr_setting="$(tr -d '\r' < "$DIAG_DIR/verify-background-anr-setting.log")"
+if [ "$background_anr_setting" != "0" ]; then
+  setting_error="Expected anr_show_background=0 for the headless emulator; got '${background_anr_setting:-<empty>}'"
+  echo "$setting_error" >&2
+  report_failure 1 "$LINENO" "$setting_error"
+  exit 1
+fi
+
 capture_metro_diagnostics() {
   local process_file="$DIAG_DIR/metro-process.txt"
   local listeners_file="$DIAG_DIR/metro-port-listeners.txt"

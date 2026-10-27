@@ -29,10 +29,12 @@ test("join-recovery flows handle Expo Go prompts and the native developer menu",
       join(root, `artifacts/daily007/maestro/join-recovery/${flowName}.yaml`),
       "utf8",
     );
-    assert.match(
-      flow,
-      /repeat:\n\s+times: 8\n\s+while:\n\s+notVisible:\n\s+id: join-recovery-fixture-banner[\s\S]*?id: android:id\/aerr_wait\n\s+optional: true\n\s+waitUntilVisible: true[\s\S]*?text: Continue\n\s+optional: true\n\s+waitUntilVisible: true[\s\S]*?when:\n\s+visible: Reload\n\s+commands:\n\s+- pressKey: BACK[\s\S]*?id: join-recovery-fixture-banner\n\s+timeout: 60000/,
-    );
+    assert.match(flow, /repeat:\n\s+times: 8\n\s+while:\n\s+notVisible:\n\s+id: join-recovery-fixture-banner/);
+    assert.match(flow, /id: android:id\/aerr_wait\n\s+optional: true/);
+    assert.doesNotMatch(flow, /id: android:id\/aerr_wait[\s\S]{0,100}waitUntilVisible: true/);
+    assert.match(flow, /text: Continue\n\s+optional: true\n\s+waitUntilVisible: true/);
+    assert.match(flow, /when:\n\s+visible: Reload\n\s+commands:\n\s+- pressKey: BACK/);
+    assert.match(flow, /id: join-recovery-fixture-banner\n\s+timeout: 60000/);
   }
 });
 
@@ -258,6 +260,9 @@ case "$1" in
   shell)
     if [ "$2" = pm ]; then
       echo package:/data/app/host.exp.exponent/base.apk
+    fi
+    if [ "$2" = settings ] && [ "$3" = get ] && [ "$4" = global ] && [ "$5" = anr_show_background ]; then
+      if [ "$FAIL_STAGE" = anr-setting ]; then echo 1; else echo 0; fi
     fi ;;
   logcat) echo 'mock logcat' ;;
 esac
@@ -359,6 +364,10 @@ for (const api of [35, 36]) {
     assert.match(result.hostReady, /host Metro reached packager-status:running and adb reverse was configured on port \d+/);
     assert.match(result.summary, /Expo Go installed successfully/);
     assert.match(result.summary, /ADB reverse configured; Maestro flows will verify app connectivity/);
+    const anrSetting = result.calls.indexOf("adb shell settings put global anr_show_background 0");
+    const expoGoInstall = result.calls.indexOf("adb install -r");
+    assert.ok(anrSetting >= 0 && anrSetting < expoGoInstall, "background ANR dialogs must be disabled before app startup");
+    assert.match(result.calls, /adb shell settings get global anr_show_background/);
     assert.match(result.calls, /adb shell pm path host.exp.exponent/);
     const metroPort = result.calls.match(/adb reverse tcp:(\d+) tcp:\1/)?.[1];
     assert.ok(metroPort, "adb reverse must use the dynamically selected Metro port");
@@ -381,6 +390,15 @@ for (const api of [35, 36]) {
     assert.match(result.logcat, /mock logcat/);
   });
 }
+
+test("background ANR suppression must be verified before launching Metro", async () => {
+  const result = await run(35, "anr-setting");
+  assert.equal(result.status, 1);
+  assert.equal(result.exit, "exit_status=1\n");
+  assert.match(result.failureDetails, /phase=suppress background ANR dialogs in the headless emulator/);
+  assert.match(result.output, /Expected anr_show_background=0/);
+  assert.doesNotMatch(result.calls, /adb install -r|pnpm .*--port/);
+});
 
 test("install failure preserves its exit status, log and cleanup without starting Metro", async () => {
   const result = await run(35, "install");
