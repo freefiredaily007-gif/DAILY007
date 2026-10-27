@@ -107,6 +107,7 @@ run_logged adb-reverse adb reverse "tcp:${METRO_PORT}" "tcp:${METRO_PORT}"
 PHASE="start Expo Metro on host port ${METRO_PORT}"
 EXPO_ROUTER_DISABLE_RN_NAVIGATION_CHECK=1 \
 EXPO_PUBLIC_DOMAIN=daily007-ci.invalid \
+EXPO_PUBLIC_ANDROID_JOIN_RECOVERY_TEST=1 \
 EXPO_NO_TELEMETRY=1 \
 NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--dns-result-order=ipv4first --require=${WORKSPACE_DIR}/.github/scripts/disable-rn-devtools-shell.cjs" \
 CI=1 \

@@ -11,6 +11,7 @@ const require = createRequire(import.meta.url);
 const { installCiDevToolsShellOverride } = require("./disable-rn-devtools-shell.cjs");
 const workflow = await readFile(join(root, ".github/workflows/android-release-verification.yml"), "utf8");
 const emulatorScript = await readFile(join(root, ".github/scripts/android-emulator-verification.sh"), "utf8");
+const rootLayout = await readFile(join(root, "artifacts/daily007/app/_layout.tsx"), "utf8");
 const daily007Package = JSON.parse(await readFile(join(root, "artifacts/daily007/package.json"), "utf8"));
 const commands = [...workflow.matchAll(/^ {10}script:\s*(.+)$/gm)].map((match) => match[1]);
 const setupDiagnosticsScript = join(root, ".github/scripts/android-emulator-setup-diagnostics.sh");
@@ -43,6 +44,13 @@ test("each emulator action invokes one persistent Bash process, not independent 
   assert.match(workflow, /name: Upload Android emulator diagnostics\s+if: always\(\)/);
   assert.match(workflow, /id: emulator_api_35[\s\S]*?Capture Android 35 setup failure diagnostics\s+if: \$\{\{ failure\(\) && steps\.emulator_api_35\.outcome == 'failure' \}\}[\s\S]*?android-emulator-setup-diagnostics\.sh 35 5554/);
   assert.match(workflow, /id: emulator_api_36[\s\S]*?Capture Android 36 setup failure diagnostics\s+if: \$\{\{ failure\(\) && steps\.emulator_api_36\.outcome == 'failure' \}\}[\s\S]*?android-emulator-setup-diagnostics\.sh 36 5554/);
+});
+
+test("Android join-recovery CI can hide the splash without waiting for custom fonts", () => {
+  assert.match(emulatorScript, /EXPO_PUBLIC_ANDROID_JOIN_RECOVERY_TEST=1/);
+  assert.match(rootLayout, /EXPO_PUBLIC_ANDROID_JOIN_RECOVERY_TEST === '1'/);
+  assert.match(rootLayout, /fontsLoaded \|\| fontError \|\| androidJoinRecoverySmokeTest/);
+  assert.match(rootLayout, /!fontsLoaded && !fontError && !androidJoinRecoverySmokeTest/);
 });
 
 test("headless CI disables only the optional standalone React Native DevTools shell", () => {

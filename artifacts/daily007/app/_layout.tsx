@@ -32,6 +32,8 @@ if (domain) setBaseUrl(`https://${domain}`);
 setAuthTokenGetter(async () => (await getSession())?.token ?? null);
 const clerkPublishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 const clerkProxyUrl = process.env.EXPO_PUBLIC_CLERK_PROXY_URL || undefined;
+const androidJoinRecoverySmokeTest =
+  process.env.EXPO_PUBLIC_ANDROID_JOIN_RECOVERY_TEST === '1';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -105,12 +107,12 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    if (fontsLoaded || fontError) {
+    if (fontsLoaded || fontError || androidJoinRecoverySmokeTest) {
       SplashScreen.hideAsync();
     }
   }, [fontsLoaded, fontError]);
 
-  if (!fontsLoaded && !fontError) return null;
+  if (!fontsLoaded && !fontError && !androidJoinRecoverySmokeTest) return null;
 
   return (
     <SafeAreaProvider>
