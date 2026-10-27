@@ -15,7 +15,7 @@ On a fresh Expo Go emulator, a native startup prompt may appear only after Metro
 
 **Why:** Android CI artifacts showed the app route behind a “Pixel Launcher isn't responding” dialog caused by `com.google.android.apps.nexuslauncher`, as well as Expo Go's full developer menu. The route loaded without a matching runtime error, but Maestro could not access the covered fixture while the system ANR dialog remained.
 
-**How to apply:** Set and verify `settings put global anr_show_background 0` on headless emulator jobs. Use bounded retries until an app-specific accessibility marker is visible; handle Expo Go's “Continue” prompt and press Android Back only when the developer menu's “Reload” item is visible. Do not trust screenshot-only bundling text as a Maestro visibility condition.
+**How to apply:** Set and verify `settings put global anr_show_background 0` on headless emulator jobs. Use bounded retries until an app-specific accessibility marker is visible; press Android Back only when Expo Go's “Continue” or “Reload” menu item is visible. Do not trust screenshot-only bundling text as a Maestro visibility condition.
 
 **Why:** Repeated screenshots of the outer failure screen gave no exception details and led to speculative callback changes. A valid callback route alone does not establish that the project loaded correctly on the phone.
 

@@ -5,7 +5,7 @@ appId: host.exp.exponent
 # Expo Go's bundle progress is not consistently exposed to Maestro's UI tree.
 # Retry startup prompts and close the native dev menu until the route is accessible.
 - repeat:
-    times: 8
+    times: 12
     while:
       notVisible:
         id: join-recovery-fixture-banner
@@ -17,6 +17,11 @@ appId: host.exp.exponent
           text: Continue
           optional: true
           waitUntilVisible: true
+      - runFlow:
+          when:
+            visible: Continue
+          commands:
+            - pressKey: BACK
       - runFlow:
           when:
             visible: Reload
