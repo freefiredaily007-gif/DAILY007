@@ -242,6 +242,7 @@ async function run(api, failStage = "") {
     MOCK_CALLS: join(dir, "calls.txt"),
     MOCK_METRO_PID: join(dir, "metro.pid"),
     FAIL_STAGE: failStage,
+    ANDROID_METRO_STARTUP_TIMEOUT_SECONDS: failStage === "metro-stalled" ? "2" : "360",
   };
   const stubs = {
     adb: `#!/usr/bin/env bash
@@ -260,6 +261,15 @@ case "$1" in
     fi ;;
   logcat) echo 'mock logcat' ;;
 esac
+`,
+    ps: `#!/usr/bin/env bash
+printf 'mock ps %s\\n' "$*"
+`,
+    ss: `#!/usr/bin/env bash
+printf 'State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\\n'
+if [ "$FAIL_STAGE" != host ] && [ "$FAIL_STAGE" != metro-stalled ]; then
+  printf 'LISTEN 0 128 127.0.0.1:%s 0.0.0.0:* users:(("mock-metro",pid=1,fd=3))\\n' "$METRO_PORT"
+fi
 `,
     pnpm: `#!/usr/bin/env bash
 printf 'pnpm %s\\n' "$*" >> "$MOCK_CALLS"
@@ -289,7 +299,11 @@ echo 'mock suite passed'
     curl: `#!/usr/bin/env bash
 printf 'curl %s\\n' "$*" >> "$MOCK_CALLS"
 while [ ! -f "$MOCK_METRO_PID" ]; do sleep 0.01; done
-[ "$FAIL_STAGE" != host ] || exit 22
+if [[ " $* " == *" --verbose "* ]]; then
+  echo 'curl: (7) Failed to connect to Metro: Connection refused' >&2
+  exit 7
+fi
+[ "$FAIL_STAGE" != host ] && [ "$FAIL_STAGE" != metro-stalled ] || exit 22
 printf 'packager-status:running'
 `,
     maestro: `#!/usr/bin/env bash
@@ -320,6 +334,12 @@ printf 'maestro %s\\n' "$*" >> "$MOCK_CALLS"
       install: await exists("expo-go-install.log"),
       failureDetails: await exists("failure-details.txt"),
       hostDiagnostics: await exists("metro-host-diagnostics.txt"),
+      metroProcess: await exists("metro-process.txt"),
+      metroListeners: await exists("metro-port-listeners.txt"),
+      metroIpv4Probe: await exists("metro-status-ipv4.curl.txt"),
+      metroIpv4ProbeLog: await exists("metro-status-ipv4.curl.log"),
+      metroLocalhostProbe: await exists("metro-status-localhost.curl.txt"),
+      metroLocalhostProbeLog: await exists("metro-status-localhost.curl.log"),
       output: result.stdout + result.stderr,
       summary: await readFile(env.GITHUB_STEP_SUMMARY, "utf8").catch(() => ""),
     };
@@ -344,7 +364,7 @@ for (const api of [35, 36]) {
     assert.ok(metroPort, "adb reverse must use the dynamically selected Metro port");
     assert.match(result.calls, new RegExp(`pnpm .*--port ${metroPort}`));
     assert.match(result.calls, /NODE_OPTIONS .*--dns-result-order=ipv4first/);
-    assert.match(result.calls, new RegExp(`curl --noproxy \\* --fail --silent http://localhost:${metroPort}/status`));
+    assert.match(result.calls, new RegExp(`curl --noproxy \\* --connect-timeout 1 --max-time 3 --fail --silent http://localhost:${metroPort}/status`));
     assert.doesNotMatch(result.calls, /toybox nc/);
     assert.match(result.calls, new RegExp(`maestro test -e EXPO_DEV_URL=exp:\\/\\/127\\.0\\.0\\.1:${metroPort} sample-flow\\.yaml`));
     assert.match(result.calls, new RegExp(`maestro test -e EXPO_DEV_URL=exp:\\/\\/127\\.0\\.0\\.1:${metroPort} sample-flow-with-env\\.yaml`));
@@ -409,3 +429,22 @@ for (const stage of ["host", "maestro"]) {
     }
   });
 }
+
+test("Metro readiness timeout captures process, port, and loopback status diagnostics", async () => {
+  const result = await run(35, "metro-stalled");
+  assert.equal(result.status, 1);
+  assert.equal(result.exit, "exit_status=1\n");
+  assert.match(result.failureDetails, /Metro did not become ready on host port \d+/);
+  assert.match(result.metroProcess, /metro_process_status=running/);
+  assert.match(result.metroProcess, /mock ps/);
+  assert.match(result.metroListeners, /Local Address:Port/);
+  assert.match(result.metroIpv4Probe, /curl_exit=7/);
+  assert.match(result.metroIpv4ProbeLog, /Connection refused/);
+  assert.match(result.metroLocalhostProbe, /curl_exit=7/);
+  assert.match(result.metroLocalhostProbeLog, /Connection refused/);
+  assert.match(result.output, /Metro process diagnostics:/);
+  assert.match(result.output, /Metro port listeners:/);
+  assert.match(result.output, /Metro ipv4 \/status probe:/);
+  assert.match(result.output, /Metro localhost \/status probe:/);
+  assert.doesNotMatch(result.calls, /pnpm .* run /);
+});

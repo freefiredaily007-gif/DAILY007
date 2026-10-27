@@ -66,6 +66,54 @@ run_logged() {
   fi
 }
 
+capture_metro_diagnostics() {
+  local process_file="$DIAG_DIR/metro-process.txt"
+  local listeners_file="$DIAG_DIR/metro-port-listeners.txt"
+  local probe_label
+  local probe_host
+  local probe_status
+
+  {
+    printf 'metro_pid=%s\n' "$METRO_PID"
+    if kill -0 "$METRO_PID" 2>/dev/null; then
+      echo "metro_process_status=running"
+    else
+      echo "metro_process_status=exited"
+    fi
+    if command -v ps >/dev/null 2>&1; then
+      ps -p "$METRO_PID" -o pid=,ppid=,stat=,etime=,args= 2>&1 || true
+      ps --ppid "$METRO_PID" -o pid=,ppid=,stat=,etime=,args= 2>&1 || true
+    else
+      echo "ps command is unavailable"
+    fi
+  } > "$process_file"
+
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltnp "sport = :${METRO_PORT}" > "$listeners_file" 2>&1 || true
+  else
+    echo "ss command is unavailable" > "$listeners_file"
+  fi
+
+  for probe_label in ipv4 localhost; do
+    if [ "$probe_label" = ipv4 ]; then
+      probe_host="127.0.0.1"
+    else
+      probe_host="localhost"
+    fi
+    if curl --noproxy '*' --verbose --connect-timeout 2 --max-time 5 --fail \
+      --output "$DIAG_DIR/metro-status-${probe_label}.txt" \
+      --write-out 'http_status=%{http_code}\nremote_ip=%{remote_ip}\n' \
+      "http://${probe_host}:${METRO_PORT}/status" \
+      > "$DIAG_DIR/metro-status-${probe_label}.curl.txt" \
+      2> "$DIAG_DIR/metro-status-${probe_label}.curl.log"; then
+      probe_status=0
+    else
+      probe_status=$?
+    fi
+    printf 'curl_exit=%s\n' "$probe_status" >> "$DIAG_DIR/metro-status-${probe_label}.curl.txt"
+  done
+}
+
 PHASE="install Expo Go APK"
 run_logged expo-go-install adb install -r "$RUNNER_TEMP_DIR/expo-go.apk"
 PHASE="verify Expo Go package installation"
@@ -83,6 +131,13 @@ case "$METRO_PORT" in
   ''|*[!0-9]*) echo "Could not select a valid Metro port: $METRO_PORT" >&2; exit 1 ;;
 esac
 export METRO_PORT
+ANDROID_METRO_STARTUP_TIMEOUT_SECONDS="${ANDROID_METRO_STARTUP_TIMEOUT_SECONDS:-360}"
+case "$ANDROID_METRO_STARTUP_TIMEOUT_SECONDS" in
+  ''|*[!0-9]*|0)
+    echo "Invalid Android Metro startup timeout: $ANDROID_METRO_STARTUP_TIMEOUT_SECONDS" >&2
+    exit 1
+    ;;
+esac
 
 PHASE="start local Google OAuth callback fixture"
 OAUTH_FIXTURE_PORT=""
@@ -117,38 +172,53 @@ METRO_PID=$!
 
 metro_ready=false
 PHASE="wait for Metro host status on port ${METRO_PORT}"
-for attempt in $(seq 1 90); do
-  if curl --noproxy '*' --fail --silent "http://localhost:${METRO_PORT}/status" > "$DIAG_DIR/metro-status.txt" &&
+metro_deadline=$((SECONDS + ANDROID_METRO_STARTUP_TIMEOUT_SECONDS))
+while (( SECONDS < metro_deadline )); do
+  if curl --noproxy '*' --connect-timeout 1 --max-time 3 --fail --silent \
+    "http://localhost:${METRO_PORT}/status" > "$DIAG_DIR/metro-status.txt" &&
     grep -q "packager-status:running" "$DIAG_DIR/metro-status.txt"; then
     metro_ready=true
     break
   fi
   if ! kill -0 "$METRO_PID" 2>/dev/null; then break; fi
-  sleep 2
+  sleep 1
 done
 if [ "$metro_ready" != true ]; then
+  capture_metro_diagnostics
   cat "$DIAG_DIR/daily007-metro.log"
   {
     echo "Node localhost resolution:"
     node -e 'require("node:dns").lookup("localhost", { all: true }, (error, addresses) => console.log(JSON.stringify({ error, addresses })))' || true
     echo "TCP listeners for Metro port ${METRO_PORT}:"
-    if command -v ss >/dev/null 2>&1; then
-      ss -ltnp 2>&1 | grep -E "(^State|:${METRO_PORT}([[:space:]]|$))" || true
-    else
-      echo "ss is not installed"
-    fi
+    cat "$DIAG_DIR/metro-port-listeners.txt"
     for probe_host in localhost 127.0.0.1; do
       echo "HTTP ${probe_host} probe:"
       curl --noproxy '*' --connect-timeout 2 --max-time 4 --silent --show-error --include \
         "http://${probe_host}:${METRO_PORT}/status" || true
     done
     echo "Expo process:"
-    ps -p "$METRO_PID" -o pid,ppid,stat,etime,args 2>&1 || true
+    cat "$DIAG_DIR/metro-process.txt"
   } > "$DIAG_DIR/metro-host-diagnostics.txt" 2>&1
   cat "$DIAG_DIR/metro-host-diagnostics.txt"
+  echo "Metro process diagnostics:"
+  cat "$DIAG_DIR/metro-process.txt"
+  echo "Metro port listeners:"
+  cat "$DIAG_DIR/metro-port-listeners.txt"
+  for probe_label in ipv4 localhost; do
+    echo "Metro ${probe_label} /status probe:"
+    cat "$DIAG_DIR/metro-status-${probe_label}.curl.txt"
+    cat "$DIAG_DIR/metro-status-${probe_label}.curl.log"
+    if [ -s "$DIAG_DIR/metro-status-${probe_label}.txt" ]; then
+      cat "$DIAG_DIR/metro-status-${probe_label}.txt"
+    fi
+  done
   PHASE="Metro did not become ready on host port ${METRO_PORT}"
   metro_details="$(tail -n 12 "$DIAG_DIR/daily007-metro.log" 2>/dev/null | tr '\n' ' ' | cut -c1-700)"
-  report_failure 1 "$LINENO" "$metro_details"
+  port_details="$(tr '\n' ' ' < "$DIAG_DIR/metro-port-listeners.txt" | cut -c1-250)"
+  ipv4_probe="$(tr '\n' ' ' < "$DIAG_DIR/metro-status-ipv4.curl.txt" | cut -c1-180)"
+  localhost_probe="$(tr '\n' ' ' < "$DIAG_DIR/metro-status-localhost.curl.txt" | cut -c1-180)"
+  report_failure 1 "$LINENO" \
+    "Metro log: ${metro_details}; listeners: ${port_details}; IPv4 probe: ${ipv4_probe}; localhost probe: ${localhost_probe}. Full diagnostics are in ${DIAG_DIR}."
   exit 1
 fi
 cat "$DIAG_DIR/metro-status.txt"
