@@ -192,6 +192,7 @@ run_maestro_suite() {
   local suite_details
   local result_files
   local result_diagnostics
+  local screen_diagnostics
   PHASE="Maestro suite ${suite_name}"
   echo "Running Android API level ${ANDROID_API_LEVEL} Maestro suite: ${suite_name}"
   if EXPO_DEV_URL="exp://127.0.0.1:${METRO_PORT}" \
@@ -206,12 +207,28 @@ run_maestro_suite() {
     [ -n "$suite_details" ] || suite_details="<empty Maestro output>"
     result_files="$(find "$MAESTRO_TEST_OUTPUT_DIR" -type f -printf '%P ' 2>/dev/null | tr '\r\n' ' ' | cut -c 1-400 || true)"
     [ -n "$result_files" ] || result_files="<no test output files>"
-    result_diagnostics="$(grep -R -n -I -i -E 'failed|failure|error|exception|not found|not visible|timed out|timeout|expected|actual|assert' \
-      "$MAESTRO_TEST_OUTPUT_DIR" 2>/dev/null | tail -n 15 | tr '\r\n' ' ' | cut -c 1-1200 || true)"
-    [ -n "$result_diagnostics" ] || result_diagnostics="<no failure text in test output files>"
+    result_diagnostics="$(
+      find "$MAESTRO_TEST_OUTPUT_DIR" -type f -path '*/logs/maestro.log' -print0 2>/dev/null |
+        while IFS= read -r -d '' report; do
+          printf '%s: ' "${report#"$MAESTRO_TEST_OUTPUT_DIR"/}"
+          tail -n 12 "$report" | tr '\r\n' ' '
+          printf '; '
+        done | cut -c 1-1200
+    )"
+    [ -n "$result_diagnostics" ] || result_diagnostics="<no Maestro per-flow logs>"
+    screen_diagnostics="$(
+      find "$MAESTRO_TEST_OUTPUT_DIR" -type f -path '*/screen-hierarchy/*' -print0 2>/dev/null |
+        while IFS= read -r -d '' screen; do
+          printf '%s: ' "${screen#"$MAESTRO_TEST_OUTPUT_DIR"/}"
+          grep -oE '(text|content-desc)="[^"]+"' "$screen" 2>/dev/null |
+            grep -vE '=""' | tr '\r\n' ' ' | cut -c 1-500 || true
+          printf '; '
+        done | cut -c 1-1200
+    )"
+    [ -n "$screen_diagnostics" ] || screen_diagnostics="<no screen-hierarchy text>"
     echo "Android API level ${ANDROID_API_LEVEL} Maestro suite ${suite_name} failed with exit code ${suite_status}." >&2
     report_failure "$suite_status" "$LINENO" \
-      "Maestro output: ${suite_details}; test output files: ${result_files}; test diagnostics: ${result_diagnostics}; ADB reverse mappings: ${reverse_mappings}."
+      "Maestro output: ${suite_details}; test output files: ${result_files}; Maestro logs: ${result_diagnostics}; screen text: ${screen_diagnostics}; ADB reverse mappings: ${reverse_mappings}."
     return "$suite_status"
   fi
 }
