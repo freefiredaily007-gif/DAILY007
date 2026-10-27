@@ -1014,7 +1014,11 @@ try {
       ],
       {
         cwd: workspaceRoot,
-        env: { ...process.env, PORT: String(port) },
+        env: {
+          ...process.env,
+          PORT: String(port),
+          DAILY007_CHECK_PREVIEW_DEPENDENCIES: "1",
+        },
         stdio: ["ignore", "pipe", "pipe"],
       },
     );

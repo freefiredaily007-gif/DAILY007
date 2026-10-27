@@ -2,6 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { previewDependencyBoundaryPlugin } from "./scripts/previewDependencyBoundary.mjs";
 
 const sandboxRoot = path.dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = path.resolve(sandboxRoot, "../..");
@@ -13,7 +14,7 @@ const port = Number(process.env.PORT ?? 4193);
 export default defineConfig({
   root: sandboxRoot,
   base: "/",
-  plugins: [react()],
+  plugins: [previewDependencyBoundaryPlugin(), react()],
   define: {
     __DEV__: JSON.stringify(true),
     global: "globalThis",
