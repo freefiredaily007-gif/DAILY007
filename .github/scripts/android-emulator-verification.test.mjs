@@ -2,11 +2,15 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, readdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 const root = resolve(import.meta.dirname, "../..");
+const require = createRequire(import.meta.url);
+const { installCiDevToolsShellOverride } = require("./disable-rn-devtools-shell.cjs");
 const workflow = await readFile(join(root, ".github/workflows/android-release-verification.yml"), "utf8");
+const emulatorScript = await readFile(join(root, ".github/scripts/android-emulator-verification.sh"), "utf8");
 const commands = [...workflow.matchAll(/^ {10}script:\s*(.+)$/gm)].map((match) => match[1]);
 const setupDiagnosticsScript = join(root, ".github/scripts/android-emulator-setup-diagnostics.sh");
 
@@ -18,6 +22,47 @@ test("each emulator action invokes one persistent Bash process, not independent 
   assert.match(workflow, /name: Upload Android emulator diagnostics\s+if: always\(\)/);
   assert.match(workflow, /id: emulator_api_35[\s\S]*?Capture Android 35 setup failure diagnostics\s+if: \$\{\{ failure\(\) && steps\.emulator_api_35\.outcome == 'failure' \}\}[\s\S]*?android-emulator-setup-diagnostics\.sh 35 5554/);
   assert.match(workflow, /id: emulator_api_36[\s\S]*?Capture Android 36 setup failure diagnostics\s+if: \$\{\{ failure\(\) && steps\.emulator_api_36\.outcome == 'failure' \}\}[\s\S]*?android-emulator-setup-diagnostics\.sh 36 5554/);
+});
+
+test("headless CI disables only the optional standalone React Native DevTools shell", () => {
+  const devMiddleware = {
+    createDevMiddleware(options) {
+      return options;
+    },
+    untouchedExport: "preserved",
+  };
+  const moduleLoader = {
+    _load(request) {
+      return request === "@react-native/dev-middleware" ? devMiddleware : { other: true };
+    },
+  };
+
+  assert.equal(installCiDevToolsShellOverride(moduleLoader, true), true);
+  const intercepted = moduleLoader._load("@react-native/dev-middleware");
+  const result = intercepted.createDevMiddleware({
+    serverBaseUrl: "http://localhost:8081",
+    unstable_experiments: {
+      enableNetworkInspector: true,
+      enableStandaloneFuseboxShell: true,
+    },
+  });
+  assert.equal(result.unstable_experiments.enableNetworkInspector, true);
+  assert.equal(result.unstable_experiments.enableStandaloneFuseboxShell, false);
+  assert.equal(intercepted.untouchedExport, "preserved");
+  assert.deepEqual(moduleLoader._load("other-package"), { other: true });
+
+  const localLoader = { _load: () => devMiddleware };
+  const originalLoad = localLoader._load;
+  assert.equal(installCiDevToolsShellOverride(localLoader, false), false);
+  assert.equal(localLoader._load, originalLoad);
+});
+
+test("Android emulator Metro loads the headless-only DevTools override", () => {
+  assert.match(
+    emulatorScript,
+    /NODE_OPTIONS=.*disable-rn-devtools-shell\.cjs/,
+  );
+  assert.match(emulatorScript, /CI=1/);
 });
 
 test("published PWA cache and offline smoke is a blocking workflow check separate from manifest installability", () => {

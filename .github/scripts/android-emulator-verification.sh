@@ -108,6 +108,7 @@ PHASE="start Expo Metro on host port ${METRO_PORT}"
 EXPO_ROUTER_DISABLE_RN_NAVIGATION_CHECK=1 \
 EXPO_PUBLIC_DOMAIN=daily007-ci.invalid \
 EXPO_NO_TELEMETRY=1 \
+NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require=${WORKSPACE_DIR}/.github/scripts/disable-rn-devtools-shell.cjs" \
 CI=1 \
   pnpm --filter @workspace/daily007 exec expo start \
     --go --localhost --port "$METRO_PORT" > "$DIAG_DIR/daily007-metro.log" 2>&1 &

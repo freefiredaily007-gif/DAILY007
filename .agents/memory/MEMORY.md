@@ -119,3 +119,4 @@
 - [Daily007 player format choices](daily007-player-format-choices.md) — Clash Squad and Lone Wolf player selectors omit 3 VS 3; preserve backend/data support separately.
 - [Daily007 Kill & Earn Android check](daily007-kill-earn-android.md) — user confirmed mode navigation, exact format lists, card details, and Admin sync passed on Android.
 - [Daily007 Kill & Earn payouts](daily007-kill-earn-payout-policy.md) — verify kills against official match evidence; cap at 47 kills × 100 coins and pay once when an Admin publishes results.
+- [React Native DevTools in CI](rn-devtools-github-actions.md) — headless Metro CI must avoid the optional Fusebox Electron shell when runner sandbox setup prevents its startup.
