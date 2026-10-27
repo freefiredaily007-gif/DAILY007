@@ -55,7 +55,7 @@ appId: host.exp.exponent
       id: join-form-error
     timeout: 10000
 - assertVisible:
-    text: "Insufficient wallet balance: this entry costs 75 coins."
+    text: ".*Insufficient wallet balance: this entry costs 75 coins.*"
 - assertVisible:
     text: "Submit attempts: 1"
 - scrollUntilVisible:

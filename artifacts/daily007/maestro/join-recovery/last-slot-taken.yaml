@@ -57,7 +57,7 @@ appId: host.exp.exponent
       id: join-form-error
     timeout: 10000
 - assertVisible:
-    text: "This match is already full and is not accepting registrations."
+    text: ".*This match is already full and is not accepting registrations.*"
 - scrollUntilVisible:
     element:
       text: "12/12 players"
