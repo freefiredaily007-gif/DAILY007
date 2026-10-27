@@ -218,7 +218,12 @@ async function run(api, failStage = "") {
 printf 'adb %s\\n' "$*" >> "$MOCK_CALLS"
 case "$1" in
   install) [ "$FAIL_STAGE" != install ] || exit 17; echo Success ;;
-  reverse) echo "$3 $4" ;;
+  reverse)
+    if [ "$2" = --list ]; then
+      echo 'emulator-5554 tcp:40000 tcp:40000'
+    else
+      echo "$3 $4"
+    fi ;;
   shell)
     if [ "$2" = pm ]; then
       echo package:/data/app/host.exp.exponent/base.apk
@@ -336,6 +341,10 @@ for (const stage of ["host", "emulator"]) {
     assert.match(result.failureDetails, stage === "host"
       ? /phase=Metro did not become ready on host port \d+/
       : /phase=validate emulator Metro response/);
+    if (stage === "emulator") {
+      assert.match(result.failureDetails, /Expected packager-status:running from Android; response: HTTP\/1\.0 503 Unavailable/);
+      assert.match(result.calls, /adb reverse --list/);
+    }
     assert.match(result.output, /::error title=Android API 35 emulator failure::/);
     if (stage === "host") {
       assert.match(result.output, /Metro startup failed: EADDRINUSE/);

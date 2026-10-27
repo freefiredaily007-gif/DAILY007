@@ -157,7 +157,19 @@ PHASE="probe Metro from emulator through adb reverse on port ${METRO_PORT}"
 run_logged emulator-metro-status adb shell \
   "printf 'GET /status HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' | toybox nc -w 5 127.0.0.1 ${METRO_PORT}"
 PHASE="validate emulator Metro response"
-grep -q "packager-status:running" "$DIAG_DIR/emulator-metro-status.log"
+if ! grep -q "packager-status:running" "$DIAG_DIR/emulator-metro-status.log"; then
+  emulator_response="$(tr '\r\n' '  ' < "$DIAG_DIR/emulator-metro-status.log" | cut -c 1-400)"
+  [ -n "$emulator_response" ] || emulator_response="<empty response>"
+  {
+    echo "ADB reverse mappings:"
+    adb reverse --list || true
+  } > "$DIAG_DIR/emulator-metro-diagnostics.txt" 2>&1
+  cat "$DIAG_DIR/emulator-metro-diagnostics.txt"
+  PHASE="validate emulator Metro response"
+  report_failure 1 "$LINENO" \
+    "Expected packager-status:running from Android; response: ${emulator_response}. See emulator-metro-diagnostics.txt for ADB reverse mappings."
+  exit 1
+fi
 printf 'Expo Go installed; host and emulator reached packager-status:running on port %s.\n' "$METRO_PORT" \
   > "$DIAG_DIR/setup-verified.txt"
 echo "::notice::Android API ${ANDROID_API_LEVEL}: Expo Go installed; Metro reachable from host and emulator on port ${METRO_PORT}."
