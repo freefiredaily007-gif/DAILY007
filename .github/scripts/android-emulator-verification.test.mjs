@@ -345,6 +345,7 @@ for (const stage of ["host", "maestro"]) {
     } else {
       assert.match(result.summary, /Host Metro reached `packager-status:running`/);
       assert.match(result.output, /mock Maestro could not load Expo Go URL/);
+      assert.match(result.failureDetails, /Maestro output: mock Maestro could not load Expo Go URL/);
       assert.match(result.failureDetails, /ADB reverse mappings: emulator-5554 tcp:40000 tcp:40000/);
       assert.match(result.calls, /adb reverse --list/);
       assert.match(result.calls, /test:android-join-recovery/);

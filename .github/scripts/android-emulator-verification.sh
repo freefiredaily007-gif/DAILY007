@@ -189,6 +189,7 @@ run_maestro_suite() {
   local suite_log="$DIAG_DIR/maestro-${suite_name}.log"
   local suite_status
   local reverse_mappings
+  local suite_details
   PHASE="Maestro suite ${suite_name}"
   echo "Running Android API level ${ANDROID_API_LEVEL} Maestro suite: ${suite_name}"
   if EXPO_DEV_URL="exp://127.0.0.1:${METRO_PORT}" \
@@ -199,9 +200,11 @@ run_maestro_suite() {
     cat "$suite_log"
     reverse_mappings="$(adb reverse --list 2>&1 | tr '\r\n' ' ' | cut -c 1-400)"
     [ -n "$reverse_mappings" ] || reverse_mappings="<no reverse mappings>"
+    suite_details="$(tail -n 12 "$suite_log" | tr '\r\n' ' ' | cut -c 1-700)"
+    [ -n "$suite_details" ] || suite_details="<empty Maestro output>"
     echo "Android API level ${ANDROID_API_LEVEL} Maestro suite ${suite_name} failed with exit code ${suite_status}." >&2
     report_failure "$suite_status" "$LINENO" \
-      "Maestro output is in ${suite_log}; ADB reverse mappings: ${reverse_mappings}."
+      "Maestro output: ${suite_details}; ADB reverse mappings: ${reverse_mappings}."
     return "$suite_status"
   fi
 }
