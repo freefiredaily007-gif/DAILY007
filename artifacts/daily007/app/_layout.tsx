@@ -75,6 +75,7 @@ function RootLayoutNav() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
+      <Stack.Screen name="join-recovery-test" />
       <Stack.Screen name="session-verification-test" />
       <Stack.Screen name="join-form-accessibility-test" />
       <Stack.Screen name="video-unavailable-test" />

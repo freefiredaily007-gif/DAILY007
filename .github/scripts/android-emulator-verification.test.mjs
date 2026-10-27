@@ -51,6 +51,7 @@ test("Android join-recovery CI can hide the splash without waiting for custom fo
   assert.match(rootLayout, /EXPO_PUBLIC_ANDROID_JOIN_RECOVERY_TEST === '1'/);
   assert.match(rootLayout, /fontsLoaded \|\| fontError \|\| androidJoinRecoverySmokeTest/);
   assert.match(rootLayout, /!fontsLoaded && !fontError && !androidJoinRecoverySmokeTest/);
+  assert.match(rootLayout, /<Stack\.Screen name="join-recovery-test" \/>/);
 });
 
 test("headless CI disables only the optional standalone React Native DevTools shell", () => {
