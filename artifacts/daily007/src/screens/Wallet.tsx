@@ -129,9 +129,6 @@ export default function Wallet({
   onTextScaleLayout?: NativeTextScaleLayoutObserver;
 } = {}) {
   const historyApi = __DEV__ && historyTestApi ? historyTestApi : Api;
-  const logHistoryTest = (message: string) => {
-    if (__DEV__ && historyTestApi) console.log(`[wallet-history-test] ${message}`);
-  };
   const { width, fontScale } = useWindowDimensions();
   const narrowLargeText = fontScale >= 1.5 && width <= 340;
   const navigation: any = useNavigation();
@@ -207,7 +204,6 @@ export default function Wallet({
   const load = useCallback(async () => {
     const requestedUserId = walletUserId;
     const loadVersion = ++historyLoadVersion.current;
-    logHistoryTest(`refresh started at version ${loadVersion}`);
     setLoadingMoreHistory(false);
     if (!requestedUserId) {
       setHistory(emptyWalletHistoryState(null));
@@ -235,10 +231,7 @@ export default function Wallet({
         Promise.resolve().then(() => historyApi.myWithdrawals()),
         Promise.resolve().then(() => historyApi.settings()),
       ]);
-      if (!requestIsCurrent()) {
-        logHistoryTest(`refresh version ${loadVersion} discarded; current version ${historyLoadVersion.current}`);
-        return null;
-      }
+      if (!requestIsCurrent()) return null;
       const transactionPage = transactionResult.status === 'fulfilled' ? transactionResult.value : null;
       const paymentPage = paymentResult.status === 'fulfilled' ? paymentResult.value : null;
       const wds = withdrawalResult.status === 'fulfilled' ? withdrawalResult.value : null;
@@ -357,10 +350,8 @@ export default function Wallet({
           paymentCursor: hasPayments ? nextPaymentCursor : ownedHistory.paymentCursor,
         };
       });
-      logHistoryTest(`refresh version ${loadVersion} applied; payment cursor ${nextPaymentCursor ?? 'none'}`);
       return hasTransactions;
     } catch (e) {
-      logHistoryTest(`refresh version ${loadVersion} failed: ${apiError(e)}`);
       if (requestIsCurrent()) {
         setHistoryLoadError(apiError(e));
         return false;
@@ -405,14 +396,8 @@ export default function Wallet({
     const transactionCursor = transactionHistoryCursor;
     const paymentCursor = paymentHistoryCursor;
     const requestedUserId = walletUserId;
-    if (!requestedUserId || (!transactionCursor && !paymentCursor) || loadingMoreHistory) {
-      logHistoryTest(
-        `pagination blocked; user=${Boolean(requestedUserId)} transactionCursor=${transactionCursor ?? 'none'} paymentCursor=${paymentCursor ?? 'none'} loading=${loadingMoreHistory}`,
-      );
-      return;
-    }
+    if (!requestedUserId || (!transactionCursor && !paymentCursor) || loadingMoreHistory) return;
     const loadVersion = historyLoadVersion.current;
-    logHistoryTest(`pagination started at version ${loadVersion}; payment cursor ${paymentCursor ?? 'none'}`);
     const requestIsCurrent = () =>
       loadVersion === historyLoadVersion.current &&
       activeWalletUserId.current === requestedUserId;
@@ -423,13 +408,7 @@ export default function Wallet({
         transactionCursor ? historyApi.transactionsPage(transactionCursor) : Promise.resolve(null),
         paymentCursor ? historyApi.myPaymentsPage(paymentCursor) : Promise.resolve(null),
       ]);
-      if (!requestIsCurrent()) {
-        logHistoryTest(`pagination version ${loadVersion} discarded; current version ${historyLoadVersion.current}`);
-        return;
-      }
-      logHistoryTest(
-        `pagination version ${loadVersion} received ${paymentPage?.items?.length ?? 0} payment items; next cursor ${paymentPage?.nextCursor ?? 'none'}`,
-      );
+      if (!requestIsCurrent()) return;
       if (transactionPage && !Array.isArray(transactionPage.items)) {
         throw new Error('The wallet server returned an invalid transaction-history page.');
       }
@@ -470,15 +449,12 @@ export default function Wallet({
           paymentCursor: nextPaymentCursor,
         };
       });
-      logHistoryTest(`pagination version ${loadVersion} queued history update`);
     } catch (e) {
-      logHistoryTest(`pagination version ${loadVersion} failed: ${apiError(e)}`);
       if (requestIsCurrent()) setError(apiError(e));
     } finally {
       if (requestIsCurrent()) setLoadingMoreHistory(false);
-      logHistoryTest(`pagination version ${loadVersion} finished; current version ${historyLoadVersion.current}`);
     }
-  }, [historyApi, historyTestApi, loadingMoreHistory, paymentHistoryCursor, transactionHistoryCursor, walletUserId]);
+  }, [historyApi, loadingMoreHistory, paymentHistoryCursor, transactionHistoryCursor, walletUserId]);
 
   const openSheet = (t: 'add' | 'withdraw') => {
     if (t === 'add' && (!rechargeEnabled || !paymentUpi || !paymentQr)) {

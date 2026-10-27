@@ -14,6 +14,7 @@ appId: host.exp.exponent
     element:
       id: wallet-load-older-transactions
     direction: DOWN
+    centerElement: true
     timeout: 30000
 - tapOn:
     id: wallet-load-older-transactions
@@ -24,6 +25,7 @@ appId: host.exp.exponent
     element:
       id: wallet-load-older-transactions
     direction: DOWN
+    centerElement: true
     timeout: 30000
 - tapOn:
     id: wallet-load-older-transactions
@@ -34,6 +36,7 @@ appId: host.exp.exponent
     element:
       id: wallet-transaction-pay-android-wallet-history-001
     direction: DOWN
+    centerElement: true
     timeout: 30000
 - assertVisible:
     id: wallet-transaction-pay-android-wallet-history-001

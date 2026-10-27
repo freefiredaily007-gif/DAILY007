@@ -22,7 +22,6 @@ test('Android Wallet fixture pages through 45 payment requests in the real Walle
   assert.match(fixture, /<Wallet historyTestApi=\{historyTestApi\} onHistoryChange=\{observeHistory\} \/>/);
   assert.match(fixture, /const PAYMENT_COUNT = 45/);
   assert.match(fixture, /const PAGE_SIZE = 20/);
-  assert.match(fixture, /<Wallet historyTestApi=\{historyTestApi\} onHistoryChange=\{observeHistory\} \/>/);
   assert.match(fixture, /new Set\(ids\)/);
   assert.match(fixture, /exactOrder/);
   assert.match(route, /WalletPaymentHistoryNativeTest/);
@@ -30,6 +29,7 @@ test('Android Wallet fixture pages through 45 payment requests in the real Walle
   assert.match(maestro, /wallet-payment-history-test/);
   assert.match(maestro, /wallet-load-older-transactions/);
   assert.equal((maestro.match(/- tapOn:\s*\n\s+id: wallet-load-older-transactions/g) ?? []).length, 2);
+  assert.equal((maestro.match(/centerElement: true/g) ?? []).length, 3);
   assert.match(maestro, /Loaded 20 of 45 requests; unique and newest-first/);
   assert.match(maestro, /Loaded 40 of 45 requests; unique and newest-first/);
   assert.match(maestro, /Loaded 45 of 45 requests; unique and newest-first/);
