@@ -26,7 +26,10 @@ test("squad team cards render each team with four equal, responsive slot columns
   assert.match(screenSource, /slots\.teams\.map\(\(team\) => \{/);
   assert.match(screenSource, /team\.slots\.map\(\(slot\) => \{/);
   assert.match(screenSource, /joinedCount = team\.slots\.filter\(\(slot\) => slot\.occupied\)\.length/);
-  assert.match(screenSource, /\{joinedCount\}\/\{slots\.teamSize\} JOINED/);
+  assert.match(
+    screenSource,
+    /translateExactText\(`\$\{joinedCount\}\/\$\{slots\.teamSize\} JOINED`\)/,
+  );
 
   const gridStyle = screenSource.match(/squadSlotsRow:\s*\{([^}]+)\}/)?.[1] ?? "";
   const columnStyle = screenSource.match(/squadSlotColumn:\s*\{([^}]+)\}/)?.[1] ?? "";
@@ -42,14 +45,15 @@ test("squad team cards render each team with four equal, responsive slot columns
   assert.match(columnStyle, /flex:\s*1/);
   assert.match(columnStyle, /flexBasis:\s*0/);
   assert.match(columnStyle, /minWidth:\s*0/);
-  assert.match(slotStyle, /height:\s*76/);
+  assert.match(slotStyle, /minHeight:\s*76/);
   assert.match(slotStyle, /width:\s*'100%'/);
   assert.match(screenSource, /const \{ width, fontScale \} = useWindowDimensions\(\)/);
   assert.match(screenSource, /width <= 400 && fontScale >= 1\.5/);
   assert.match(compactRowStyle, /flexWrap:\s*'wrap'/);
   assert.match(compactRowStyle, /gap:\s*8/);
   assert.match(compactColumnStyle, /flexBasis:\s*'47%'/);
-  assert.match(compactSlotStyle, /height:\s*92/);
+  assert.match(compactSlotStyle, /height:\s*'auto'/);
+  assert.match(compactSlotStyle, /minHeight:\s*92/);
   assert.match(compactActionAreaStyle, /height:\s*68/);
   assert.match(compactJoinStyle, /minHeight:\s*62/);
 });
@@ -60,6 +64,10 @@ test("slot captions use the full Captain label and open slots show OPEN • SELE
   assert.match(screenSource, /'OPEN • SELECT'/);
   assert.match(screenSource, /squadSlotCrown/);
   assert.match(screenSource, /maxFontSizeMultiplier=\{compactLargeText \? 1\.5 : undefined\}/);
+  assert.doesNotMatch(
+    screenSource.match(/<Text\s+style=\{slotIsOccupied \? s\.squadSlotName : s\.squadSlotOpen\}[\s\S]*?<\/Text>/)?.[0] ?? '',
+    /numberOfLines=/,
+  );
   assert.ok(screenSource.includes('JOIN{"\\n"}TEAM{"\\n"}{teamNumber}'));
   assert.ok(screenSource.includes('JOIN{"\\n"}TEAM {teamNumber}'));
 });

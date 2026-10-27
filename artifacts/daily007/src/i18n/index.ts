@@ -33,6 +33,49 @@ export function translateExactText(text: string): string {
   const translated = i18n.t(text, { defaultValue: text });
   if (typeof translated === 'string' && translated !== text) return translated;
 
+  const teamCapacityMatch =
+    /^(\d+)\/(\d+) PLAYERS · (\d+)\/(\d+) TEAMS$/.exec(text);
+  if (teamCapacityMatch) {
+    return i18n.t('{{filledPlayers}}/{{totalPlayers}} PLAYERS · {{filledTeams}}/{{totalTeams}} TEAMS', {
+      filledPlayers: teamCapacityMatch[1],
+      totalPlayers: teamCapacityMatch[2],
+      filledTeams: teamCapacityMatch[3],
+      totalTeams: teamCapacityMatch[4],
+    });
+  }
+
+  const joinedTeamCountMatch = /^(\d+)\/(\d+) JOINED$/.exec(text);
+  if (joinedTeamCountMatch) {
+    return i18n.t('{{joinedCount}}/{{teamSize}} JOINED', {
+      joinedCount: joinedTeamCountMatch[1],
+      teamSize: joinedTeamCountMatch[2],
+    });
+  }
+
+  const joinedPlayersAccessibilityMatch = /^(\d+) of (\d+) players joined$/.exec(text);
+  if (joinedPlayersAccessibilityMatch) {
+    return i18n.t('{{joinedCount}} of {{teamSize}} players joined', {
+      joinedCount: joinedPlayersAccessibilityMatch[1],
+      teamSize: joinedPlayersAccessibilityMatch[2],
+    });
+  }
+
+  const registrationLocationMatch = /^Your registration: Team (\d+), slot (\d+)\.$/.exec(text);
+  if (registrationLocationMatch) {
+    return i18n.t('Your registration: Team {{teamNumber}}, slot {{slotNumber}}.', {
+      teamNumber: registrationLocationMatch[1],
+      slotNumber: registrationLocationMatch[2],
+    });
+  }
+
+  const roomCredentialMatch = /^(Room ID|Password): (.+)$/.exec(text);
+  if (roomCredentialMatch) {
+    return i18n.t(
+      roomCredentialMatch[1] === 'Room ID' ? 'Room ID: {{value}}' : 'Password: {{value}}',
+      { value: roomCredentialMatch[2] },
+    );
+  }
+
   const selectedMatch = /^Selected Upcoming match: (.*)\. Match (\d+) of (\d+)\.$/.exec(text);
   if (selectedMatch) {
     return i18n.t('Selected Upcoming match: {{name}}. Match {{index}} of {{total}}.', {

@@ -8,3 +8,9 @@ If an Expo screenshot helper returns a blank page while Metro reports the app ru
 **Why:** A single blank capture can misdiagnose a preview-capture problem as a broken app and lead to unnecessary navigation changes.
 
 **How to apply:** Compare the screenshot helper with a DOM dump and a local Chromium screenshot after a virtual-time budget. Do not alter Expo Router's navigation isolation based only on a blank screenshot.
+
+For Expo Router screenshots in the browser, use `/<route>`; keep `/--/<route>` for Expo Go development deep links. The latter can render "This screen doesn't exist" in the web preview.
+
+**Why:** Expo Go's linking syntax is not the same as the browser route path used by app previews.
+
+**How to apply:** When a browser screenshot of a known development route is blank, inspect the route DOM and try the direct browser path without the `--/` segment before changing navigation code.

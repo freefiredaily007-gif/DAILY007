@@ -48,7 +48,10 @@ test("Room ID and password values are separate labeled text stops", () => {
   assert.match(panelSource, /<CredentialRow\s+label="Room ID"\s+value=\{id\}/);
   assert.match(panelSource, /<CredentialRow\s+label="Password"\s+value=\{password\}/);
   assert.match(rowSource, /<View\s+accessible\s+accessibilityRole="text"/);
-  assert.match(rowSource, /accessibilityLabel=\{`\$\{label\}: \$\{value\}`\}/);
+  assert.match(
+    rowSource,
+    /accessibilityLabel=\{translateExactText\(`\$\{label\}: \$\{value\}`\)\}/,
+  );
   assert.match(rowSource, /<Text accessible=\{false\} style=\{styles\.label\}>/);
   assert.match(rowSource, /<Text accessible=\{false\} style=\{styles\.value\} selectable>/);
 });
@@ -280,8 +283,8 @@ test("copy controls have distinct labels and hide their decorative child stops",
   assert.ok(pressableStart >= 0 && pressableEnd > pressableStart);
   const buttonSource = rowSource.slice(pressableStart, pressableEnd + "</Pressable>".length);
   assert.match(buttonSource, /accessibilityRole="button"/);
-  assert.match(buttonSource, /accessibilityLabel=\{`Copy \$\{label\}`\}/);
-  assert.match(buttonSource, /accessibilityHint="Copies this value to your clipboard\."/);
+  assert.match(buttonSource, /accessibilityLabel=\{translateExactText\(`Copy \$\{label\}`\)\}/);
+  assert.match(buttonSource, /accessibilityHint=\{translateExactText\('Copies this value to your clipboard\.'\)\}/);
   assert.match(buttonSource, /<Feather accessible=\{false\}/);
   assert.match(buttonSource, /<Text accessible=\{false\} style=\{styles\.copyText\}>Copy \{label\}<\/Text>/);
 });

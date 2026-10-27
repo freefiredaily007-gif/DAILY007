@@ -104,7 +104,7 @@ export function RoomCredentialsPanel({
 
   return (
     <View style={styles.wrap}>
-      <Text style={styles.title}>ROOM DETAILS</Text>
+      <Text style={styles.title} testID="room-credentials-title">ROOM DETAILS</Text>
       <View style={styles.panel}>
         {credentialsReady ? (
           <>
@@ -185,7 +185,7 @@ function CredentialRow({
       <View
         accessible
         accessibilityRole="text"
-        accessibilityLabel={`${label}: ${value}`}
+        accessibilityLabel={translateExactText(`${label}: ${value}`)}
         testID={`room-credential-value-${label.toLowerCase().replace(/\s+/g, '-')}`}
         style={styles.valueGroup}
       >
@@ -194,8 +194,8 @@ function CredentialRow({
       </View>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Copy ${label}`}
-        accessibilityHint="Copies this value to your clipboard."
+        accessibilityLabel={translateExactText(`Copy ${label}`)}
+        accessibilityHint={translateExactText('Copies this value to your clipboard.')}
         onPress={(event) => {
           event.stopPropagation();
           onCopy();

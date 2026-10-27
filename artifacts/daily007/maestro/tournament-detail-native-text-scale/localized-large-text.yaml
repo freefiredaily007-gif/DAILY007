@@ -1,0 +1,87 @@
+appId: host.exp.exponent
+---
+- openLink:
+    link: ${EXPO_DEV_URL}/--/tournament-detail-text-scale-test
+- extendedWaitUntil:
+    visible:
+      id: tournament-detail-text-fixture
+    timeout: 15000
+- tapOn:
+    id: tournament-detail-language-${TOURNAMENT_DETAIL_TEXT_LANGUAGE}
+- extendedWaitUntil:
+    visible:
+      id: tournament-detail-language-state-${TOURNAMENT_DETAIL_TEXT_LANGUAGE}
+    timeout: 5000
+
+- tapOn:
+    id: tournament-detail-open-team
+- extendedWaitUntil:
+    visible:
+      id: tournament-detail-hero
+    timeout: 15000
+- assertVisible:
+    text: "Team Tournament Detail Large Text Check"
+- scrollUntilVisible:
+    element:
+      id: squad-registration-status
+    direction: DOWN
+- assertVisible:
+    text: "${TOURNAMENT_DETAIL_EXPECTED_REGISTRATION}"
+- assertVisible:
+    id: squad-capacity-summary
+- assertVisible:
+    text: "${TOURNAMENT_DETAIL_EXPECTED_CAPACITY}"
+- assertVisible:
+    id: squad-team-01-joined-count
+- assertVisible:
+    text: "${TOURNAMENT_DETAIL_EXPECTED_JOINED_COUNT}"
+- assertVisible:
+    text: "${TOURNAMENT_DETAIL_EXPECTED_JOINED_BADGE_LABEL}"
+
+- scrollUntilVisible:
+    element:
+      id: room-credentials-title
+    direction: UP
+- assertVisible:
+    text: "${TOURNAMENT_DETAIL_EXPECTED_ROOM_TITLE}"
+- assertVisible:
+    id: room-credential-value-room-id
+- assertVisible:
+    id: room-credential-value-password
+- assertVisible:
+    text: "${TOURNAMENT_DETAIL_EXPECTED_ROOM_ID_LABEL}"
+- assertVisible:
+    text: "${TOURNAMENT_DETAIL_EXPECTED_PASSWORD_LABEL}"
+- assertVisible:
+    id: room-credential-copy-room-id
+- assertVisible:
+    id: room-credential-copy-password
+- assertVisible:
+    text: "${TOURNAMENT_DETAIL_EXPECTED_COPY_ROOM_ID}"
+- assertVisible:
+    text: "${TOURNAMENT_DETAIL_EXPECTED_COPY_PASSWORD}"
+- tapOn:
+    id: room-credential-copy-room-id
+- extendedWaitUntil:
+    visible:
+      text: "${TOURNAMENT_DETAIL_EXPECTED_ROOM_COPY_FEEDBACK}"
+    timeout: 5000
+- tapOn:
+    id: room-credential-copy-password
+- extendedWaitUntil:
+    visible:
+      text: "${TOURNAMENT_DETAIL_EXPECTED_PASSWORD_COPY_FEEDBACK}"
+    timeout: 5000
+
+- scrollUntilVisible:
+    element:
+      text: "${TOURNAMENT_DETAIL_EXPECTED_TEAM_SLOTS}"
+    direction: DOWN
+- assertVisible:
+    id: squad-slots-row
+- assertVisible:
+    text: "${TOURNAMENT_DETAIL_EXPECTED_CAPTAIN_NAME}"
+- assertVisible:
+    text: "${TOURNAMENT_DETAIL_EXPECTED_TEAMMATE_NAME}"
+- assertVisible:
+    text: "${TOURNAMENT_DETAIL_EXPECTED_OPEN_SLOT}"

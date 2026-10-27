@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import {
   NavigationContainer,
@@ -9,10 +9,12 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ctx, type Ctx as AppContext } from '../App';
 import { ReadableText as Text } from '../components/typography';
 import { C } from '../components/ui';
+import { i18n, type AppLanguage } from '../i18n';
 import { Api } from '../lib/api';
 import TDetail from './TDetail';
 
 const Stack = createNativeStackNavigator();
+let activeFixtureLanguage: AppLanguage = 'en';
 const soloStart = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
 const teamStart = new Date(Date.now() - 15 * 60_000).toISOString();
 const teamJoinStart = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
@@ -90,18 +92,34 @@ const tournamentFixtures = new Map<string, typeof soloTournament | typeof teamTo
   [teamJoinTournament.id, teamJoinTournament],
 ]);
 
-function fixtureTeam(teamNumber: number, allowJoining = false) {
+const fixturePlayerNames: Record<AppLanguage, { captain: string; teammate: string }> = {
+  en: {
+    captain: 'Captain Player with a long tournament display name',
+    teammate: 'Second Team Player with a long tournament display name',
+  },
+  hi: {
+    captain: 'कप्तान अमन कुमार का बहुत लंबा Free Fire खिलाड़ी नाम',
+    teammate: 'दूसरे खिलाड़ी रोहित कुमार का बहुत लंबा Free Fire नाम',
+  },
+  gu: {
+    captain: 'કેપ્ટન રાજવીર પટેલનું ખૂબ લાંબું Free Fire નામ',
+    teammate: 'બીજા ખેલાડી ધ્રુવ પટેલનું ખૂબ લાંબું Free Fire નામ',
+  },
+};
+
+function fixtureTeam(teamNumber: number, allowJoining = false, language = activeFixtureLanguage) {
+  const names = fixturePlayerNames[language];
   return {
     teamNumber,
     legacy: false,
-    captainGameName: teamNumber === 1 ? 'Captain Player' : null,
+    captainGameName: teamNumber === 1 ? names.captain : null,
     slots: Array.from({ length: 4 }, (_, index) => {
       const slotNumber = index + 1;
       const occupied = teamNumber === 1 && slotNumber <= 2;
       const gameName = slotNumber === 1
-        ? 'Captain Player'
+        ? names.captain
         : slotNumber === 2
-          ? 'Second Team Player'
+          ? names.teammate
           : null;
       return {
         slotNumber,
@@ -117,28 +135,22 @@ function fixtureTeam(teamNumber: number, allowJoining = false) {
   };
 }
 
-const fixtureSlots = {
-  tournamentId: teamTournament.id,
-  teamSize: 4,
-  capacity: 12,
-  filledTeams: 1,
-  filledPlayers: 2,
-  registrationClosed: true,
-  alreadyRegistered: true,
-  myTeamNumber: 1,
-  mySlotNumber: 1,
-  teams: Array.from({ length: 12 }, (_, index) => fixtureTeam(index + 1)),
-};
-
-const joinableFixtureSlots = {
-  ...fixtureSlots,
-  tournamentId: teamJoinTournament.id,
-  registrationClosed: false,
-  alreadyRegistered: false,
-  myTeamNumber: null,
-  mySlotNumber: null,
-  teams: Array.from({ length: 12 }, (_, index) => fixtureTeam(index + 1, true)),
-};
+function fixtureSlotsFor(language: AppLanguage, joinable = false) {
+  return {
+    tournamentId: joinable ? teamJoinTournament.id : teamTournament.id,
+    teamSize: 4,
+    capacity: 12,
+    filledTeams: 1,
+    filledPlayers: 2,
+    registrationClosed: !joinable,
+    alreadyRegistered: !joinable,
+    myTeamNumber: joinable ? null : 1,
+    mySlotNumber: joinable ? null : 1,
+    teams: Array.from({ length: 12 }, (_, index) =>
+      fixtureTeam(index + 1, joinable, language),
+    ),
+  };
+}
 
 const fixtureUser = {
   id: 'native-tournament-detail-text-player',
@@ -149,11 +161,41 @@ const fixtureUser = {
   status: 'active',
 };
 
-function FixtureHome() {
+function FixtureHome({
+  language,
+  onLanguageChange,
+}: {
+  language: AppLanguage;
+  onLanguageChange: (language: AppLanguage) => void;
+}) {
   const navigation = useNavigation<any>();
   return (
     <View style={styles.home} testID="tournament-detail-text-fixture">
       <Text style={styles.title}>Tournament detail large-text test</Text>
+      <View style={styles.languageRow}>
+        {([
+          ['hi', 'हिन्दी'],
+          ['gu', 'ગુજરાતી'],
+        ] as const).map(([value, label]) => (
+          <Pressable
+            key={value}
+            accessibilityRole="button"
+            accessibilityState={{ selected: language === value }}
+            testID={`tournament-detail-language-${value}`}
+            onPress={() => onLanguageChange(value)}
+            style={[
+              styles.button,
+              styles.languageButton,
+              language === value && styles.languageButtonSelected,
+            ]}
+          >
+            <Text style={styles.buttonText}>{label}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <Text testID={`tournament-detail-language-state-${language}`} style={styles.instructions}>
+        Fixture language: {language}
+      </Text>
       <Text style={styles.instructions}>
         Open a solo match to check joining, then open a team match to check registration, slots, and room credentials.
       </Text>
@@ -202,7 +244,10 @@ function fixtureFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Res
       : input.url;
   let body: unknown;
   if (url.includes('/squad-slots')) {
-    body = url.includes(teamJoinTournament.id) ? joinableFixtureSlots : fixtureSlots;
+    body = fixtureSlotsFor(
+      activeFixtureLanguage,
+      url.includes(teamJoinTournament.id),
+    );
   } else if (url.endsWith('/participants')) {
     body = { participants: [] };
   } else if (url.endsWith('/results')) {
@@ -230,6 +275,23 @@ export default function TournamentDetailNativeTextScaleTest() {
     myRegistrations: Api.myRegistrations,
   }), []);
   const originalFetch = useMemo(() => globalThis.fetch, []);
+  const originalLanguage = useRef(i18n.language);
+  const [fixtureLanguage, setFixtureLanguage] = useState<AppLanguage>('en');
+
+  const changeFixtureLanguage = (language: AppLanguage) => {
+    activeFixtureLanguage = language;
+    setFixtureLanguage(language);
+    void i18n.changeLanguage(language);
+  };
+
+  useEffect(() => {
+    activeFixtureLanguage = 'en';
+    void i18n.changeLanguage('en');
+    return () => {
+      activeFixtureLanguage = 'en';
+      void i18n.changeLanguage(originalLanguage.current);
+    };
+  }, []);
 
   // Install local-only responses before the real TDetail screen mounts.
   (Api as any).tournament = async (id: string) => {
@@ -252,7 +314,14 @@ export default function TournamentDetailNativeTextScaleTest() {
       <NavigationIndependentTree>
         <NavigationContainer>
           <Stack.Navigator screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="FixtureHome" component={FixtureHome} />
+            <Stack.Screen name="FixtureHome">
+              {() => (
+                <FixtureHome
+                  language={fixtureLanguage}
+                  onLanguageChange={changeFixtureLanguage}
+                />
+              )}
+            </Stack.Screen>
             <Stack.Screen name="TDetail" component={TDetail} />
             <Stack.Screen name="JoinForm" component={JoinFormFixture} />
           </Stack.Navigator>
@@ -270,5 +339,8 @@ const styles = StyleSheet.create({
     minHeight: 52, justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 10,
     borderRadius: 12, borderWidth: 1, borderColor: C.green, backgroundColor: C.card,
   },
+  languageRow: { flexDirection: 'row', gap: 10 },
+  languageButton: { flex: 1, minWidth: 0 },
+  languageButtonSelected: { borderColor: C.gold, backgroundColor: `${C.gold}18` },
   buttonText: { color: C.green, fontSize: 15, fontWeight: '800' },
 });

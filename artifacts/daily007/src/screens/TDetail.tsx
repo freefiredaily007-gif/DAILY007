@@ -211,8 +211,10 @@ function SquadSlotsPanel({
   return (
     <View>
       <Card style={{ marginBottom: 10 }}>
-        <Text style={s.squadCapacity}>
-          {slots.filledPlayers}/{slots.capacity * slots.teamSize} PLAYERS · {slots.filledTeams}/{slots.capacity} TEAMS
+        <Text style={s.squadCapacity} testID="squad-capacity-summary">
+          {translateExactText(
+            `${slots.filledPlayers}/${slots.capacity * slots.teamSize} PLAYERS · ${slots.filledTeams}/${slots.capacity} TEAMS`,
+          )}
         </Text>
         {slots.alreadyRegistered ? (
           <Text
@@ -220,9 +222,11 @@ function SquadSlotsPanel({
             testID="squad-registration-status"
             style={s.squadRegistrationStatus}
           >
-            {slots.myTeamNumber && slots.mySlotNumber
-              ? `Your registration: Team ${String(slots.myTeamNumber).padStart(2, '0')}, slot ${slots.mySlotNumber}.`
-              : 'Your registration is confirmed.'}
+            {translateExactText(
+              slots.myTeamNumber && slots.mySlotNumber
+                ? `Your registration: Team ${String(slots.myTeamNumber).padStart(2, '0')}, slot ${slots.mySlotNumber}.`
+                : 'Your registration is confirmed.',
+            )}
           </Text>
         ) : null}
         <Text style={s.squadNotice}>
@@ -249,8 +253,15 @@ function SquadSlotsPanel({
                   <Text style={s.squadLegacyBadge}>EXISTING TEAM</Text>
                 ) : null}
               </View>
-              <View style={s.squadJoinedBadge} accessibilityLabel={`${joinedCount} of 4 players joined`}>
-                <Text style={s.squadJoinedText}>{joinedCount}/{slots.teamSize} JOINED</Text>
+              <View
+                style={s.squadJoinedBadge}
+                accessibilityLabel={translateExactText(
+                  `${joinedCount} of ${slots.teamSize} players joined`,
+                )}
+              >
+                <Text style={s.squadJoinedText} testID={`squad-team-${teamNumber}-joined-count`}>
+                  {translateExactText(`${joinedCount}/${slots.teamSize} JOINED`)}
+                </Text>
               </View>
             </View>
 
@@ -331,9 +342,10 @@ function SquadSlotsPanel({
                         </Text>
                       </View>
                       <Text
-                        numberOfLines={2}
                         style={slotIsOccupied ? s.squadSlotName : s.squadSlotOpen}
-                        maxFontSizeMultiplier={compactLargeText ? 1.5 : undefined}
+                        maxFontSizeMultiplier={
+                          !slotIsOccupied && compactLargeText ? 1.5 : undefined
+                        }
                       >
                         {slotStatus}
                       </Text>
@@ -1281,7 +1293,7 @@ const s = StyleSheet.create({
   squadSlotsRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
   squadSlotColumn: { flex: 1, flexBasis: 0, minWidth: 0 },
   squadSlot: {
-    width: '100%', height: 76, borderWidth: 1, borderColor: C.squadBorder, borderRadius: 12,
+    width: '100%', minHeight: 76, borderWidth: 1, borderColor: C.squadBorder, borderRadius: 12,
     backgroundColor: C.squadTile, paddingHorizontal: 3, paddingVertical: 7,
     alignItems: 'center', justifyContent: 'space-between',
   },
@@ -1293,7 +1305,7 @@ const s = StyleSheet.create({
   },
   squadSlotsRowCompact: { flexWrap: 'wrap', gap: 8 },
   squadSlotColumnCompact: { flexGrow: 0, flexBasis: '47%' },
-  squadSlotCompact: { height: 92 },
+  squadSlotCompact: { height: 'auto', minHeight: 92 },
   squadSlotSelected: {
     borderColor: '#2ecc71', borderWidth: 2, backgroundColor: 'rgba(46, 204, 113, 0.24)',
     ...(Platform.OS === 'web'
