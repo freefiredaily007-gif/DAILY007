@@ -160,14 +160,15 @@ PHASE="validate emulator Metro response"
 if ! grep -q "packager-status:running" "$DIAG_DIR/emulator-metro-status.log"; then
   emulator_response="$(tr '\r\n' '  ' < "$DIAG_DIR/emulator-metro-status.log" | cut -c 1-400)"
   [ -n "$emulator_response" ] || emulator_response="<empty response>"
+  reverse_mappings="$(adb reverse --list 2>&1 | tr '\r\n' ' ' | cut -c 1-400)"
+  [ -n "$reverse_mappings" ] || reverse_mappings="<no reverse mappings>"
   {
-    echo "ADB reverse mappings:"
-    adb reverse --list || true
+    printf 'ADB reverse mappings: %s\n' "$reverse_mappings"
   } > "$DIAG_DIR/emulator-metro-diagnostics.txt" 2>&1
   cat "$DIAG_DIR/emulator-metro-diagnostics.txt"
   PHASE="validate emulator Metro response"
   report_failure 1 "$LINENO" \
-    "Expected packager-status:running from Android; response: ${emulator_response}. See emulator-metro-diagnostics.txt for ADB reverse mappings."
+    "Expected packager-status:running from Android; response: ${emulator_response}. ADB reverse mappings: ${reverse_mappings}."
   exit 1
 fi
 printf 'Expo Go installed; host and emulator reached packager-status:running on port %s.\n' "$METRO_PORT" \

@@ -343,6 +343,7 @@ for (const stage of ["host", "emulator"]) {
       : /phase=validate emulator Metro response/);
     if (stage === "emulator") {
       assert.match(result.failureDetails, /Expected packager-status:running from Android; response: HTTP\/1\.0 503 Unavailable/);
+      assert.match(result.failureDetails, /ADB reverse mappings: emulator-5554 tcp:40000 tcp:40000/);
       assert.match(result.calls, /adb reverse --list/);
     }
     assert.match(result.output, /::error title=Android API 35 emulator failure::/);
