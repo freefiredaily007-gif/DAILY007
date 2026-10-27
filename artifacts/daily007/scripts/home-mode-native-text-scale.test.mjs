@@ -40,6 +40,8 @@ test("Maestro scrolls to each Home mode card, taps it directly, and verifies the
     assert.ok(flow.includes(`text: "${title}"`), `Missing title assertion for ${title}`);
     assert.ok(flow.includes(`text: "Game mode filter: ${mode}"`), `Missing destination filter check for ${title}`);
   }
+  assert.equal((flow.match(/centerElement: true/g) ?? []).length, 4);
+  assert.match(fixture, /paddingBottom: 1200/);
   assert.doesNotMatch(cards, /CLASSIC SURVIVAL|SOLO · DUO · SQUAD|BROWSE TOURNAMENTS|CHOOSE FORMAT/);
   assert.match(cards, /onPress=\{\(\) => onOpenMode\(routeParams\)\}/);
   assert.match(flow, /font scale 1\.50/);

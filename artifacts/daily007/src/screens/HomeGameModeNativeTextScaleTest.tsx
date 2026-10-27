@@ -78,7 +78,8 @@ function NativeFixture() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
-  content: { padding: 16, paddingBottom: 32 },
+  // Trailing scroll room lets Maestro center every card away from Expo Go warning toasts.
+  content: { padding: 16, paddingBottom: 1200 },
   banner: { color: C.sub, fontSize: 11, marginBottom: 8 },
   heading: { color: C.gold, fontSize: 22, fontWeight: '900', marginBottom: 10 },
   layoutCheck: { color: C.sub, fontSize: 11, marginBottom: 8 },

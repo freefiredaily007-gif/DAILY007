@@ -41,6 +41,8 @@ test('Home, Wallet, and Profile Maestro flows verify 2× text, full-width conten
   for (const mode of ['battle-royale', 'clash-squad', 'lone-wolf']) {
     assert.match(homeFlow, new RegExp(`id: home-mode-${mode}`));
   }
+  assert.equal((homeFlow.match(/centerElement: true/g) ?? []).length, 4);
+  assert.match(homeFixture, /paddingBottom: 1200/);
   assert.doesNotMatch(homeFlow, /text: "BROWSE TOURNAMENTS"/);
   assert.match(homeFixture, /<HomeGameModeCards/);
   assert.match(homeFixture, /nativeTextScaleLayoutsFit/);

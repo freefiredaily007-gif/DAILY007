@@ -13,6 +13,7 @@ appId: host.exp.exponent
     element:
       id: home-mode-battle-royale
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "BATTLE ROYALE"
 - tapOn:
@@ -28,6 +29,7 @@ appId: host.exp.exponent
     element:
       id: home-mode-clash-squad
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "CLASH SQUAD"
 - tapOn:
@@ -43,6 +45,7 @@ appId: host.exp.exponent
     element:
       id: home-mode-lone-wolf
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "LONE WOLF"
 - tapOn:
@@ -58,6 +61,7 @@ appId: host.exp.exponent
     element:
       id: home-mode-battle-royale-kill-earn
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "BATTLE ROYALE KILL & EARN"
 - tapOn:
