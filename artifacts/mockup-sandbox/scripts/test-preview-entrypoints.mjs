@@ -1,10 +1,13 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { previewDependencyBoundaryPlugin } from "./previewDependencyBoundary.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const sandboxRoot = path.resolve(scriptDirectory, "..");
@@ -324,6 +327,121 @@ async function checkPreviewEntrypointCoverage() {
     `PASS preview entrypoint coverage — ${discoveredHtmlEntries.length} HTML files, ` +
       `${discoveredViteConfigs.length} Vite configs.`,
   );
+}
+
+async function checkPreviewDependencyBoundary() {
+  const fixtureRoot = await mkdtemp(
+    path.join(sandboxRoot, ".preview-dependency-boundary-fixture-"),
+  );
+  const previousDependencyCheck = process.env.DAILY007_CHECK_PREVIEW_DEPENDENCIES;
+  const fixtureDirectory = path.join(fixtureRoot, "package");
+  const fixturePackageName = "@workspace/preview-dependency-boundary-fixture";
+  const importer = path.join(fixtureDirectory, "entry.mjs");
+  const manifestPath = path.join(fixtureDirectory, "package.json");
+
+  try {
+    process.env.DAILY007_CHECK_PREVIEW_DEPENDENCIES = "1";
+    await mkdir(fixtureDirectory, { recursive: true });
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        name: fixturePackageName,
+        private: true,
+        dependencies: { zod: "*" },
+      }),
+    );
+    await writeFile(importer, 'import "zod";\n');
+
+    const resolvedId = createRequire(importer).resolve("zod");
+    assert.ok(resolvedId, "zod must resolve from the fixture workspace");
+    const plugin = previewDependencyBoundaryPlugin();
+    const result = await plugin.resolveId.call(
+      {
+        async resolve() {
+          return { id: resolvedId, external: false };
+        },
+        error(message) {
+          throw new Error(message);
+        },
+      },
+      "zod",
+      importer,
+    );
+    assert.equal(result, null, "a declared package must pass the boundary check");
+
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        name: fixturePackageName,
+        private: true,
+        dependencies: {},
+      }),
+    );
+    const childSource = `
+      import assert from "node:assert/strict";
+      import { createRequire } from "node:module";
+      import { previewDependencyBoundaryPlugin } from ${JSON.stringify(
+        new URL("./previewDependencyBoundary.mjs", import.meta.url).href,
+      )};
+
+      const importer = process.env.PREVIEW_BOUNDARY_FIXTURE_IMPORTER;
+      const resolvedId = createRequire(importer).resolve("zod");
+      assert.ok(resolvedId, "zod must remain resolvable after its declaration is removed");
+      const plugin = previewDependencyBoundaryPlugin();
+      const outcome = await plugin.resolveId.call(
+        {
+          async resolve() {
+            return { id: resolvedId, external: false };
+          },
+          error(message) {
+            throw new Error(message);
+          },
+        },
+        "zod",
+        importer,
+      ).then(
+        () => ({ blocked: false, message: "" }),
+        (error) => ({ blocked: true, message: error.message }),
+      );
+      assert.equal(outcome.blocked, true, "the undeclared package must be rejected");
+      assert.match(
+        outcome.message,
+        /Preview dependency boundary violation: @workspace\\/preview-dependency-boundary-fixture imports "zod".*does not declare resolved package "zod"/s,
+      );
+      console.log("PASS preview dependency boundary rejects a resolvable package after declaration removal.");
+    `;
+    const child = spawn(
+      process.execPath,
+      ["--input-type=module", "--eval", childSource],
+      {
+        env: {
+          ...process.env,
+          DAILY007_CHECK_PREVIEW_DEPENDENCIES: "1",
+          PREVIEW_BOUNDARY_FIXTURE_IMPORTER: importer,
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let childOutput = "";
+    child.stdout.on("data", (chunk) => { childOutput += chunk.toString(); });
+    child.stderr.on("data", (chunk) => { childOutput += chunk.toString(); });
+    const childExitCode = await new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", resolve);
+    });
+    if (childExitCode !== 0) {
+      throw new Error(`Undeclared dependency fixture failed:\n${childOutput.trim()}`);
+    }
+    console.log("PASS preview dependency boundary allows declared packages.");
+    console.log(childOutput.trim());
+  } finally {
+    if (previousDependencyCheck === undefined) {
+      delete process.env.DAILY007_CHECK_PREVIEW_DEPENDENCIES;
+    } else {
+      process.env.DAILY007_CHECK_PREVIEW_DEPENDENCIES = previousDependencyCheck;
+    }
+    await rm(fixtureRoot, { recursive: true, force: true });
+  }
 }
 
 async function getFreePort() {
@@ -1034,6 +1152,7 @@ let activeViteOutput = "";
 let temporaryRoot;
 
 try {
+  await checkPreviewDependencyBoundary();
   await checkPreviewEntrypointCoverage();
 
   if (!process.argv.includes("--check-entrypoints-only")) {
