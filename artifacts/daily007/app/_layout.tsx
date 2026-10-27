@@ -91,27 +91,34 @@ function RootLayoutNav() {
 }
 
 export default function RootLayout() {
-  const [fontsLoaded, fontError] = useFonts({
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
-    Orbitron_700Bold,
-    Rajdhani_400Regular,
-    Rajdhani_500Medium,
-    Rajdhani_600SemiBold,
-    Rajdhani_700Bold,
-  });
+  const [fontsLoaded, fontError] = useFonts(
+    androidJoinRecoverySmokeTest
+      ? {}
+      : {
+          Inter_400Regular,
+          Inter_500Medium,
+          Inter_600SemiBold,
+          Inter_700Bold,
+          Orbitron_700Bold,
+          Rajdhani_400Regular,
+          Rajdhani_500Medium,
+          Rajdhani_600SemiBold,
+          Rajdhani_700Bold,
+        },
+  );
 
   useEffect(() => {
     setupWebPwa();
   }, []);
 
   useEffect(() => {
+    if (androidJoinRecoverySmokeTest) {
+      console.info('[android-join-recovery] root font gate bypass active');
+    }
     if (fontsLoaded || fontError || androidJoinRecoverySmokeTest) {
       SplashScreen.hideAsync();
     }
-  }, [fontsLoaded, fontError]);
+  }, [fontsLoaded, fontError, androidJoinRecoverySmokeTest]);
 
   if (!fontsLoaded && !fontError && !androidJoinRecoverySmokeTest) return null;
 
