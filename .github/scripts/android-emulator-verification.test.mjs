@@ -254,7 +254,7 @@ case "$1" in
   install) [ "$FAIL_STAGE" != install ] || exit 17; echo Success ;;
   reverse)
     if [ "$2" = --list ]; then
-      echo 'emulator-5554 tcp:40000 tcp:40000'
+      echo "emulator-5554 tcp:$METRO_PORT tcp:$METRO_PORT"
     else
       echo "$3 $4"
     fi ;;
@@ -382,6 +382,14 @@ for (const api of [35, 36]) {
     assert.match(result.calls, /test:android-join-form-accessibility/);
     const suites = result.calls.split("\n").filter((line) => line.startsWith("pnpm") && line.includes(" run "));
     assert.equal(suites.length, api === 35 ? 14 : 2);
+    const metroReverseCalls = result.calls
+      .split("\n")
+      .filter((line) => line === `adb reverse tcp:${metroPort} tcp:${metroPort}`);
+    assert.equal(
+      metroReverseCalls.length,
+      suites.length + 1,
+      "restore Metro forwarding before every Maestro suite in addition to initial setup",
+    );
     if (api === 35) {
       assert.match(result.calls, /test:android-join-recovery/);
       assert.match(result.calls, /test:android-google-link-retry/);
@@ -434,7 +442,7 @@ for (const stage of ["host", "maestro"]) {
       assert.match(result.failureDetails, /ActivityManager: ANR in com\.google\.android\.apps\.nexuslauncher/);
       assert.match(result.failureDetails, /screen text: join-recovery\/screen-hierarchy\/step\.json: text=Could not connect to Metro/);
       assert.match(result.failureDetails, /resourceId=join-recovery-fixture-banner/);
-      assert.match(result.failureDetails, /ADB reverse mappings: emulator-5554 tcp:40000 tcp:40000/);
+      assert.match(result.failureDetails, /ADB reverse mappings: emulator-5554 tcp:\d+ tcp:\d+/);
       assert.match(result.calls, /adb reverse --list/);
       assert.match(result.calls, /test:android-join-recovery/);
       assert.doesNotMatch(result.calls, /test:android-join-form-accessibility/);

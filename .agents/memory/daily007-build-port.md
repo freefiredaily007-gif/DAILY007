@@ -17,7 +17,7 @@ The managed Expo workflow must continue using its injected `PORT`. A stale Metro
 
 **Why:** CI showed a valid ADB reverse mapping but an empty response from `toybox nc`, which stopped the job before the existing app-level Maestro checks could test the same Expo Go URL.
 
-**How to apply:** Keep the ADB reverse setup, distinguish host readiness from device reachability, and let Maestro's launch-and-screen assertions establish device connectivity. When Maestro fails, preserve its output and the reverse mapping in the run details.
+**How to apply:** Keep the ADB reverse setup, distinguish host readiness from device reachability, and let Maestro's launch-and-screen assertions establish device connectivity. Reapply and verify the reverse mapping before each suite because it may disappear between Maestro launches. When Maestro fails, preserve its output and the reverse mapping in the run details.
 
 ## Headless publishing
 

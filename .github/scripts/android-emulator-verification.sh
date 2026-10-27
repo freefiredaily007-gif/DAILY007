@@ -278,6 +278,15 @@ run_maestro_suite() {
   local device_diagnostics
   local screen_text
   local screen_diagnostics
+  PHASE="restore adb reverse for Metro before Maestro suite ${suite_name}"
+  run_logged "maestro-${suite_name}-adb-reverse" adb reverse "tcp:${METRO_PORT}" "tcp:${METRO_PORT}"
+  reverse_mappings="$(adb reverse --list 2>&1)"
+  if ! grep -Fq "tcp:${METRO_PORT} tcp:${METRO_PORT}" <<<"$reverse_mappings"; then
+    echo "ADB reverse mapping for Metro port ${METRO_PORT} is missing before suite ${suite_name}: ${reverse_mappings:-<empty>}" >&2
+    report_failure 1 "$LINENO" \
+      "Could not verify adb reverse mapping tcp:${METRO_PORT} tcp:${METRO_PORT} before Maestro suite ${suite_name}."
+    return 1
+  fi
   PHASE="Maestro suite ${suite_name}"
   echo "Running Android API level ${ANDROID_API_LEVEL} Maestro suite: ${suite_name}"
   if EXPO_DEV_URL="exp://127.0.0.1:${METRO_PORT}" \
