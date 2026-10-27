@@ -62,6 +62,7 @@ test("Android emulator Metro loads the headless-only DevTools override", () => {
     emulatorScript,
     /NODE_OPTIONS=.*disable-rn-devtools-shell\.cjs/,
   );
+  assert.match(emulatorScript, /NODE_OPTIONS=.*--dns-result-order=ipv4first/);
   assert.match(emulatorScript, /CI=1/);
 });
 
@@ -233,6 +234,7 @@ esac
 printf 'pnpm %s\\n' "$*" >> "$MOCK_CALLS"
 if [ "$3" = exec ]; then
   printf '%s' "$$" > "$MOCK_METRO_PID"
+  printf 'NODE_OPTIONS %s\\n' "$NODE_OPTIONS" >> "$MOCK_CALLS"
   if [ "$FAIL_STAGE" = host ]; then
     echo 'Metro startup failed: EADDRINUSE' >&2
     exit 23
@@ -273,6 +275,7 @@ printf 'packager-status:running'
       logcat: await exists("android-logcat.txt"),
       install: await exists("expo-go-install.log"),
       failureDetails: await exists("failure-details.txt"),
+      hostDiagnostics: await exists("metro-host-diagnostics.txt"),
       output: result.stdout + result.stderr,
       summary: await readFile(env.GITHUB_STEP_SUMMARY, "utf8").catch(() => ""),
     };
@@ -295,7 +298,8 @@ for (const api of [35, 36]) {
     const metroPort = result.calls.match(/adb reverse tcp:(\d+) tcp:\1/)?.[1];
     assert.ok(metroPort, "adb reverse must use the dynamically selected Metro port");
     assert.match(result.calls, new RegExp(`pnpm .*--port ${metroPort}`));
-    assert.match(result.calls, new RegExp(`curl --fail --silent http://127\\.0\\.0\\.1:${metroPort}/status`));
+    assert.match(result.calls, /NODE_OPTIONS .*--dns-result-order=ipv4first/);
+    assert.match(result.calls, new RegExp(`curl --noproxy \\* --fail --silent http://localhost:${metroPort}/status`));
     assert.match(result.calls, new RegExp(`adb shell .*127\\.0\\.0\\.1 ${metroPort}`));
     assert.match(result.calls, /test:android-join-form-accessibility/);
     const suites = result.calls.split("\n").filter((line) => line.startsWith("pnpm") && line.includes(" run "));
@@ -333,6 +337,11 @@ for (const stage of ["host", "emulator"]) {
       ? /phase=Metro did not become ready on host port \d+/
       : /phase=validate emulator Metro response/);
     assert.match(result.output, /::error title=Android API 35 emulator failure::/);
-    if (stage === "host") assert.match(result.output, /Metro startup failed: EADDRINUSE/);
+    if (stage === "host") {
+      assert.match(result.output, /Metro startup failed: EADDRINUSE/);
+      assert.match(result.hostDiagnostics, /Node localhost resolution:/);
+      assert.match(result.hostDiagnostics, /HTTP localhost probe:/);
+      assert.match(result.hostDiagnostics, /HTTP 127\.0\.0\.1 probe:/);
+    }
   });
 }

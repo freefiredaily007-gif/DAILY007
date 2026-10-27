@@ -108,7 +108,7 @@ PHASE="start Expo Metro on host port ${METRO_PORT}"
 EXPO_ROUTER_DISABLE_RN_NAVIGATION_CHECK=1 \
 EXPO_PUBLIC_DOMAIN=daily007-ci.invalid \
 EXPO_NO_TELEMETRY=1 \
-NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require=${WORKSPACE_DIR}/.github/scripts/disable-rn-devtools-shell.cjs" \
+NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--dns-result-order=ipv4first --require=${WORKSPACE_DIR}/.github/scripts/disable-rn-devtools-shell.cjs" \
 CI=1 \
   pnpm --filter @workspace/daily007 exec expo start \
     --go --localhost --port "$METRO_PORT" > "$DIAG_DIR/daily007-metro.log" 2>&1 &
@@ -117,7 +117,7 @@ METRO_PID=$!
 metro_ready=false
 PHASE="wait for Metro host status on port ${METRO_PORT}"
 for attempt in $(seq 1 90); do
-  if curl --fail --silent "http://127.0.0.1:${METRO_PORT}/status" > "$DIAG_DIR/metro-status.txt" &&
+  if curl --noproxy '*' --fail --silent "http://localhost:${METRO_PORT}/status" > "$DIAG_DIR/metro-status.txt" &&
     grep -q "packager-status:running" "$DIAG_DIR/metro-status.txt"; then
     metro_ready=true
     break
@@ -127,6 +127,24 @@ for attempt in $(seq 1 90); do
 done
 if [ "$metro_ready" != true ]; then
   cat "$DIAG_DIR/daily007-metro.log"
+  {
+    echo "Node localhost resolution:"
+    node -e 'require("node:dns").lookup("localhost", { all: true }, (error, addresses) => console.log(JSON.stringify({ error, addresses })))' || true
+    echo "TCP listeners for Metro port ${METRO_PORT}:"
+    if command -v ss >/dev/null 2>&1; then
+      ss -ltnp 2>&1 | grep -E "(^State|:${METRO_PORT}([[:space:]]|$))" || true
+    else
+      echo "ss is not installed"
+    fi
+    for probe_host in localhost 127.0.0.1; do
+      echo "HTTP ${probe_host} probe:"
+      curl --noproxy '*' --connect-timeout 2 --max-time 4 --silent --show-error --include \
+        "http://${probe_host}:${METRO_PORT}/status" || true
+    done
+    echo "Expo process:"
+    ps -p "$METRO_PID" -o pid,ppid,stat,etime,args 2>&1 || true
+  } > "$DIAG_DIR/metro-host-diagnostics.txt" 2>&1
+  cat "$DIAG_DIR/metro-host-diagnostics.txt"
   PHASE="Metro did not become ready on host port ${METRO_PORT}"
   metro_details="$(tail -n 12 "$DIAG_DIR/daily007-metro.log" 2>/dev/null | tr '\n' ' ' | cut -c1-700)"
   report_failure 1 "$LINENO" "$metro_details"
