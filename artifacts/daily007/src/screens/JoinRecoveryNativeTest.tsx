@@ -229,6 +229,8 @@ function NativeJoinRecoveryFixture() {
         key={`${scenario}-${runKey}`}
         tournament={tournament}
         user={FIXTURE_USER}
+        seatGroupNumber={tournament.filledSlots + 1}
+        seatSlotNumber={scenario === 'last-slot' ? 1 : 2}
         onCancel={() => {}}
         onSubmit={submitFixtureJoin}
       />

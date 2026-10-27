@@ -36,14 +36,14 @@ appId: host.exp.exponent
 - assertVisible:
     text: "11/12 players"
 - tapOn:
-    id: join-form-captain-game-name
-- inputText: "Native Test Captain"
+    id: join-form-player-game-name
+- inputText: "Native Test Player"
 - scrollUntilVisible:
     element:
-      id: join-form-captain-game-uid
+      id: join-form-player-game-uid
     direction: DOWN
 - tapOn:
-    id: join-form-captain-game-uid
+    id: join-form-player-game-uid
 - inputText: "987654321"
 - hideKeyboard
 - scrollUntilVisible:

@@ -34,36 +34,15 @@ appId: host.exp.exponent
 - tapOn:
     id: join-recovery-scenario-insufficient-balance
 - tapOn:
-    id: join-form-captain-game-name
-- inputText: "Native Test Captain"
+    id: join-form-player-game-name
+- inputText: "Native Test Player"
 - scrollUntilVisible:
     element:
-      id: join-form-captain-game-uid
+      id: join-form-player-game-uid
     direction: DOWN
 - tapOn:
-    id: join-form-captain-game-uid
+    id: join-form-player-game-uid
 - inputText: "123456789"
-- scrollUntilVisible:
-    element:
-      id: join-form-team-name
-    direction: DOWN
-- tapOn:
-    id: join-form-team-name
-- inputText: "Retry Squad"
-- scrollUntilVisible:
-    element:
-      id: join-form-teammate-name-1
-    direction: DOWN
-- tapOn:
-    id: join-form-teammate-name-1
-- inputText: "Native Teammate"
-- scrollUntilVisible:
-    element:
-      id: join-form-teammate-uid-1
-    direction: DOWN
-- tapOn:
-    id: join-form-teammate-uid-1
-- inputText: "987654321"
 - hideKeyboard
 - scrollUntilVisible:
     element:
@@ -81,39 +60,18 @@ appId: host.exp.exponent
     text: "Submit attempts: 1"
 - scrollUntilVisible:
     element:
-      id: join-form-captain-game-name
+      id: join-form-player-game-name
     direction: UP
 - assertVisible:
-    id: join-form-captain-game-name
-    text: "Native Test Captain"
+    id: join-form-player-game-name
+    text: "Native Test Player"
 - scrollUntilVisible:
     element:
-      id: join-form-captain-game-uid
+      id: join-form-player-game-uid
     direction: DOWN
 - assertVisible:
-    id: join-form-captain-game-uid
+    id: join-form-player-game-uid
     text: "123456789"
-- scrollUntilVisible:
-    element:
-      id: join-form-team-name
-    direction: DOWN
-- assertVisible:
-    id: join-form-team-name
-    text: "Retry Squad"
-- scrollUntilVisible:
-    element:
-      id: join-form-teammate-name-1
-    direction: DOWN
-- assertVisible:
-    id: join-form-teammate-name-1
-    text: "Native Teammate"
-- scrollUntilVisible:
-    element:
-      id: join-form-teammate-uid-1
-    direction: DOWN
-- assertVisible:
-    id: join-form-teammate-uid-1
-    text: "987654321"
 - assertNotVisible:
     id: join-recovery-confirmation
 - assertNotVisible: "Registration confirmed"
@@ -139,39 +97,18 @@ appId: host.exp.exponent
     timeout: 10000
 - scrollUntilVisible:
     element:
-      id: join-form-captain-game-name
+      id: join-form-player-game-name
     direction: UP
 - assertVisible:
-    id: join-form-captain-game-name
-    text: "Native Test Captain"
+    id: join-form-player-game-name
+    text: "Native Test Player"
 - scrollUntilVisible:
     element:
-      id: join-form-captain-game-uid
+      id: join-form-player-game-uid
     direction: DOWN
 - assertVisible:
-    id: join-form-captain-game-uid
+    id: join-form-player-game-uid
     text: "123456789"
-- scrollUntilVisible:
-    element:
-      id: join-form-team-name
-    direction: DOWN
-- assertVisible:
-    id: join-form-team-name
-    text: "Retry Squad"
-- scrollUntilVisible:
-    element:
-      id: join-form-teammate-name-1
-    direction: DOWN
-- assertVisible:
-    id: join-form-teammate-name-1
-    text: "Native Teammate"
-- scrollUntilVisible:
-    element:
-      id: join-form-teammate-uid-1
-    direction: DOWN
-- assertVisible:
-    id: join-form-teammate-uid-1
-    text: "987654321"
 - assertNotVisible:
     id: join-recovery-confirmation
 - tapOn:

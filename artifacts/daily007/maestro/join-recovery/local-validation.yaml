@@ -42,7 +42,7 @@ appId: host.exp.exponent
       id: join-form-error
     timeout: 10000
 - assertVisible:
-    text: "Captain Free Fire in-game name is required."
+    text: "Enter your Free Fire in-game name and UID to continue."
 - assertVisible:
     text: "Submit attempts: 0"
 - assertNotVisible:
