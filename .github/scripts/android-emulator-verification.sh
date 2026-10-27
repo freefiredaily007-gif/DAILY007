@@ -152,30 +152,11 @@ if [ "$metro_ready" != true ]; then
 fi
 cat "$DIAG_DIR/metro-status.txt"
 
-# Query from Android through adb reverse, not only from the host.
-PHASE="probe Metro from emulator through adb reverse on port ${METRO_PORT}"
-run_logged emulator-metro-status adb shell \
-  "printf 'GET /status HTTP/1.1\\r\\nHost: localhost:${METRO_PORT}\\r\\nConnection: close\\r\\n\\r\\n' | toybox nc -v -w 5 127.0.0.1 ${METRO_PORT}"
-PHASE="validate emulator Metro response"
-if ! grep -q "packager-status:running" "$DIAG_DIR/emulator-metro-status.log"; then
-  emulator_response="$(tr '\r\n' '  ' < "$DIAG_DIR/emulator-metro-status.log" | cut -c 1-400)"
-  [ -n "$emulator_response" ] || emulator_response="<empty response>"
-  reverse_mappings="$(adb reverse --list 2>&1 | tr '\r\n' ' ' | cut -c 1-400)"
-  [ -n "$reverse_mappings" ] || reverse_mappings="<no reverse mappings>"
-  {
-    printf 'ADB reverse mappings: %s\n' "$reverse_mappings"
-  } > "$DIAG_DIR/emulator-metro-diagnostics.txt" 2>&1
-  cat "$DIAG_DIR/emulator-metro-diagnostics.txt"
-  PHASE="validate emulator Metro response"
-  report_failure 1 "$LINENO" \
-    "Expected packager-status:running from Android; response: ${emulator_response}. ADB reverse mappings: ${reverse_mappings}."
-  exit 1
-fi
-printf 'Expo Go installed; host and emulator reached packager-status:running on port %s.\n' "$METRO_PORT" \
-  > "$DIAG_DIR/setup-verified.txt"
-echo "::notice::Android API ${ANDROID_API_LEVEL}: Expo Go installed; Metro reachable from host and emulator on port ${METRO_PORT}."
+printf 'Expo Go installed; host Metro reached packager-status:running and adb reverse was configured on port %s. Maestro flows verify app connectivity.\n' "$METRO_PORT" \
+  > "$DIAG_DIR/host-ready.txt"
+echo "::notice::Android API ${ANDROID_API_LEVEL}: Expo Go installed; host Metro ready and adb reverse configured on port ${METRO_PORT}. Maestro will verify app connectivity."
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-  printf '### Android API %s setup\n- Expo Go installed successfully.\n- Host and emulator reached `packager-status:running` on port %s.\n' \
+  printf '### Android API %s setup\n- Expo Go installed successfully.\n- Host Metro reached `packager-status:running` on port %s.\n- ADB reverse configured; Maestro flows will verify app connectivity.\n' \
     "$ANDROID_API_LEVEL" "$METRO_PORT" >> "$GITHUB_STEP_SUMMARY"
 fi
 
@@ -207,6 +188,7 @@ run_maestro_suite() {
   local package_script="$2"
   local suite_log="$DIAG_DIR/maestro-${suite_name}.log"
   local suite_status
+  local reverse_mappings
   PHASE="Maestro suite ${suite_name}"
   echo "Running Android API level ${ANDROID_API_LEVEL} Maestro suite: ${suite_name}"
   if EXPO_DEV_URL="exp://127.0.0.1:${METRO_PORT}" \
@@ -215,7 +197,11 @@ run_maestro_suite() {
   else
     suite_status=$?
     cat "$suite_log"
+    reverse_mappings="$(adb reverse --list 2>&1 | tr '\r\n' ' ' | cut -c 1-400)"
+    [ -n "$reverse_mappings" ] || reverse_mappings="<no reverse mappings>"
     echo "Android API level ${ANDROID_API_LEVEL} Maestro suite ${suite_name} failed with exit code ${suite_status}." >&2
+    report_failure "$suite_status" "$LINENO" \
+      "Maestro output is in ${suite_log}; ADB reverse mappings: ${reverse_mappings}."
     return "$suite_status"
   fi
 }

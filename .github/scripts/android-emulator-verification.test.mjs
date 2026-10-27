@@ -227,10 +227,6 @@ case "$1" in
   shell)
     if [ "$2" = pm ]; then
       echo package:/data/app/host.exp.exponent/base.apk
-    elif [ "$FAIL_STAGE" = emulator ]; then
-      echo 'HTTP/1.0 503 Unavailable'
-    else
-      printf 'HTTP/1.0 200 OK\\r\\n\\r\\npackager-status:running'
     fi ;;
   logcat) echo 'mock logcat' ;;
 esac
@@ -248,6 +244,7 @@ if [ "$3" = exec ]; then
 fi
 [ "$EXPO_DEV_URL" = "exp://127.0.0.1:$METRO_PORT" ] || exit 24
 [ -d "$MAESTRO_TEST_OUTPUT_DIR" ] || exit 25
+[ "$FAIL_STAGE" != maestro ] || { echo 'mock Maestro could not load Expo Go URL' >&2; exit 26; }
 echo 'mock suite passed'
 `,
     curl: `#!/usr/bin/env bash
@@ -275,7 +272,7 @@ printf 'packager-status:running'
     }
     return {
       ...result, calls,
-      verified: await exists("setup-verified.txt"),
+      hostReady: await exists("host-ready.txt"),
       exit: await exists("runner-exit.txt"),
       logcat: await exists("android-logcat.txt"),
       install: await exists("expo-go-install.log"),
@@ -293,24 +290,25 @@ printf 'packager-status:running'
 }
 
 for (const api of [35, 36]) {
-  test(`API ${api}: install, host/emulator Metro probes, suites and cleanup persist in one shell`, async () => {
+  test(`API ${api}: install, host Metro readiness, ADB reverse, Maestro suites and cleanup persist in one shell`, async () => {
     const result = await run(api);
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.install, /Success/);
-    assert.match(result.verified, /host and emulator reached packager-status:running on port \d+/);
+    assert.match(result.hostReady, /host Metro reached packager-status:running and adb reverse was configured on port \d+/);
     assert.match(result.summary, /Expo Go installed successfully/);
+    assert.match(result.summary, /ADB reverse configured; Maestro flows will verify app connectivity/);
     assert.match(result.calls, /adb shell pm path host.exp.exponent/);
     const metroPort = result.calls.match(/adb reverse tcp:(\d+) tcp:\1/)?.[1];
     assert.ok(metroPort, "adb reverse must use the dynamically selected Metro port");
     assert.match(result.calls, new RegExp(`pnpm .*--port ${metroPort}`));
     assert.match(result.calls, /NODE_OPTIONS .*--dns-result-order=ipv4first/);
     assert.match(result.calls, new RegExp(`curl --noproxy \\* --fail --silent http://localhost:${metroPort}/status`));
-    assert.match(result.calls, new RegExp(`adb shell .*127\\.0\\.0\\.1 ${metroPort}`));
-    assert.match(result.calls, /GET \/status HTTP\/1\.1.*Host: localhost:.*Connection: close.*toybox nc -v -w 5/);
+    assert.doesNotMatch(result.calls, /toybox nc/);
     assert.match(result.calls, /test:android-join-form-accessibility/);
     const suites = result.calls.split("\n").filter((line) => line.startsWith("pnpm") && line.includes(" run "));
     assert.equal(suites.length, api === 35 ? 14 : 2);
     if (api === 35) {
+      assert.match(result.calls, /test:android-join-recovery/);
       assert.match(result.calls, /test:android-google-link-retry/);
       assert.match(result.calls, /test:android-wallet-payment-history/);
     }
@@ -323,29 +321,34 @@ test("install failure preserves its exit status, log and cleanup without startin
   const result = await run(35, "install");
   assert.equal(result.status, 17);
   assert.equal(result.exit, "exit_status=17\n");
-  assert.equal(result.verified, null);
+  assert.equal(result.hostReady, null);
   assert.doesNotMatch(result.calls, /pnpm/);
   assert.match(result.logcat, /mock logcat/);
   assert.match(result.failureDetails, /phase=install Expo Go APK/);
   assert.match(result.output, /Phase 'install Expo Go APK' failed/);
 });
 
-for (const stage of ["host", "emulator"]) {
-  test(`${stage} Metro failure does not claim setup success or start suites`, async () => {
+for (const stage of ["host", "maestro"]) {
+  test(`${stage} failure preserves readiness state and does not continue later suites`, async () => {
     const result = await run(35, stage);
-    assert.equal(result.status, 1);
-    assert.equal(result.exit, "exit_status=1\n");
-    assert.equal(result.verified, null);
-    assert.doesNotMatch(result.calls, /pnpm .* run /);
+    const expectedStatus = stage === "host" ? 1 : 26;
+    assert.equal(result.status, expectedStatus);
+    assert.equal(result.exit, `exit_status=${expectedStatus}\n`);
+    assert.equal(result.hostReady !== null, stage === "maestro");
     assert.match(result.summary, /Android API 35 emulator failure/);
-    assert.doesNotMatch(result.summary, /Expo Go installed successfully/);
     assert.match(result.failureDetails, stage === "host"
       ? /phase=Metro did not become ready on host port \d+/
-      : /phase=validate emulator Metro response/);
-    if (stage === "emulator") {
-      assert.match(result.failureDetails, /Expected packager-status:running from Android; response: HTTP\/1\.0 503 Unavailable/);
+      : /phase=Maestro suite join-recovery/);
+    if (stage === "host") {
+      assert.doesNotMatch(result.summary, /Expo Go installed successfully/);
+      assert.doesNotMatch(result.calls, /pnpm .* run /);
+    } else {
+      assert.match(result.summary, /Host Metro reached `packager-status:running`/);
+      assert.match(result.output, /mock Maestro could not load Expo Go URL/);
       assert.match(result.failureDetails, /ADB reverse mappings: emulator-5554 tcp:40000 tcp:40000/);
       assert.match(result.calls, /adb reverse --list/);
+      assert.match(result.calls, /test:android-join-recovery/);
+      assert.doesNotMatch(result.calls, /test:android-join-form-accessibility/);
     }
     assert.match(result.output, /::error title=Android API 35 emulator failure::/);
     if (stage === "host") {

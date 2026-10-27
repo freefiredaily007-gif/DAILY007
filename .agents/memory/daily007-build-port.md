@@ -13,11 +13,11 @@ The managed Expo workflow must continue using its injected `PORT`. A stale Metro
 
 ## Android emulator CI readiness
 
-`Waiting on http://localhost:<port>` does not prove that Metro's HTTP health endpoint or the Android reverse path is reachable. If the readiness poll times out while Expo remains alive, inspect DNS resolution, listening sockets, probes to `localhost` and `127.0.0.1`, and process state before changing app dependencies or UI.
+`Waiting on http://localhost:<port>` is not proof of readiness. Check Metro's host `/status`, then use the actual Maestro `openLink` flow to verify Expo Go can load the app through ADB reverse. Do not gate the test run on an Android shell `toybox nc` request.
 
-**Why:** A CI run can pass the host `/status` probe but fail the Android-side ADB reverse request; host readiness does not prove the emulator can reach Metro, and the two routes need separate evidence.
+**Why:** CI showed a valid ADB reverse mapping but an empty response from `toybox nc`, which stopped the job before the existing app-level Maestro checks could test the same Expo Go URL.
 
-**How to apply:** Use the run's diagnostics artifact to compare the CLI's host URL, the health-check address, and the ADB reverse route. Choose a host/network change only after those observations identify the mismatch.
+**How to apply:** Keep the ADB reverse setup, distinguish host readiness from device reachability, and let Maestro's launch-and-screen assertions establish device connectivity. When Maestro fails, preserve its output and the reverse mapping in the run details.
 
 ## Headless publishing
 
