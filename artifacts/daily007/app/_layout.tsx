@@ -35,8 +35,12 @@ const clerkProxyUrl = process.env.EXPO_PUBLIC_CLERK_PROXY_URL || undefined;
 const androidJoinRecoverySmokeTest =
   process.env.EXPO_PUBLIC_ANDROID_JOIN_RECOVERY_TEST === '1';
 
-// Prevent the splash screen from auto-hiding before asset loading is complete.
-SplashScreen.preventAutoHideAsync();
+// Production waits for its fonts before hiding the splash. The native CI
+// fixture deliberately skips that asset gate, so leave Expo Go's automatic
+// splash dismissal enabled there instead of racing preventAutoHideAsync().
+if (!androidJoinRecoverySmokeTest) {
+  void SplashScreen.preventAutoHideAsync();
+}
 
 const queryClient = new QueryClient();
 

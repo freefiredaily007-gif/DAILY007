@@ -49,6 +49,7 @@ test("each emulator action invokes one persistent Bash process, not independent 
 test("Android join-recovery CI can hide the splash without waiting for custom fonts", () => {
   assert.match(emulatorScript, /EXPO_PUBLIC_ANDROID_JOIN_RECOVERY_TEST=1/);
   assert.match(rootLayout, /EXPO_PUBLIC_ANDROID_JOIN_RECOVERY_TEST === '1'/);
+  assert.match(rootLayout, /if \(!androidJoinRecoverySmokeTest\) \{\s*void SplashScreen\.preventAutoHideAsync\(\);\s*\}/);
   assert.match(rootLayout, /fontsLoaded \|\| fontError \|\| androidJoinRecoverySmokeTest/);
   assert.match(rootLayout, /!fontsLoaded && !fontError && !androidJoinRecoverySmokeTest/);
   assert.match(rootLayout, /<Stack\.Screen name="join-recovery-test" \/>/);
