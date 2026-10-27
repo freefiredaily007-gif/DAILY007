@@ -386,6 +386,132 @@ async function testPreviewEntrypointDuplicates() {
   console.log("PASS duplicate preview entries and config groups are rejected before Chromium startup.");
 }
 
+function formatPreviewFailureSummary(failures) {
+  const groupedFailures = new Map();
+  for (const failure of failures) {
+    const entries = groupedFailures.get(failure.config) ?? [];
+    entries.push(failure);
+    groupedFailures.set(failure.config, entries);
+  }
+
+  return [
+    `Preview run failed: ${failures.length} entr${failures.length === 1 ? "y" : "ies"} across ` +
+      `${groupedFailures.size} config${groupedFailures.size === 1 ? "" : "s"}.`,
+    ...[...groupedFailures.entries()].flatMap(([config, entries]) => [
+      `FAIL ${config}`,
+      ...entries.map((failure) =>
+        `  ${failure.entry.path} — ${failure.entry.screen}: ${failure.message}`,
+      ),
+      ...(entries.find((failure) => failure.viteOutput)?.viteOutput
+        ? [`  Vite output:\n${entries.find((failure) => failure.viteOutput).viteOutput}`]
+        : []),
+      ...(entries.find((failure) => failure.browserOutput)?.browserOutput
+        ? [`  Chromium output:\n${entries.find((failure) => failure.browserOutput).browserOutput}`]
+        : []),
+    ]),
+  ].join("\n");
+}
+
+async function runPreviewEntries({
+  config,
+  entries,
+  runEntry,
+  getDiagnostics,
+  shouldStopAfterFailure,
+}) {
+  const failures = [];
+  for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
+    const entry = entries[entryIndex];
+    try {
+      await runEntry(entry);
+    } catch (error) {
+      failures.push({
+        config,
+        entry,
+        message: error instanceof Error ? error.message : String(error),
+        ...getDiagnostics(),
+      });
+
+      if (shouldStopAfterFailure()) {
+        for (const remainingEntry of entries.slice(entryIndex + 1)) {
+          failures.push({
+            config,
+            entry: remainingEntry,
+            message: `Not run because ${config} stopped after ${entry.screen} failed.`,
+            ...getDiagnostics(),
+          });
+        }
+        break;
+      }
+    }
+  }
+  return failures;
+}
+
+function isPreviewBrowserAvailable() {
+  return Boolean(
+    activeChromium
+    && activeChromium.exitCode === null
+    && socket?.readyState === WebSocket.OPEN,
+  );
+}
+
+async function testPreviewFailureSummary() {
+  const attempted = [];
+  const continuedFailures = await runPreviewEntries({
+    config: "vite.continue-fixture.config.ts",
+    entries: [
+      { path: "/broken-preview.html", screen: "Broken screen" },
+      { path: "/later-preview.html", screen: "Later screen" },
+    ],
+    runEntry: async (entry) => {
+      attempted.push(entry.screen);
+      if (entry.screen === "Broken screen") throw new Error("expected fixture failure");
+    },
+    getDiagnostics: () => ({ viteOutput: "", browserOutput: "" }),
+    shouldStopAfterFailure: () => false,
+  });
+  assert.deepEqual(attempted, ["Broken screen", "Later screen"]);
+  assert.equal(continuedFailures.length, 1);
+  assert.equal(continuedFailures[0].entry.screen, "Broken screen");
+
+  const stoppedFailures = await runPreviewEntries({
+    config: "vite.stopped-fixture.config.ts",
+    entries: [
+      { path: "/failed-preview.html", screen: "Failed screen" },
+      { path: "/skipped-preview.html", screen: "Skipped screen" },
+    ],
+    runEntry: async () => { throw new Error("browser disconnected"); },
+    getDiagnostics: () => ({ viteOutput: "", browserOutput: "" }),
+    shouldStopAfterFailure: () => true,
+  });
+  assert.equal(stoppedFailures.length, 2);
+  assert.match(stoppedFailures[1].message, /Not run because vite\.stopped-fixture\.config\.ts stopped/);
+
+  const summary = formatPreviewFailureSummary([
+    ...continuedFailures.map((failure) => ({
+      ...failure,
+      config: "vite.first.config.ts",
+      entry: { path: "/first-preview.html", screen: "First screen" },
+      message: "missing marker",
+      viteOutput: "Vite detail",
+    })),
+    {
+      config: "vite.second.config.ts",
+      entry: { path: "/second-preview.html?screen=Home", screen: "Second screen" },
+      message: "browser error",
+      browserOutput: "Chromium detail",
+    },
+  ]);
+
+  assert.match(summary, /2 entries across 2 configs/);
+  assert.match(summary, /vite\.first\.config\.ts[\s\S]*\/first-preview\.html — First screen: missing marker/);
+  assert.match(summary, /Vite output:\nVite detail/);
+  assert.match(summary, /vite\.second\.config\.ts[\s\S]*\/second-preview\.html\?screen=Home — Second screen: browser error/);
+  assert.match(summary, /Chromium output:\nChromium detail/);
+  console.log("PASS preview failure summary includes every failed config and entrypoint.");
+}
+
 async function checkPreviewDependencyBoundaryPlugin() {
   const configs = [...new Set(previewGroups.map((group) => group.config))].sort();
   const errors = [];
@@ -597,6 +723,9 @@ async function waitForPreview(url, label, server, getServerOutput) {
   const deadline = Date.now() + 30_000;
   let lastError;
   while (Date.now() < deadline) {
+    if (server.spawnError) {
+      throw new Error(`${label} could not start: ${server.spawnError.message}`);
+    }
     if (server.exitCode !== null) {
       throw new Error(
         `${label} exited with code ${server.exitCode}.\n${getServerOutput()}`,
@@ -1283,10 +1412,14 @@ function stopProcess(child) {
 let activeVite;
 let activeViteOutput = "";
 let temporaryRoot;
+const previewFailures = [];
 
 try {
   const duplicateTestOnly = process.argv.includes("--test-preview-duplicates-only");
-  if (duplicateTestOnly) {
+  const failureSummaryOnly = process.argv.includes("--test-preview-failure-summary-only");
+  if (failureSummaryOnly) {
+    await testPreviewFailureSummary();
+  } else if (duplicateTestOnly) {
     await testPreviewEntrypointDuplicates();
   } else {
     await checkPreviewDependencyBoundary();
@@ -1294,7 +1427,11 @@ try {
     await checkPreviewDependencyBoundaryPlugin();
   }
 
-  if (!duplicateTestOnly && !process.argv.includes("--check-entrypoints-only")) {
+  if (
+    !duplicateTestOnly
+    && !failureSummaryOnly
+    && !process.argv.includes("--check-entrypoints-only")
+  ) {
     temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "daily007-preview-entrypoints-"));
     await startChromium(path.join(temporaryRoot, "chromium-profile"));
 
@@ -1306,64 +1443,112 @@ try {
           ? group.entries.filter((entry) => entry.screen === "Tournament Details")
           : group.entries;
       if (entries.length === 0) continue;
-
-      const port = await getFreePort();
-      activeViteOutput = "";
-      activeVite = spawn(
-        "pnpm",
-        [
-          "--filter",
-          "@workspace/mockup-sandbox",
-          "exec",
-          "vite",
-          "--config",
-          group.config,
-          "--host",
-          "127.0.0.1",
-          "--port",
-          String(port),
-          "--strictPort",
-        ],
-        {
-          cwd: workspaceRoot,
-          env: {
-            ...process.env,
-            PORT: String(port),
-            DAILY007_CHECK_PREVIEW_DEPENDENCIES: "1",
-          },
-          stdio: ["ignore", "pipe", "pipe"],
-        },
-      );
-      activeVite.stdout.on("data", (chunk) => { activeViteOutput += chunk.toString(); });
-      activeVite.stderr.on("data", (chunk) => { activeViteOutput += chunk.toString(); });
-
-      for (const entry of entries) {
-        const variants = [
-          { viewport: entry.viewport ?? phoneViewport, fontScale: entry.fontScale ?? null },
-          ...(entry.largeTextScales ?? []).map((fontScale) => ({
-            viewport: entry.largeTextViewport ?? entry.viewport ?? phoneViewport,
-            fontScale,
-          })),
-        ];
-        for (const variant of variants) {
-          const previewUrl = new URL(entry.path, `http://127.0.0.1:${port}`);
-          if (variant.fontScale !== null) {
-            previewUrl.searchParams.set("fontScale", String(variant.fontScale));
-          }
-          const url = previewUrl.toString();
-          await waitForPreview(url, `${group.config} ${entry.path}`, activeVite, () => activeViteOutput);
-          await cdp("Emulation.setDeviceMetricsOverride", variant.viewport);
-          await checkPreview(url, { ...entry, viewport: variant.viewport, fontScale: variant.fontScale });
-          console.log(
-            `PASS ${group.config} ${entry.path} → ${entry.screen} @ ` +
-              `${variant.viewport.width}×${variant.viewport.height}` +
-              (variant.fontScale === null ? "" : `, ${variant.fontScale}× text`),
-          );
+      if (!isPreviewBrowserAvailable()) {
+        for (const entry of entries) {
+          previewFailures.push({
+            config: group.config,
+            entry,
+            message: "Not run because Chromium became unavailable after an earlier preview failure.",
+            viteOutput: "",
+            browserOutput: browserOutput.trim().slice(-2_000),
+          });
         }
+        continue;
       }
 
-      await stopProcess(activeVite);
-      activeVite = undefined;
+      let port;
+      try {
+        port = await getFreePort();
+        activeViteOutput = "";
+        activeVite = spawn(
+          "pnpm",
+          [
+            "--filter",
+            "@workspace/mockup-sandbox",
+            "exec",
+            "vite",
+            "--config",
+            group.config,
+            "--host",
+            "127.0.0.1",
+            "--port",
+            String(port),
+            "--strictPort",
+          ],
+          {
+            cwd: workspaceRoot,
+            env: {
+              ...process.env,
+              PORT: String(port),
+              DAILY007_CHECK_PREVIEW_DEPENDENCIES: "1",
+            },
+            stdio: ["ignore", "pipe", "pipe"],
+          },
+        );
+        activeVite.on("error", (error) => { activeVite.spawnError = error; });
+        activeVite.stdout.on("data", (chunk) => { activeViteOutput += chunk.toString(); });
+        activeVite.stderr.on("data", (chunk) => { activeViteOutput += chunk.toString(); });
+      } catch (error) {
+        for (const entry of entries) {
+          previewFailures.push({
+            config: group.config,
+            entry,
+            message: `Vite config could not be started: ${error instanceof Error ? error.message : String(error)}`,
+            viteOutput: activeViteOutput.trim().slice(-4_000),
+            browserOutput: "",
+          });
+        }
+        continue;
+      }
+
+      try {
+        previewFailures.push(...await runPreviewEntries({
+          config: group.config,
+          entries,
+          runEntry: async (entry) => {
+            browserErrors.length = 0;
+            externalRequests.length = 0;
+            const variants = [
+              { viewport: entry.viewport ?? phoneViewport, fontScale: entry.fontScale ?? null },
+              ...(entry.largeTextScales ?? []).map((fontScale) => ({
+                viewport: entry.largeTextViewport ?? entry.viewport ?? phoneViewport,
+                fontScale,
+              })),
+            ];
+            for (const variant of variants) {
+              const previewUrl = new URL(entry.path, `http://127.0.0.1:${port}`);
+              if (variant.fontScale !== null) {
+                previewUrl.searchParams.set("fontScale", String(variant.fontScale));
+              }
+              const url = previewUrl.toString();
+              await waitForPreview(url, `${group.config} ${entry.path}`, activeVite, () => activeViteOutput);
+              await cdp("Emulation.setDeviceMetricsOverride", variant.viewport);
+              await checkPreview(url, { ...entry, viewport: variant.viewport, fontScale: variant.fontScale });
+              console.log(
+                `PASS ${group.config} ${entry.path} → ${entry.screen} @ ` +
+                  `${variant.viewport.width}×${variant.viewport.height}` +
+                  (variant.fontScale === null ? "" : `, ${variant.fontScale}× text`),
+              );
+            }
+          },
+          getDiagnostics: () => ({
+            viteOutput: activeViteOutput.trim().slice(-4_000),
+            browserOutput: browserOutput.trim().slice(-2_000),
+          }),
+          shouldStopAfterFailure: () =>
+            activeVite.exitCode !== null
+            || activeVite.spawnError
+            || !isPreviewBrowserAvailable(),
+        }));
+      } finally {
+        await stopProcess(activeVite);
+        activeVite = undefined;
+      }
+    }
+
+    if (previewFailures.length > 0) {
+      console.error(formatPreviewFailureSummary(previewFailures));
+      process.exitCode = 1;
     }
   }
 } catch (error) {
