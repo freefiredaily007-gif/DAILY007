@@ -19,7 +19,8 @@ const FIXTURE_USER: User = {
 function fixtureTournament(scenario: Scenario) {
   const lastSlot = scenario === 'last-slot';
   const teamSize = lastSlot ? 1 : 2;
-  const filledSlots = lastSlot ? 11 : 4;
+  const totalSlots = lastSlot ? 48 : 12;
+  const filledSlots = lastSlot ? totalSlots - 1 : 4;
   return {
     id: `native-join-fixture-${scenario}`,
     name: 'Native join recovery fixture',
@@ -28,11 +29,11 @@ function fixtureTournament(scenario: Scenario) {
     teamType: lastSlot ? 'Solo' : 'Duo',
     teamSize,
     slotUnit: lastSlot ? 'player' as const : 'team' as const,
-    totalSlots: 12,
-    totalPlayerSlots: 12 * teamSize,
+    totalSlots,
+    totalPlayerSlots: totalSlots * teamSize,
     filledSlots,
     filledPlayerSlots: filledSlots * teamSize,
-    availableSlots: 12 - filledSlots,
+    availableSlots: totalSlots - filledSlots,
     entryCoins: 75,
     prizePool: 0,
     date: '2099-01-01',

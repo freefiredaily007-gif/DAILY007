@@ -256,8 +256,8 @@ test("the Android regression route uses only local fixtures and is dev-only", ()
   assert.match(localValidationFlow, /Enter your Free Fire in-game name and UID to continue/);
   assert.match(localValidationFlow, /Submit attempts: 0/);
   assert.match(localValidationFlow, /join-recovery-confirmation/);
-  assert.match(lastSlotFlow, /11\/12 players/);
-  assert.match(lastSlotFlow, /12\/12 players/);
+  assert.match(lastSlotFlow, /47\/48 players/);
+  assert.match(lastSlotFlow, /48\/48 players/);
   assert.match(lastSlotFlow, /This match is already full and is not accepting registrations/);
   assert.match(lastSlotFlow, /join-form-player-game-name/);
   assert.match(lastSlotFlow, /join-form-player-game-uid/);

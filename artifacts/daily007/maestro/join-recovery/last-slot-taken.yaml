@@ -34,7 +34,7 @@ appId: host.exp.exponent
 - tapOn:
     id: join-recovery-scenario-last-slot
 - assertVisible:
-    text: "11/12 players"
+    text: "47/48 players"
 - tapOn:
     id: join-form-player-game-name
 - inputText: "Native Test Player"
@@ -60,10 +60,10 @@ appId: host.exp.exponent
     text: ".*This match is already full and is not accepting registrations.*"
 - scrollUntilVisible:
     element:
-      text: "12/12 players"
+      text: "48/48 players"
     direction: UP
 - assertVisible:
-    text: "12/12 players"
+    text: "48/48 players"
 - assertVisible:
     text: "Submit attempts: 1"
 - assertNotVisible:
