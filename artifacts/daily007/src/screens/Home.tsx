@@ -193,15 +193,21 @@ export default function Home() {
       const requestId = loadRequestGuardRef.current.start();
       activeRequestsRef.current += 1;
       try {
-        const [tournamentsResult, registrationsResult, knockoutResult] = await Promise.allSettled([
+        void knockoutRefreshRef.current()
+          .then((knockoutResult) => {
+            if (
+              loadRequestGuardRef.current.isCurrent(requestId) &&
+              knockoutResult.data
+            ) {
+              setKnockoutInfo(knockoutResult.data);
+            }
+          })
+          .catch(() => {});
+        const [tournamentsResult, registrationsResult] = await Promise.allSettled([
           api.tournaments('?enabled=true'),
           api.myRegistrations(),
-          knockoutRefreshRef.current(),
         ]);
         if (!loadRequestGuardRef.current.isCurrent(requestId)) return;
-        if (knockoutResult.status === 'fulfilled' && knockoutResult.value.data) {
-          setKnockoutInfo(knockoutResult.value.data);
-        }
         if (tournamentsResult.status === 'rejected') throw tournamentsResult.reason;
         if (registrationsResult.status === 'rejected') throw registrationsResult.reason;
         const r = tournamentsResult.value;

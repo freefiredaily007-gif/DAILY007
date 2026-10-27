@@ -23,6 +23,17 @@ test('Home-to-match native fixture is dev-only and mounts the real screens with 
   assert.match(fixture, /Missing native navigation fixture/);
 });
 
+test('Home tournament cards do not wait for the optional Knockout feed', async () => {
+  const home = await read('src/screens/Home.tsx');
+
+  assert.match(home, /void knockoutRefreshRef\.current\(\)\s*\.then/);
+  assert.match(
+    home,
+    /Promise\.allSettled\(\[\s*api\.tournaments\('\?enabled=true'\),\s*api\.myRegistrations\(\),?\s*\]\)/,
+  );
+  assert.doesNotMatch(home, /Promise\.allSettled\(\[\s*api\.tournaments\('\?enabled=true'\),\s*api\.myRegistrations\(\),\s*knockoutRefreshRef\.current\(\)/);
+});
+
 test('Maestro exercises two Home cards with native Android Back between details', async () => {
   const flow = await read('maestro/home-match-back/home-to-match-back.yaml');
 
