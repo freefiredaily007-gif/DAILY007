@@ -278,7 +278,39 @@ const previewGroups = [
   },
 ];
 
-async function checkPreviewEntrypointCoverage() {
+function findDuplicatePreviewEntrypointErrors(groups) {
+  const configGroups = new Map();
+  const htmlEntries = new Map();
+
+  groups.forEach((group, groupIndex) => {
+    const configIndexes = configGroups.get(group.config) ?? [];
+    configIndexes.push(groupIndex + 1);
+    configGroups.set(group.config, configIndexes);
+
+    group.entries.forEach((entry) => {
+      const url = new URL(entry.path, "http://localhost");
+      const entryPath = `${url.pathname}${url.search}`;
+      const occurrences = htmlEntries.get(entryPath) ?? [];
+      occurrences.push(`${group.config} (${entry.screen})`);
+      htmlEntries.set(entryPath, occurrences);
+    });
+  });
+
+  return [
+    ...[...htmlEntries.entries()]
+      .filter(([, occurrences]) => occurrences.length > 1)
+      .map(([entryPath, occurrences]) =>
+        `Duplicate preview HTML entries: ${entryPath} (${occurrences.join("; ")}).`,
+      ),
+    ...[...configGroups.entries()]
+      .filter(([, indexes]) => indexes.length > 1)
+      .map(([config, indexes]) =>
+        `Duplicate preview Vite config groups: ${config} (groups ${indexes.join(", ")}).`,
+      ),
+  ];
+}
+
+async function checkPreviewEntrypointCoverage(groups = previewGroups) {
   const files = await readdir(sandboxRoot);
   const discoveredHtmlEntries = files
     .filter((file) => file.endsWith("-preview.html"))
@@ -287,11 +319,11 @@ async function checkPreviewEntrypointCoverage() {
     .filter((file) => /^vite\..+\.config\.ts$/.test(file))
     .sort();
   const checkedHtmlEntries = [...new Set(
-    previewGroups.flatMap((group) =>
+    groups.flatMap((group) =>
       group.entries.map((entry) => path.basename(new URL(entry.path, "http://localhost").pathname)),
     ),
   )].sort();
-  const checkedViteConfigs = [...new Set(previewGroups.map((group) => group.config))].sort();
+  const checkedViteConfigs = [...new Set(groups.map((group) => group.config))].sort();
   const missingHtmlEntries = discoveredHtmlEntries.filter(
     (entry) => !checkedHtmlEntries.includes(entry),
   );
@@ -305,6 +337,7 @@ async function checkPreviewEntrypointCoverage() {
     (config) => !discoveredViteConfigs.includes(config),
   );
   const errors = [
+    ...findDuplicatePreviewEntrypointErrors(groups),
     missingHtmlEntries.length > 0
       ? `Preview HTML files missing from previewGroups: ${missingHtmlEntries.join(", ")}.`
       : "",
@@ -327,6 +360,30 @@ async function checkPreviewEntrypointCoverage() {
     `PASS preview entrypoint coverage — ${discoveredHtmlEntries.length} HTML files, ` +
       `${discoveredViteConfigs.length} Vite configs.`,
   );
+}
+
+async function testPreviewEntrypointDuplicates() {
+  const fixtureGroups = [
+    {
+      config: "vite.duplicate-fixture.config.ts",
+      entries: [{ path: "/duplicate-fixture-preview.html?screen=Home", screen: "Home" }],
+    },
+    {
+      config: "vite.duplicate-fixture.config.ts",
+      entries: [{ path: "/duplicate-fixture-preview.html?screen=Home", screen: "Home copy" }],
+    },
+  ];
+
+  await assert.rejects(
+    checkPreviewEntrypointCoverage(fixtureGroups),
+    (error) => {
+      assert.match(error.message, /Duplicate preview HTML entries: \/duplicate-fixture-preview\.html\?screen=Home/);
+      assert.match(error.message, /Duplicate preview Vite config groups: vite\.duplicate-fixture\.config\.ts/);
+      return true;
+    },
+    "duplicate preview entries and config groups must fail coverage before browser startup",
+  );
+  console.log("PASS duplicate preview entries and config groups are rejected before Chromium startup.");
 }
 
 async function checkPreviewDependencyBoundaryPlugin() {
@@ -1181,11 +1238,16 @@ let activeViteOutput = "";
 let temporaryRoot;
 
 try {
-  await checkPreviewDependencyBoundary();
-  await checkPreviewEntrypointCoverage();
-  await checkPreviewDependencyBoundaryPlugin();
+  const duplicateTestOnly = process.argv.includes("--test-preview-duplicates-only");
+  if (duplicateTestOnly) {
+    await testPreviewEntrypointDuplicates();
+  } else {
+    await checkPreviewDependencyBoundary();
+    await checkPreviewEntrypointCoverage();
+    await checkPreviewDependencyBoundaryPlugin();
+  }
 
-  if (!process.argv.includes("--check-entrypoints-only")) {
+  if (!duplicateTestOnly && !process.argv.includes("--check-entrypoints-only")) {
     temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "daily007-preview-entrypoints-"));
     await startChromium(path.join(temporaryRoot, "chromium-profile"));
 
