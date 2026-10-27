@@ -116,7 +116,13 @@ try {
     ['shell', 'am', 'force-stop', 'host.exp.exponent'],
     'Restarting Expo Go for the updated font scale',
   );
-  const maestro = run('maestro', ['test', 'maestro/wallet-cancellation-refund/large-text.yaml'], {
+  const maestroTestOutputDir = process.env.MAESTRO_TEST_OUTPUT_DIR ||
+    `${process.env.HOME || '.'}/.maestro/tests`;
+  const maestro = run('maestro', [
+    'test',
+    `--test-output-dir=${maestroTestOutputDir}`,
+    'maestro/wallet-cancellation-refund/large-text.yaml',
+  ], {
     stdio: 'inherit',
     env: process.env,
   });

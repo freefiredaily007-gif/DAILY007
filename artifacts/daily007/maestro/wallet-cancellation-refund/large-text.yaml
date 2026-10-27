@@ -2,10 +2,35 @@ appId: host.exp.exponent
 ---
 - openLink:
     link: ${EXPO_DEV_URL}/--/wallet-cancellation-refund-test
+# Expo Go can show delayed system prompts after the large-text runner restarts it.
+- repeat:
+    times: 12
+    while:
+      notVisible:
+        id: wallet-cancellation-refund-fixture-banner
+    commands:
+      - tapOn:
+          id: android:id/aerr_wait
+          optional: true
+          waitUntilVisible: true
+      - tapOn:
+          text: Continue
+          optional: true
+          waitUntilVisible: true
+      - runFlow:
+          when:
+            visible: Continue
+          commands:
+            - pressKey: BACK
+      - runFlow:
+          when:
+            visible: Reload
+          commands:
+            - pressKey: BACK
 - extendedWaitUntil:
     visible:
       id: wallet-cancellation-refund-fixture-banner
-    timeout: 15000
+    timeout: 60000
 - assertVisible:
     text: "Cancellation refund fixture · font scale 1.5"
 - assertVisible:
