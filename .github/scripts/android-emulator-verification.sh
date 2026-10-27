@@ -224,7 +224,7 @@ run_maestro_suite() {
     device_diagnostics="$(
       find "$MAESTRO_TEST_OUTPUT_DIR" -type f -path '*/logs/device-logcat.txt' -print0 2>/dev/null |
         while IFS= read -r -d '' report; do
-          matching_errors="$(grep -Ei 'FATAL EXCEPTION|AndroidRuntime|ReactNativeJS.*(Error|Exception|Failed|Unable)|Unhandled JS|Unable to load script|Failed to load bundle|Could not connect' "$report" 2>/dev/null |
+          matching_errors="$(grep -Ei 'FATAL EXCEPTION|AndroidRuntime|ANR in|ReactNativeJS.*(Error|Exception|Failed|Unable)|Unhandled JS|Unable to load script|Failed to load bundle|Could not connect' "$report" 2>/dev/null |
             tail -n 12 | tr '\r\n' ' ' | cut -c 1-600 || true)"
           if [ -n "$matching_errors" ]; then
             printf '%s: %s; ' "${report#"$MAESTRO_TEST_OUTPUT_DIR"/}" "$matching_errors"

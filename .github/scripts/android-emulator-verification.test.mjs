@@ -29,6 +29,8 @@ test("join-recovery flows run serially and handle Expo Go cold starts", async ()
       "utf8",
     );
     assert.match(flow, /text: Continue\n\s+optional: true/);
+    assert.match(flow, /notVisible:\n\s+text: "\.\*Bundling\.\*"\n\s+timeout: 120000/);
+    assert.match(flow, /text: Wait\n\s+optional: true/);
     assert.match(flow, /id: join-recovery-fixture-banner\n\s+timeout: 60000/);
   }
 });
@@ -268,7 +270,7 @@ maestro test -e "EXPO_DEV_URL=$EXPO_DEV_URL" sample-flow-with-env.yaml
 [ "$FAIL_STAGE" != maestro ] || {
   mkdir -p "$MAESTRO_TEST_OUTPUT_DIR/join-recovery/logs" "$MAESTRO_TEST_OUTPUT_DIR/join-recovery/screen-hierarchy"
   echo 'Maestro failure: join-recovery fixture not visible' > "$MAESTRO_TEST_OUTPUT_DIR/join-recovery/logs/maestro.log"
-  echo 'E ReactNativeJS: Error: simulated startup failure' > "$MAESTRO_TEST_OUTPUT_DIR/join-recovery/logs/device-logcat.txt"
+  printf 'E ReactNativeJS: Error: simulated startup failure\nActivityManager: ANR in com.google.android.apps.nexuslauncher\n' > "$MAESTRO_TEST_OUTPUT_DIR/join-recovery/logs/device-logcat.txt"
   echo '{"elements":[{"text":"Could not connect to Metro","resourceId":"join-recovery-fixture-banner"}]}' > "$MAESTRO_TEST_OUTPUT_DIR/join-recovery/screen-hierarchy/step.json"
   echo 'mock Maestro could not load Expo Go URL' >&2
   exit 26
@@ -381,6 +383,7 @@ for (const stage of ["host", "maestro"]) {
       assert.match(result.output, /mock Maestro could not load Expo Go URL/);
       assert.match(result.failureDetails, /Maestro logs: join-recovery\/logs\/maestro\.log: Maestro failure: join-recovery fixture not visible/);
       assert.match(result.failureDetails, /device runtime errors: join-recovery\/logs\/device-logcat\.txt: E ReactNativeJS: Error: simulated startup failure/);
+      assert.match(result.failureDetails, /ActivityManager: ANR in com\.google\.android\.apps\.nexuslauncher/);
       assert.match(result.failureDetails, /screen text: join-recovery\/screen-hierarchy\/step\.json: text=Could not connect to Metro/);
       assert.match(result.failureDetails, /resourceId=join-recovery-fixture-banner/);
       assert.match(result.failureDetails, /ADB reverse mappings: emulator-5554 tcp:40000 tcp:40000/);

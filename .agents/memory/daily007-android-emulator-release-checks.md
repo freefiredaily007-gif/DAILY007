@@ -35,8 +35,8 @@ Environment variables in the CI shell are not automatically available as Maestro
 
 ## Expo Go cold-start UI checks
 
-Run Maestro flows serially on a single emulator. On a cold Expo Go launch, dismiss the first-run developer prompt and allow time for Metro to finish bundling before asserting app content.
+Run Maestro flows serially on a single emulator. On a cold Expo Go launch, dismiss the first-run developer prompt, wait for Metro's `Bundling` indicator to disappear, and handle the emulator's Pixel Launcher ANR prompt before asserting app content.
 
-**Why:** Concurrent flows competed for one emulator, while the initial bundle was still loading and Expo Go’s “Continue” prompt covered the fixture screen.
+**Why:** The first Android bundle took about 57 seconds in CI and the emulator displayed “Pixel Launcher isn’t responding”; short fixed waits inspected a system dialog instead of the fixture.
 
-**How to apply:** Avoid passing a directory of stateful flows to one emulator test command; invoke each flow in sequence and give the first route load a cold-start timeout.
+**How to apply:** Avoid passing a directory of stateful flows to one emulator test command; invoke each flow in sequence and wait for bundle completion before checking test IDs.
