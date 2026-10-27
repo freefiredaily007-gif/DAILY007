@@ -572,7 +572,12 @@ export default function Wallet({
         data={visibleTxns}
         keyExtractor={(t, i) => String(t.id ?? i)}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshHistory} tintColor={C.neon} />}
-        contentContainerStyle={{ padding: 14, gap: 12 }}
+        contentContainerStyle={{
+          padding: 14,
+          gap: 12,
+          // Give Maestro room to center this test fixture's footer above Expo Go toasts.
+          paddingBottom: __DEV__ && onHistoryChange ? 1200 : 14,
+        }}
         ListHeaderComponent={
           <>
             <GCard glowColor={C.gold} style={s.balCard}>

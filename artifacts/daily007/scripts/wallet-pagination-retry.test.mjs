@@ -60,7 +60,7 @@ function createLoadMoreHistory(state, Api) {
     activeWalletUserId: { current: state.userId },
     setLoadingMoreHistory: (value) => { state.loadingMoreHistory = value; },
     setError: (value) => { state.error = value; },
-    Api,
+    historyApi: Api,
     apiError: (error) => error?.message ?? String(error),
     walletHistoryForUser: (history, userId) => history.userId === userId
       ? history

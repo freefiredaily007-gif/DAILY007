@@ -19,6 +19,7 @@ test('Android Wallet fixture pages through 45 payment requests in the real Walle
   assert.match(wallet, /onHistoryChange\?: WalletHistoryTestObserver/);
   assert.match(wallet, /historyTestApi\?: WalletHistoryTestApi/);
   assert.match(wallet, /if \(__DEV__ && onHistoryChange\)/);
+  assert.match(wallet, /paddingBottom: __DEV__ && onHistoryChange \? 1200 : 14/);
   assert.match(fixture, /<Wallet historyTestApi=\{historyTestApi\} onHistoryChange=\{observeHistory\} \/>/);
   assert.match(fixture, /const PAYMENT_COUNT = 45/);
   assert.match(fixture, /const PAGE_SIZE = 20/);
