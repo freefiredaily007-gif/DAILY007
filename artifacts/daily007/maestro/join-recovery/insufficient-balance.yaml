@@ -48,6 +48,7 @@ appId: host.exp.exponent
     element:
       id: join-form-submit
     direction: DOWN
+    centerElement: true
 - tapOn:
     id: join-form-submit
 - extendedWaitUntil:
@@ -85,6 +86,7 @@ appId: host.exp.exponent
     element:
       id: join-form-submit
     direction: DOWN
+    centerElement: true
 - tapOn:
     id: join-form-submit
 - extendedWaitUntil:
