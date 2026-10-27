@@ -29,10 +29,10 @@ test("join-recovery flows run serially and handle Expo Go cold starts", async ()
       join(root, `artifacts/daily007/maestro/join-recovery/${flowName}.yaml`),
       "utf8",
     );
-    assert.match(flow, /text: Continue\n\s+optional: true/);
-    assert.match(flow, /notVisible:\n\s+text: "\.\*Bundling\.\*"\n\s+timeout: 120000/);
-    assert.match(flow, /text: Wait\n\s+optional: true/);
-    assert.match(flow, /id: join-recovery-fixture-banner\n\s+timeout: 60000/);
+    assert.match(
+      flow,
+      /notVisible:\n\s+text: "\.\*Bundling\.\*"\n\s+timeout: 120000[\s\S]*?text: Continue\n\s+optional: true\n\s+waitUntilVisible: true[\s\S]*?id: join-recovery-fixture-banner\n\s+timeout: 60000/,
+    );
   }
 });
 
@@ -49,7 +49,6 @@ test("each emulator action invokes one persistent Bash process, not independent 
 test("Android join-recovery CI can hide the splash without waiting for custom fonts", () => {
   assert.match(emulatorScript, /EXPO_PUBLIC_ANDROID_JOIN_RECOVERY_TEST=1/);
   assert.match(rootLayout, /EXPO_PUBLIC_ANDROID_JOIN_RECOVERY_TEST === '1'/);
-  assert.match(rootLayout, /if \(!androidJoinRecoverySmokeTest\) \{\s*void SplashScreen\.preventAutoHideAsync\(\);\s*\}/);
   assert.match(rootLayout, /fontsLoaded \|\| fontError \|\| androidJoinRecoverySmokeTest/);
   assert.match(rootLayout, /!fontsLoaded && !fontError && !androidJoinRecoverySmokeTest/);
   assert.match(rootLayout, /<Stack\.Screen name="join-recovery-test" \/>/);

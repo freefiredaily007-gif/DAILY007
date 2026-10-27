@@ -2,16 +2,15 @@ appId: host.exp.exponent
 ---
 - openLink:
     link: ${EXPO_DEV_URL}/--/join-recovery-test
-- tapOn:
-    text: Continue
-    optional: true
 - extendedWaitUntil:
     notVisible:
       text: ".*Bundling.*"
     timeout: 120000
+# Expo Go can show its first-run developer menu after Metro has finished bundling.
 - tapOn:
-    text: Wait
+    text: Continue
     optional: true
+    waitUntilVisible: true
 - extendedWaitUntil:
     visible:
       id: join-recovery-fixture-banner
