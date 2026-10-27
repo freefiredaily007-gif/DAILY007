@@ -512,6 +512,74 @@ async function testPreviewFailureSummary() {
   console.log("PASS preview failure summary includes every failed config and entrypoint.");
 }
 
+async function testChromiumPreflightFailure() {
+  const fixtureRoot = await mkdtemp(path.join(os.tmpdir(), "daily007-chromium-preflight-"));
+  const binDirectory = path.join(fixtureRoot, "bin");
+  const missingChromium = path.join(fixtureRoot, "missing-chromium");
+  const viteMarker = path.join(fixtureRoot, "vite-started");
+  const childOutput = [];
+
+  try {
+    await mkdir(binDirectory);
+    await writeFile(
+      path.join(binDirectory, "pnpm"),
+      `#!/bin/sh
+printf started > "$DAILY007_PREVIEW_VITE_MARKER"
+exit 0
+`,
+      { mode: 0o755 },
+    );
+
+    const child = spawn(
+      process.execPath,
+      [fileURLToPath(import.meta.url), "--test-chromium-preflight-fixture"],
+      {
+        cwd: workspaceRoot,
+        env: {
+          ...process.env,
+          CHROMIUM_PATH: missingChromium,
+          DAILY007_PREVIEW_VITE_MARKER: viteMarker,
+          PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    child.stdout.on("data", (chunk) => { childOutput.push(chunk.toString()); });
+    child.stderr.on("data", (chunk) => { childOutput.push(chunk.toString()); });
+
+    const startedAt = Date.now();
+    const result = await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        child.kill("SIGKILL");
+        reject(new Error("Chromium spawn failure took too long to report."));
+      }, 5_000);
+      child.once("error", (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+      child.once("close", (code, signal) => {
+        clearTimeout(timeout);
+        resolve({ code, signal });
+      });
+    });
+    const elapsed = Date.now() - startedAt;
+    const output = childOutput.join("");
+
+    assert.notEqual(result.code, 0, "missing Chromium must fail the preview check");
+    assert.match(output, /Chromium could not be started/);
+    assert.match(output, /missing-chromium/);
+    assert.ok(elapsed < 5_000, "missing Chromium must fail before the browser readiness timeout");
+    await assert.rejects(
+      readFile(viteMarker),
+      { code: "ENOENT" },
+      "Vite must not start when Chromium preflight fails",
+    );
+    console.log("PASS missing Chromium fails promptly before any Vite preview server starts.");
+  } finally {
+    await rm(fixtureRoot, { recursive: true, force: true });
+  }
+}
+
 async function checkPreviewDependencyBoundaryPlugin() {
   const configs = [...new Set(previewGroups.map((group) => group.config))].sort();
   const errors = [];
@@ -748,7 +816,17 @@ async function waitForPreview(url, label, server, getServerOutput) {
 async function waitForBrowser(url, browser, getBrowserOutput) {
   const deadline = Date.now() + 15_000;
   let lastError;
+  const throwIfSpawnFailed = () => {
+    if (browser.spawnError) {
+      throw new Error(
+        `Chromium could not be started with "${browser.executable}": ` +
+          `${browser.spawnError.message}. Install Chromium or set CHROMIUM_PATH to a usable executable.`,
+      );
+    }
+  };
+  throwIfSpawnFailed();
   while (Date.now() < deadline) {
+    throwIfSpawnFailed();
     if (browser.exitCode !== null) {
       throw new Error(
         `Chromium exited with code ${browser.exitCode} before becoming ready.\n${getBrowserOutput()}`,
@@ -761,6 +839,7 @@ async function waitForBrowser(url, browser, getBrowserOutput) {
     } catch (error) {
       lastError = error;
     }
+    throwIfSpawnFailed();
     await delay(100);
   }
   throw new Error(
@@ -844,8 +923,9 @@ async function evaluate(expression) {
 
 async function startChromium(profilePath) {
   const port = await getFreePort();
+  const chromiumExecutable = process.env.CHROMIUM_PATH || "chromium";
   activeChromium = spawn(
-    process.env.CHROMIUM_PATH || "chromium",
+    chromiumExecutable,
     [
       "--headless=new",
       "--no-sandbox",
@@ -861,6 +941,8 @@ async function startChromium(profilePath) {
     ],
     { stdio: ["ignore", "ignore", "pipe"] },
   );
+  activeChromium.executable = chromiumExecutable;
+  activeChromium.once("error", (error) => { activeChromium.spawnError = error; });
   activeChromium.stderr.on("data", (chunk) => { browserOutput += chunk.toString(); });
   const version = await waitForBrowser(
     `http://127.0.0.1:${port}/json/version`,
@@ -1417,11 +1499,15 @@ const previewFailures = [];
 try {
   const duplicateTestOnly = process.argv.includes("--test-preview-duplicates-only");
   const failureSummaryOnly = process.argv.includes("--test-preview-failure-summary-only");
+  const chromiumPreflightTestOnly = process.argv.includes("--test-chromium-preflight-only");
+  const chromiumPreflightFixtureOnly = process.argv.includes("--test-chromium-preflight-fixture");
   if (failureSummaryOnly) {
     await testPreviewFailureSummary();
   } else if (duplicateTestOnly) {
     await testPreviewEntrypointDuplicates();
-  } else {
+  } else if (chromiumPreflightTestOnly) {
+    await testChromiumPreflightFailure();
+  } else if (!chromiumPreflightFixtureOnly) {
     await checkPreviewDependencyBoundary();
     await checkPreviewEntrypointCoverage();
     await checkPreviewDependencyBoundaryPlugin();
@@ -1430,6 +1516,7 @@ try {
   if (
     !duplicateTestOnly
     && !failureSummaryOnly
+    && !chromiumPreflightTestOnly
     && !process.argv.includes("--check-entrypoints-only")
   ) {
     temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "daily007-preview-entrypoints-"));

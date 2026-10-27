@@ -56,7 +56,8 @@
     "test:join-form-largest-text": "node scripts/test-join-form-largest-text.mjs",
     "test:preview-entrypoints": "node scripts/test-preview-entrypoints.mjs",
     "test:preview-coverage": "node scripts/test-preview-entrypoints.mjs --check-entrypoints-only",
-    "test:preview-duplicates": "node scripts/test-preview-entrypoints.mjs --test-preview-duplicates-only"
+    "test:preview-duplicates": "node scripts/test-preview-entrypoints.mjs --test-preview-duplicates-only",
+    "test:preview-chromium-preflight": "node scripts/test-preview-entrypoints.mjs --test-chromium-preflight-only"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
