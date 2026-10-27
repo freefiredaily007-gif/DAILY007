@@ -3,7 +3,7 @@ appId: host.exp.exponent
 - openLink:
     link: ${EXPO_DEV_URL}/--/join-recovery-test
 # Expo Go's bundle progress is not consistently exposed to Maestro's UI tree.
-# Retry the optional system and Expo Go prompts until the route is accessible.
+# Retry startup prompts and close the native dev menu until the route is accessible.
 - repeat:
     times: 8
     while:
@@ -18,6 +18,11 @@ appId: host.exp.exponent
           text: Continue
           optional: true
           waitUntilVisible: true
+      - runFlow:
+          when:
+            visible: Reload
+          commands:
+            - pressKey: BACK
 - extendedWaitUntil:
     visible:
       id: join-recovery-fixture-banner

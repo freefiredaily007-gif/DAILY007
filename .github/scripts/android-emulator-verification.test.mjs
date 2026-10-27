@@ -16,7 +16,7 @@ const daily007Package = JSON.parse(await readFile(join(root, "artifacts/daily007
 const commands = [...workflow.matchAll(/^ {10}script:\s*(.+)$/gm)].map((match) => match[1]);
 const setupDiagnosticsScript = join(root, ".github/scripts/android-emulator-setup-diagnostics.sh");
 
-test("join-recovery flows run serially and handle Expo Go cold starts", async () => {
+test("join-recovery flows handle Expo Go prompts and the native developer menu", async () => {
   const command = daily007Package.scripts["test:android-join-recovery"];
   assert.equal((command.match(/maestro test/g) ?? []).length, 3);
   assert.match(
@@ -31,7 +31,7 @@ test("join-recovery flows run serially and handle Expo Go cold starts", async ()
     );
     assert.match(
       flow,
-      /repeat:\n\s+times: 8\n\s+while:\n\s+notVisible:\n\s+id: join-recovery-fixture-banner[\s\S]*?id: android:id\/aerr_wait\n\s+optional: true\n\s+waitUntilVisible: true[\s\S]*?text: Continue\n\s+optional: true\n\s+waitUntilVisible: true[\s\S]*?id: join-recovery-fixture-banner\n\s+timeout: 60000/,
+      /repeat:\n\s+times: 8\n\s+while:\n\s+notVisible:\n\s+id: join-recovery-fixture-banner[\s\S]*?id: android:id\/aerr_wait\n\s+optional: true\n\s+waitUntilVisible: true[\s\S]*?text: Continue\n\s+optional: true\n\s+waitUntilVisible: true[\s\S]*?when:\n\s+visible: Reload\n\s+commands:\n\s+- pressKey: BACK[\s\S]*?id: join-recovery-fixture-banner\n\s+timeout: 60000/,
     );
   }
 });
