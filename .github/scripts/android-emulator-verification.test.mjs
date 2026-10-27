@@ -31,7 +31,7 @@ test("join-recovery flows run serially and handle Expo Go cold starts", async ()
     );
     assert.match(
       flow,
-      /notVisible:\n\s+text: "\.\*Bundling\.\*"\n\s+timeout: 120000[\s\S]*?text: Continue\n\s+optional: true\n\s+waitUntilVisible: true[\s\S]*?id: join-recovery-fixture-banner\n\s+timeout: 60000/,
+      /repeat:\n\s+times: 8\n\s+while:\n\s+notVisible:\n\s+id: join-recovery-fixture-banner[\s\S]*?id: android:id\/aerr_wait\n\s+optional: true\n\s+waitUntilVisible: true[\s\S]*?text: Continue\n\s+optional: true\n\s+waitUntilVisible: true[\s\S]*?id: join-recovery-fixture-banner\n\s+timeout: 60000/,
     );
   }
 });
