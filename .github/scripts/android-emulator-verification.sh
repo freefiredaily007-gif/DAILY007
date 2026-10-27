@@ -233,6 +233,28 @@ run_maestro_suite() {
   fi
 }
 
+configure_maestro_flow_environment() {
+  local maestro_binary
+  local wrapper_dir="$RUNNER_TEMP_DIR/daily007-maestro-wrapper"
+  maestro_binary="$(command -v maestro)"
+  mkdir -p "$wrapper_dir"
+  cat > "$wrapper_dir/maestro" <<'MAESTRO_WRAPPER'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [ "${1:-}" = test ] && [ -n "${EXPO_DEV_URL:-}" ]; then
+  shift
+  exec "${MAESTRO_REAL_BIN:?MAESTRO_REAL_BIN is required}" test -e "EXPO_DEV_URL=${EXPO_DEV_URL}" "$@"
+fi
+exec "${MAESTRO_REAL_BIN:?MAESTRO_REAL_BIN is required}" "$@"
+MAESTRO_WRAPPER
+  chmod +x "$wrapper_dir/maestro"
+  export MAESTRO_REAL_BIN="$maestro_binary"
+  export PATH="$wrapper_dir:$PATH"
+}
+
+PHASE="configure Maestro Expo URL forwarding"
+configure_maestro_flow_environment
+
 if [ "$ANDROID_API_LEVEL" = 36 ]; then
   run_maestro_suite join-form-accessibility test:android-join-form-accessibility
   run_maestro_suite tournament-pull-refresh test:android-tournament-pull-refresh

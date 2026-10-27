@@ -244,6 +244,7 @@ if [ "$3" = exec ]; then
 fi
 [ "$EXPO_DEV_URL" = "exp://127.0.0.1:$METRO_PORT" ] || exit 24
 [ -d "$MAESTRO_TEST_OUTPUT_DIR" ] || exit 25
+maestro test sample-flow.yaml
 [ "$FAIL_STAGE" != maestro ] || {
   mkdir -p "$MAESTRO_TEST_OUTPUT_DIR/join-recovery/logs" "$MAESTRO_TEST_OUTPUT_DIR/join-recovery/screen-hierarchy"
   echo 'Maestro failure: join-recovery fixture not visible' > "$MAESTRO_TEST_OUTPUT_DIR/join-recovery/logs/maestro.log"
@@ -258,6 +259,9 @@ printf 'curl %s\\n' "$*" >> "$MOCK_CALLS"
 while [ ! -f "$MOCK_METRO_PID" ]; do sleep 0.01; done
 [ "$FAIL_STAGE" != host ] || exit 22
 printf 'packager-status:running'
+`,
+    maestro: `#!/usr/bin/env bash
+printf 'maestro %s\\n' "$*" >> "$MOCK_CALLS"
 `,
   };
   for (const [name, content] of Object.entries(stubs)) {
@@ -310,6 +314,7 @@ for (const api of [35, 36]) {
     assert.match(result.calls, /NODE_OPTIONS .*--dns-result-order=ipv4first/);
     assert.match(result.calls, new RegExp(`curl --noproxy \\* --fail --silent http://localhost:${metroPort}/status`));
     assert.doesNotMatch(result.calls, /toybox nc/);
+    assert.match(result.calls, new RegExp(`maestro test -e EXPO_DEV_URL=exp:\\/\\/127\\.0\\.0\\.1:${metroPort} sample-flow\\.yaml`));
     assert.match(result.calls, /test:android-join-form-accessibility/);
     const suites = result.calls.split("\n").filter((line) => line.startsWith("pnpm") && line.includes(" run "));
     assert.equal(suites.length, api === 35 ? 14 : 2);
