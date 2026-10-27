@@ -41,7 +41,7 @@
 - [Daily007 installed app metadata](daily007-app-metadata.md) — use expo-application for native version/build readouts; config values are only a fallback, not proof of an installed binary.
 - [Daily007 production tournament data](daily007-production-tournament-data.md) — replace only production matches with the current development set; do not overwrite unrelated production data.
 - [Daily007 browser referral links](daily007-referral-links.md) — referral URLs must load the web app at the public root, not an Expo Go launcher page.
-- [Daily007 Expo build isolation](daily007-build-port.md) — use free ports and headless Metro for publishing; keep the managed preview on its injected port.
+- [Daily007 Expo build and CI Metro](daily007-build-port.md) — keep managed ports intact; require HTTP/socket evidence for Metro readiness and distinguish host from emulator paths.
 - [Daily007 API workflow recovery](daily007-api-workflow-recovery.md) — after an API restart hits EADDRINUSE, stop the stale service and verify port 8080 is clear before retrying.
 - [Daily007 production startup checks](daily007-production-startup-checks.md) — treat healthcheck 500s during service launch as transient only after `/api/healthz` returns 200.
 - [Daily007 admin styling scope](daily007-admin-visual-only.md) — keep admin restyles appearance-only; preserve settings, actions, permissions, data, and player-facing screens.

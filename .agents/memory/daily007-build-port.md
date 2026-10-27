@@ -11,6 +11,14 @@ The managed Expo workflow must continue using its injected `PORT`. A stale Metro
 
 **How to apply:** Preserve dynamic port allocation for temporary builds. If the managed Expo workflow asks to shift ports, confirm the listener belongs to Daily007 and restore a single server on the injected port before restarting.
 
+## Android emulator CI readiness
+
+`Waiting on http://localhost:<port>` does not prove that Metro's HTTP health endpoint or the Android reverse path is reachable. If the readiness poll times out while Expo remains alive, inspect DNS resolution, listening sockets, probes to `localhost` and `127.0.0.1`, and process state before changing app dependencies or UI.
+
+**Why:** Repeated emulator CI attempts remained at the same timeout after dependency alignment and a changed host probe; the outer step log did not show whether Metro had bound to a different address or never opened a listener.
+
+**How to apply:** Use the run's diagnostics artifact to compare the CLI's host URL, the health-check address, and the ADB reverse route. Choose a host/network change only after those observations identify the mismatch.
+
 ## Headless publishing
 
 Publish bundling should use Expo's headless mode. `--no-dev` alone does not prevent the CLI from initializing the standalone desktop debugger.
