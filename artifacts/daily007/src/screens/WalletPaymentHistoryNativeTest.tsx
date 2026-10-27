@@ -13,8 +13,8 @@ import { Api } from '../lib/api';
 import type { WalletHistoryTestObserver } from './Wallet';
 import Wallet from './Wallet';
 
-const PAYMENT_COUNT = 405;
-const PAGE_SIZE = 200;
+const PAYMENT_COUNT = 45;
+const PAGE_SIZE = 20;
 const Stack = createNativeStackNavigator();
 
 const testUser = {
@@ -82,7 +82,7 @@ export default function WalletPaymentHistoryNativeTest() {
 }
 
 function WalletPaymentHistoryFixture() {
-  const [verification, setVerification] = useState('Loading 405 payment requests');
+  const [verification, setVerification] = useState(`Loading ${PAYMENT_COUNT} payment requests`);
   const [apiOriginals] = useState(() => {
     const originals = {
       transactionsPage: Api.transactionsPage,
@@ -124,7 +124,7 @@ function WalletPaymentHistoryFixture() {
     <Ctx.Provider value={context}>
       <View style={styles.screen}>
         <Text testID="wallet-payment-history-fixture-banner" style={styles.banner}>
-          Test account with 405 payment requests
+          Test account with 45 payment requests
         </Text>
         <Text testID="wallet-payment-history-verification" style={styles.verification}>
           {verification}

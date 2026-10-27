@@ -6,10 +6,10 @@ appId: host.exp.exponent
     visible:
       id: wallet-payment-history-fixture-banner
     timeout: 15000
-- assertVisible: "Test account with 405 payment requests"
-- assertVisible: "Loaded 200 of 405 requests; unique and newest-first"
+- assertVisible: "Test account with 45 payment requests"
+- assertVisible: "Loaded 20 of 45 requests; unique and newest-first"
 - assertVisible:
-    id: wallet-transaction-pay-android-wallet-history-405
+    id: wallet-transaction-pay-android-wallet-history-045
 - scrollUntilVisible:
     element:
       id: wallet-load-older-transactions
@@ -18,7 +18,7 @@ appId: host.exp.exponent
 - tapOn:
     id: wallet-load-older-transactions
 - extendedWaitUntil:
-    visible: "Loaded 400 of 405 requests; unique and newest-first"
+    visible: "Loaded 40 of 45 requests; unique and newest-first"
     timeout: 15000
 - scrollUntilVisible:
     element:
@@ -28,7 +28,7 @@ appId: host.exp.exponent
 - tapOn:
     id: wallet-load-older-transactions
 - extendedWaitUntil:
-    visible: "Loaded 405 of 405 requests; unique and newest-first"
+    visible: "Loaded 45 of 45 requests; unique and newest-first"
     timeout: 15000
 - scrollUntilVisible:
     element:
