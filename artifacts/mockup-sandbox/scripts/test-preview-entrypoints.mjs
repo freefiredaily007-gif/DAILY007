@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -274,6 +274,57 @@ const previewGroups = [
     ],
   },
 ];
+
+async function checkPreviewEntrypointCoverage() {
+  const files = await readdir(sandboxRoot);
+  const discoveredHtmlEntries = files
+    .filter((file) => file.endsWith("-preview.html"))
+    .sort();
+  const discoveredViteConfigs = files
+    .filter((file) => /^vite\..+\.config\.ts$/.test(file))
+    .sort();
+  const checkedHtmlEntries = [...new Set(
+    previewGroups.flatMap((group) =>
+      group.entries.map((entry) => path.basename(new URL(entry.path, "http://localhost").pathname)),
+    ),
+  )].sort();
+  const checkedViteConfigs = [...new Set(previewGroups.map((group) => group.config))].sort();
+  const missingHtmlEntries = discoveredHtmlEntries.filter(
+    (entry) => !checkedHtmlEntries.includes(entry),
+  );
+  const missingViteConfigs = discoveredViteConfigs.filter(
+    (config) => !checkedViteConfigs.includes(config),
+  );
+  const staleHtmlEntries = checkedHtmlEntries.filter(
+    (entry) => !discoveredHtmlEntries.includes(entry),
+  );
+  const staleViteConfigs = checkedViteConfigs.filter(
+    (config) => !discoveredViteConfigs.includes(config),
+  );
+  const errors = [
+    missingHtmlEntries.length > 0
+      ? `Preview HTML files missing from previewGroups: ${missingHtmlEntries.join(", ")}.`
+      : "",
+    missingViteConfigs.length > 0
+      ? `Preview Vite configs missing from previewGroups: ${missingViteConfigs.join(", ")}.`
+      : "",
+    staleHtmlEntries.length > 0
+      ? `previewGroups references missing HTML files: ${staleHtmlEntries.join(", ")}.`
+      : "",
+    staleViteConfigs.length > 0
+      ? `previewGroups references missing Vite configs: ${staleViteConfigs.join(", ")}.`
+      : "",
+  ].filter(Boolean);
+
+  if (errors.length > 0) {
+    throw new Error(`Preview entrypoint coverage check failed:\n${errors.join("\n")}`);
+  }
+
+  console.log(
+    `PASS preview entrypoint coverage — ${discoveredHtmlEntries.length} HTML files, ` +
+      `${discoveredViteConfigs.length} Vite configs.`,
+  );
+}
 
 async function getFreePort() {
   const server = net.createServer();
@@ -983,75 +1034,79 @@ let activeViteOutput = "";
 let temporaryRoot;
 
 try {
-  temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "daily007-preview-entrypoints-"));
-  await startChromium(path.join(temporaryRoot, "chromium-profile"));
+  await checkPreviewEntrypointCoverage();
 
-  for (const group of previewGroups) {
-    const entries = instagramClaimOnly
-      ? group.entries.filter((entry) =>
-          entry.screen === "Instagram claim review" || entry.screen === "Instagram claim rejection")
-      : tournamentDetailOnly
-        ? group.entries.filter((entry) => entry.screen === "Tournament Details")
-        : group.entries;
-    if (entries.length === 0) continue;
+  if (!process.argv.includes("--check-entrypoints-only")) {
+    temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "daily007-preview-entrypoints-"));
+    await startChromium(path.join(temporaryRoot, "chromium-profile"));
 
-    const port = await getFreePort();
-    activeViteOutput = "";
-    activeVite = spawn(
-      "pnpm",
-      [
-        "--filter",
-        "@workspace/mockup-sandbox",
-        "exec",
-        "vite",
-        "--config",
-        group.config,
-        "--host",
-        "127.0.0.1",
-        "--port",
-        String(port),
-        "--strictPort",
-      ],
-      {
-        cwd: workspaceRoot,
-        env: {
-          ...process.env,
-          PORT: String(port),
-          DAILY007_CHECK_PREVIEW_DEPENDENCIES: "1",
+    for (const group of previewGroups) {
+      const entries = instagramClaimOnly
+        ? group.entries.filter((entry) =>
+            entry.screen === "Instagram claim review" || entry.screen === "Instagram claim rejection")
+        : tournamentDetailOnly
+          ? group.entries.filter((entry) => entry.screen === "Tournament Details")
+          : group.entries;
+      if (entries.length === 0) continue;
+
+      const port = await getFreePort();
+      activeViteOutput = "";
+      activeVite = spawn(
+        "pnpm",
+        [
+          "--filter",
+          "@workspace/mockup-sandbox",
+          "exec",
+          "vite",
+          "--config",
+          group.config,
+          "--host",
+          "127.0.0.1",
+          "--port",
+          String(port),
+          "--strictPort",
+        ],
+        {
+          cwd: workspaceRoot,
+          env: {
+            ...process.env,
+            PORT: String(port),
+            DAILY007_CHECK_PREVIEW_DEPENDENCIES: "1",
+          },
+          stdio: ["ignore", "pipe", "pipe"],
         },
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    );
-    activeVite.stdout.on("data", (chunk) => { activeViteOutput += chunk.toString(); });
-    activeVite.stderr.on("data", (chunk) => { activeViteOutput += chunk.toString(); });
+      );
+      activeVite.stdout.on("data", (chunk) => { activeViteOutput += chunk.toString(); });
+      activeVite.stderr.on("data", (chunk) => { activeViteOutput += chunk.toString(); });
 
-    for (const entry of entries) {
-      const variants = [
-        { viewport: entry.viewport ?? phoneViewport, fontScale: entry.fontScale ?? null },
-        ...(entry.largeTextScales ?? []).map((fontScale) => ({
-          viewport: entry.largeTextViewport ?? entry.viewport ?? phoneViewport,
-          fontScale,
-        })),
-      ];
-      for (const variant of variants) {
-        const previewUrl = new URL(entry.path, `http://127.0.0.1:${port}`);
-        if (variant.fontScale !== null) {
-          previewUrl.searchParams.set("fontScale", String(variant.fontScale));
+      for (const entry of entries) {
+        const variants = [
+          { viewport: entry.viewport ?? phoneViewport, fontScale: entry.fontScale ?? null },
+          ...(entry.largeTextScales ?? []).map((fontScale) => ({
+            viewport: entry.largeTextViewport ?? entry.viewport ?? phoneViewport,
+            fontScale,
+          })),
+        ];
+        for (const variant of variants) {
+          const previewUrl = new URL(entry.path, `http://127.0.0.1:${port}`);
+          if (variant.fontScale !== null) {
+            previewUrl.searchParams.set("fontScale", String(variant.fontScale));
+          }
+          const url = previewUrl.toString();
+          await waitForPreview(url, `${group.config} ${entry.path}`, activeVite, () => activeViteOutput);
+          await cdp("Emulation.setDeviceMetricsOverride", variant.viewport);
+          await checkPreview(url, { ...entry, viewport: variant.viewport, fontScale: variant.fontScale });
+          console.log(
+            `PASS ${group.config} ${entry.path} → ${entry.screen} @ ` +
+              `${variant.viewport.width}×${variant.viewport.height}` +
+              (variant.fontScale === null ? "" : `, ${variant.fontScale}× text`),
+          );
         }
-        const url = previewUrl.toString();
-        await waitForPreview(url, `${group.config} ${entry.path}`, activeVite, () => activeViteOutput);
-        await cdp("Emulation.setDeviceMetricsOverride", variant.viewport);
-        await checkPreview(url, { ...entry, viewport: variant.viewport, fontScale: variant.fontScale });
-        console.log(
-          `PASS ${group.config} ${entry.path} → ${entry.screen} @ ` +
-            `${variant.viewport.width}×${variant.viewport.height}` +
-            (variant.fontScale === null ? "" : `, ${variant.fontScale}× text`),
-        );
       }
-    }
 
-    await stopProcess(activeVite);
-    activeVite = undefined;
+      await stopProcess(activeVite);
+      activeVite = undefined;
+    }
   }
 } catch (error) {
   console.error(`FAIL ${error instanceof Error ? error.message : String(error)}`);
