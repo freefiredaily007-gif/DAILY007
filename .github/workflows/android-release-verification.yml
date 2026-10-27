@@ -39,6 +39,9 @@ jobs:
           node-version: 24
           cache: pnpm
 
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Check preview entrypoint coverage
         run: pnpm --filter @workspace/mockup-sandbox run test:preview-coverage
 
@@ -47,9 +50,6 @@ jobs:
         uses: browser-actions/setup-chrome@v1
         with:
           install-dependencies: true
-
-      - name: Install workspace dependencies
-        run: pnpm install --frozen-lockfile
 
       - name: Run Daily007 preview smoke test
         env:
