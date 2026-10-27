@@ -12,7 +12,10 @@ import {
   nativeTextScaleLayoutsFit,
   type NativeTextScaleLayout,
 } from '../lib/nativeTextScaleLayout';
-import Wallet, { type WalletHistoryTestApi } from './Wallet';
+import Wallet, {
+  type WalletHistoryTestApi,
+  type WalletInitialTestSettings,
+} from './Wallet';
 
 const Stack = createNativeStackNavigator();
 
@@ -30,6 +33,13 @@ const testUser: User = {
   wins: 4,
   kills: 123,
   prizeCoins: 250,
+};
+
+const walletTestSettings: WalletInitialTestSettings = {
+  upiId: 'daily007-test@upi',
+  upiQrUrl: 'https://daily007.invalid/test-qr.png',
+  rechargeEnabled: true,
+  withdrawalEnabled: true,
 };
 
 const REQUIRED_LAYOUTS = [
@@ -57,19 +67,7 @@ function WalletTextScaleFixture() {
     transactionsPage: async () => ({ items: [], nextCursor: null }),
     myPaymentsPage: async () => ({ items: [], nextCursor: null }),
     myWithdrawals: async () => [],
-    settings: async () => ({
-      settings: {
-        upiId: 'daily007-test@upi',
-        upiQrUrl: 'https://daily007.invalid/test-qr.png',
-        rechargeEnabled: true,
-        withdrawalEnabled: true,
-        minPurchase: 1,
-        maxPurchase: 5000,
-        minWithdrawal: 100,
-        maxWithdrawal: 5000,
-        coinToMoneyRate: 1,
-      },
-    }),
+    settings: async () => ({ settings: walletTestSettings }),
   }), []);
 
   const context = useMemo<AppContext>(() => ({
@@ -86,6 +84,7 @@ function WalletTextScaleFixture() {
     () => (
       <Wallet
         historyTestApi={historyTestApi}
+        initialTestSettings={walletTestSettings}
         onTextScaleLayout={observeLayout}
       />
     ),

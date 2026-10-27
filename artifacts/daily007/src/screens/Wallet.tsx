@@ -68,6 +68,13 @@ export type WalletHistoryTestApi = Pick<
   'transactionsPage' | 'myPaymentsPage' | 'myWithdrawals' | 'settings'
 >;
 
+export type WalletInitialTestSettings = {
+  upiId: string;
+  upiQrUrl: string;
+  rechargeEnabled: boolean;
+  withdrawalEnabled: boolean;
+};
+
 function normalizeWalletPaymentReference(reference: unknown): string {
   return typeof reference === 'string'
     ? reference.normalize('NFKC').trim().toLocaleUpperCase('en-US')
@@ -122,13 +129,16 @@ function formatWalletCoins(value: unknown, allowBreaks: boolean) {
 export default function Wallet({
   onHistoryChange,
   historyTestApi,
+  initialTestSettings,
   onTextScaleLayout,
 }: {
   onHistoryChange?: WalletHistoryTestObserver;
   historyTestApi?: WalletHistoryTestApi;
+  initialTestSettings?: WalletInitialTestSettings;
   onTextScaleLayout?: NativeTextScaleLayoutObserver;
 } = {}) {
   const historyApi = __DEV__ && historyTestApi ? historyTestApi : Api;
+  const testSettings = __DEV__ ? initialTestSettings : undefined;
   const { width, fontScale } = useWindowDimensions();
   const narrowLargeText = fontScale >= 1.5 && width <= 340;
   const navigation: any = useNavigation();
@@ -166,11 +176,11 @@ export default function Wallet({
   const [pendingDepositCoins, setPendingDepositCoins] = useState(0);
   const [totalDeposited, setTotalDeposited] = useState(0);
   const [totalWithdrawn, setTotalWithdrawn] = useState(0);
-  const [paymentUpi, setPaymentUpi] = useState('');
-  const [paymentQr, setPaymentQr] = useState('');
+  const [paymentUpi, setPaymentUpi] = useState(testSettings?.upiId ?? '');
+  const [paymentQr, setPaymentQr] = useState(testSettings?.upiQrUrl ?? '');
   const [paymentNote, setPaymentNote] = useState('');
-  const [rechargeEnabled, setRechargeEnabled] = useState(false);
-  const [withdrawalEnabled, setWithdrawalEnabled] = useState(false);
+  const [rechargeEnabled, setRechargeEnabled] = useState(testSettings?.rechargeEnabled ?? false);
+  const [withdrawalEnabled, setWithdrawalEnabled] = useState(testSettings?.withdrawalEnabled ?? false);
   const [minPurchase, setMinPurchase] = useState(1);
   const [maxPurchase, setMaxPurchase] = useState(5000);
   const [coinPackages, setCoinPackages] = useState<number[]>([]);

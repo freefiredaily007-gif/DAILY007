@@ -58,6 +58,7 @@ test('Home, Wallet, and Profile Maestro flows verify 2× text, full-width conten
   }
   assert.match(walletFixture, /withdrawalEnabled: true/);
   assert.match(walletFixture, /historyTestApi=\{historyTestApi\}/);
+  assert.match(walletFixture, /initialTestSettings=\{walletTestSettings\}/);
   assert.match(walletFixture, /rechargeEnabled: true/);
   assert.match(walletFixture, /nativeTextScaleLayoutsFit/);
   assert.match(walletFixture, /wallet:action:add/);
