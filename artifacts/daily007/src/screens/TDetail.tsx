@@ -509,9 +509,19 @@ function SquadSlotsPanel({
             padding: 16,
           }}
         >
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}>
-              <Card style={{ borderColor: C.squadAccent, borderWidth: 1, padding: 18 }}>
+          <KeyboardAvoidingView
+            style={{ flex: 1 }}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <ScrollView
+              style={{ flex: 1 }}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingVertical: 8 }}
+            >
+              <Card style={[
+                { borderColor: C.squadAccent, borderWidth: 1, padding: 18 },
+                compactLargeText && s.captainAddCardCompact,
+              ]}>
                 <Text style={[s.squadJoinHeading, { marginBottom: 12 }]}>
                   Add Teammate (Slot {selected?.slotNumber ?? ''})
                 </Text>
@@ -544,11 +554,15 @@ function SquadSlotsPanel({
                   </View>
                 ) : null}
                 {!!error && <Msg kind="err" text={error} accessibilityLiveRegion="assertive" />}
-                <View style={[s.squadJoinActions, { marginTop: 14 }]}>
+                <View style={[
+                  s.squadJoinActions,
+                  { marginTop: 14 },
+                  compactLargeText && s.squadJoinActionsStacked,
+                ]}>
                   <Btn
                     title="CANCEL"
                     kind="ghost"
-                    small
+                    small={!compactLargeText}
                     disabled={Boolean(busyKey)}
                     onPress={closeCaptainAdd}
                     testID="squad-teammate-cancel"
@@ -559,7 +573,7 @@ function SquadSlotsPanel({
                     loading={busyKey.startsWith('add-teammate-')}
                     disabled={!teammateName.trim() || !teammateUid.trim() || !canAfford || Boolean(busyKey) || slots.registrationClosed}
                     accessibilityHint="Deducts this entry fee from the captain's wallet and books the selected teammate slot."
-                    style={s.squadJoinConfirm}
+                    style={[s.squadJoinConfirm, compactLargeText && s.squadJoinConfirmStacked]}
                     testID="squad-teammate-confirm"
                   />
                 </View>
@@ -1373,7 +1387,10 @@ const s = StyleSheet.create({
   },
   squadJoinHeading: { color: C.squadAccent, fontSize: 12, fontWeight: '900', letterSpacing: 0.6 },
   squadJoinActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
+  squadJoinActionsStacked: { flexDirection: 'column', alignItems: 'stretch', gap: 10 },
   squadJoinConfirm: { flex: 1 },
+  squadJoinConfirmStacked: { flex: 0, width: '100%' },
+  captainAddCardCompact: { padding: 14 },
   squadInsufficient: { color: C.red, fontSize: 12, fontWeight: '800' },
   squadClosed: { color: C.sub, fontSize: 11, lineHeight: 16, marginTop: 6 },
 });

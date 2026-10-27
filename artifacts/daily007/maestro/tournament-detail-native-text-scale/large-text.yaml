@@ -89,6 +89,65 @@ appId: host.exp.exponent
 - back
 
 - tapOn:
+    id: tournament-detail-open-captain-add
+- extendedWaitUntil:
+    visible:
+      id: tournament-detail-hero
+    timeout: 15000
+- assertVisible:
+    text: "Captain Add Teammate Large Text Check"
+- scrollUntilVisible:
+    element:
+      text: "SQUAD TEAM SLOTS"
+    direction: DOWN
+- scrollUntilVisible:
+    element:
+      id: squad-slot-1-3
+    direction: DOWN
+- tapOn:
+    id: squad-slot-1-3
+- assertVisible:
+    text: "Add Teammate (Slot 3)"
+- assertVisible:
+    id: squad-teammate-name
+- assertVisible:
+    text: "Player In-Game Name (IGN)"
+- assertVisible:
+    id: squad-teammate-uid
+- assertVisible:
+    text: "Player Game UID"
+- assertVisible:
+    id: squad-teammate-cancel
+- assertVisible:
+    text: "CANCEL"
+- assertVisible:
+    id: squad-teammate-confirm
+- assertVisible:
+    text: "PAY & ADD PLAYER"
+- tapOn:
+    id: squad-teammate-cancel
+- tapOn:
+    id: squad-slot-1-3
+- tapOn:
+    id: squad-teammate-name
+- inputText: "Fixture Teammate"
+- tapOn:
+    id: squad-teammate-uid
+- inputText: "9876543210"
+- hideKeyboard
+- assertVisible:
+    id: squad-teammate-cancel
+- assertVisible:
+    id: squad-teammate-confirm
+- tapOn:
+    id: squad-teammate-confirm
+- extendedWaitUntil:
+    visible:
+      text: "Fixture Teammate was added. No coins were deducted."
+    timeout: 5000
+- back
+
+- tapOn:
     id: tournament-detail-open-team
 - extendedWaitUntil:
     visible:

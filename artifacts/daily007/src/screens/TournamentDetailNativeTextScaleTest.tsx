@@ -75,6 +75,13 @@ const teamJoinTournament = {
   status: 'upcoming',
 };
 
+const captainAddTournament = {
+  ...teamJoinTournament,
+  id: 'large-text-captain-add-team-detail',
+  name: 'Captain Add Teammate Large Text Check',
+  title: 'Captain Add Teammate Large Text Check',
+};
+
 const teamRegistration = {
   tournamentId: teamTournament.id,
   status: 'approved',
@@ -86,10 +93,20 @@ const teamRegistration = {
   roomPassword: 'DETAIL-PASSWORD-0123456789',
 };
 
+const captainAddRegistration = {
+  ...teamRegistration,
+  tournamentId: captainAddTournament.id,
+  teamName: 'Captain Fixture Team',
+  roomPublished: false,
+  roomId: null,
+  roomPassword: null,
+};
+
 const tournamentFixtures = new Map<string, typeof soloTournament | typeof teamTournament>([
   [soloTournament.id, soloTournament],
   [teamTournament.id, teamTournament],
   [teamJoinTournament.id, teamJoinTournament],
+  [captainAddTournament.id, captainAddTournament],
 ]);
 
 const fixturePlayerNames: Record<AppLanguage, { captain: string; teammate: string }> = {
@@ -107,7 +124,12 @@ const fixturePlayerNames: Record<AppLanguage, { captain: string; teammate: strin
   },
 };
 
-function fixtureTeam(teamNumber: number, allowJoining = false, language = activeFixtureLanguage) {
+function fixtureTeam(
+  teamNumber: number,
+  allowJoining = false,
+  allowCaptainAdd = false,
+  language: AppLanguage = activeFixtureLanguage,
+) {
   const names = fixturePlayerNames[language];
   return {
     teamNumber,
@@ -127,7 +149,7 @@ function fixtureTeam(teamNumber: number, allowJoining = false, language = active
         gameName: occupied ? gameName : null,
         isCaptain: teamNumber === 1 && slotNumber === 1,
         canJoin: allowJoining && !occupied,
-        canAddTeammate: false,
+        canAddTeammate: allowCaptainAdd && teamNumber === 1 && slotNumber >= 3,
         canRemove: false,
         registrationId: occupied ? `fixture-registration-${teamNumber}-${slotNumber}` : null,
       };
@@ -147,7 +169,21 @@ function fixtureSlotsFor(language: AppLanguage, joinable = false) {
     myTeamNumber: joinable ? null : 1,
     mySlotNumber: joinable ? null : 1,
     teams: Array.from({ length: 12 }, (_, index) =>
-      fixtureTeam(index + 1, joinable, language),
+      fixtureTeam(index + 1, joinable, false, language),
+    ),
+  };
+}
+
+function captainAddFixtureSlotsFor(language: AppLanguage) {
+  return {
+    ...fixtureSlotsFor(language),
+    tournamentId: captainAddTournament.id,
+    registrationClosed: false,
+    alreadyRegistered: true,
+    myTeamNumber: 1,
+    mySlotNumber: 1,
+    teams: Array.from({ length: 12 }, (_, index) =>
+      fixtureTeam(index + 1, false, true, language),
     ),
   };
 }
@@ -223,6 +259,14 @@ function FixtureHome({
       >
         <Text style={styles.buttonText}>Open team tournament</Text>
       </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        testID="tournament-detail-open-captain-add"
+        onPress={() => navigation.navigate('TDetail', { id: captainAddTournament.id })}
+        style={styles.button}
+      >
+        <Text style={styles.buttonText}>Open captain teammate form</Text>
+      </Pressable>
     </View>
   );
 }
@@ -242,15 +286,45 @@ function fixtureFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Res
     : input instanceof URL
       ? input.toString()
       : input.url;
+  const path = new URL(url, 'http://tournament-detail-fixture.local').pathname;
   let body: unknown;
-  if (url.includes('/squad-slots')) {
-    body = fixtureSlotsFor(
-      activeFixtureLanguage,
-      url.includes(teamJoinTournament.id),
-    );
-  } else if (url.endsWith('/participants')) {
+  if (path.includes('/squad-slots')) {
+    if (init?.method === 'POST' && path ===
+      `/api/daily007/v2/matches/${captainAddTournament.id}/squad-slots/1/3/teammate`) {
+      let submitted: { gameName?: unknown; gameUid?: unknown } | null = null;
+      try {
+        submitted = typeof init.body === 'string' ? JSON.parse(init.body) : null;
+      } catch {
+        submitted = null;
+      }
+      if (submitted?.gameName !== 'Fixture Teammate' || submitted?.gameUid !== '9876543210') {
+        return Promise.resolve(new Response(JSON.stringify({ error: 'Fixture identity did not match.' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        }));
+      }
+      body = {
+        registrationId: 'fixture-teammate-registration',
+        teamNumber: 1,
+        slotNumber: 3,
+        isCaptain: false,
+        entryCoinsPaid: 0,
+        walletCoins: fixtureUser.coins,
+        filledTeams: 1,
+        filledPlayers: 3,
+        alreadyRegistered: true,
+      };
+    } else if (path.includes(captainAddTournament.id)) {
+      body = captainAddFixtureSlotsFor(activeFixtureLanguage);
+    } else {
+      body = fixtureSlotsFor(
+        activeFixtureLanguage,
+        path.includes(teamJoinTournament.id),
+      );
+    }
+  } else if (path.endsWith('/participants')) {
     body = { participants: [] };
-  } else if (url.endsWith('/results')) {
+  } else if (path.endsWith('/results')) {
     body = { status: 'not_finalized', entries: [] };
   } else {
     return Promise.reject(new Error(`Unexpected request in tournament detail fixture: ${init?.method ?? 'GET'} ${url}`));
@@ -297,10 +371,16 @@ export default function TournamentDetailNativeTextScaleTest() {
   (Api as any).tournament = async (id: string) => {
     const fixture = tournamentFixtures.get(String(id));
     if (!fixture) throw new Error(`Missing tournament detail fixture: ${id}`);
-    return { ...fixture, registrationOpen: id === soloTournament.id || id === teamJoinTournament.id };
+    return {
+      ...fixture,
+      registrationOpen: id === soloTournament.id ||
+        id === teamJoinTournament.id ||
+        id === captainAddTournament.id,
+    };
   };
   (Api as any).myRegistrations = async () =>
-    [teamRegistration].filter((registration) => registration.tournamentId === teamTournament.id);
+    [teamRegistration, captainAddRegistration].filter((registration) =>
+      registration.tournamentId === teamTournament.id || registration.tournamentId === captainAddTournament.id);
   globalThis.fetch = fixtureFetch as typeof globalThis.fetch;
 
   useEffect(() => () => {

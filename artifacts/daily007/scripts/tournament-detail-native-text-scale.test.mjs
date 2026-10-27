@@ -49,6 +49,7 @@ test('Maestro checks solo join, team slot and registration information, and room
     'tournament-detail-open-solo',
     'tournament-detail-open-team-join',
     'tournament-detail-open-team',
+    'tournament-detail-open-captain-add',
     'tournament-detail-stats',
     'mode-seat-large-text-solo-detail-1-1',
     'mode-seat-join-1-1',
@@ -63,6 +64,10 @@ test('Maestro checks solo join, team slot and registration information, and room
     'squad-game-uid',
     'squad-join-confirm',
     'squad-registration-status',
+    'squad-teammate-name',
+    'squad-teammate-uid',
+    'squad-teammate-cancel',
+    'squad-teammate-confirm',
   ]) {
     assert.ok(flow.includes(selector), `Missing native detail check: ${selector}`);
   }
@@ -70,14 +75,23 @@ test('Maestro checks solo join, team slot and registration information, and room
   assert.match(flow, /Solo Tournament Detail Large Text Check/);
   assert.match(flow, /Team Tournament Detail Large Text Check/);
   assert.match(flow, /Joinable Squad Team Detail Large Text Check/);
+  assert.match(flow, /Captain Add Teammate Large Text Check/);
+  assert.match(flow, /Add Teammate \(Slot 3\)/);
+  assert.match(flow, /Fixture Teammate was added\. No coins were deducted\./);
   assert.match(flow, /Captain Player/);
   assert.match(flow, /Second Team Player/);
   assert.match(flow, /Room ID copied to clipboard\./);
   assert.match(flow, /Join action opened/);
   assert.match(fixture, /tournament-detail-join-form-fixture/);
+  assert.match(fixture, /canAddTeammate: allowCaptainAdd && teamNumber === 1 && slotNumber >= 3/);
+  assert.match(fixture, /entryCoinsPaid: 0/);
+  assert.match(fixture, /Fixture Teammate/);
+  assert.match(fixture, /9876543210/);
   assert.match(detailScreen, /testID="tournament-detail-hero"/);
   assert.match(detailScreen, /testID="tournament-detail-join"/);
   assert.match(detailScreen, /testID="squad-registration-status"/);
+  assert.match(detailScreen, /style=\{\{ flex: 1 \}\}\s+behavior=\{Platform\.OS === 'ios' \? 'padding' : undefined\}/);
+  assert.match(detailScreen, /s\.squadJoinActionsStacked/);
   assert.match(packageJson, /"test:android-tournament-detail-large-text":\s*"node scripts\/run-android-tournament-detail-large-text\.mjs"/);
 });
 
