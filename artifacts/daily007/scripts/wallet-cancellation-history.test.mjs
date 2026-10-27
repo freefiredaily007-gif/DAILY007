@@ -218,10 +218,10 @@ test('native fixture exposes the production cancellation-refund row as one compl
     maestroFlow,
     /Entry fee refunded — Legacy Clash Cup \(tournament cancelled\)\. \+27 coins credited\. Date: 2030-02-03 10:20\. Balance after: 155 coins\./,
   );
-  assert.match(
-    packageSource.scripts['test:android-wallet-cancellation-refund'],
-    /^maestro test --test-output-dir=.* maestro\/wallet-cancellation-refund$/,
-  );
+  const androidRefundSuite = packageSource.scripts['test:android-wallet-cancellation-refund'];
+  assert.match(androidRefundSuite, /maestro test --test-output-dir=.*wallet-cancellation-refund\/accessibility-label\.yaml/);
+  assert.match(androidRefundSuite, /&& maestro test --test-output-dir=.*wallet-cancellation-refund\/voiceover-ios\.yaml/);
+  assert.doesNotMatch(androidRefundSuite, /maestro test .* maestro\/wallet-cancellation-refund$/);
 });
 
 test('Android checks every refund detail at 1.5× text and restores the original font scale', () => {

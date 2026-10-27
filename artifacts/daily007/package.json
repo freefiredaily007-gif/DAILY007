@@ -46,7 +46,7 @@
     "test:android-home-match-back": "maestro test --test-output-dir=\"${MAESTRO_TEST_OUTPUT_DIR:-$HOME/.maestro/tests}\" maestro/home-match-back",
     "test:android-tournament-pull-refresh": "maestro test --test-output-dir=\"${MAESTRO_TEST_OUTPUT_DIR:-$HOME/.maestro/tests}\" maestro/tournament-pull-refresh",
     "test:android-kill-earn-admin-flow": "maestro test --test-output-dir=\"${MAESTRO_TEST_OUTPUT_DIR:-$HOME/.maestro/tests}\" maestro/kill-earn-admin-flow",
-    "test:android-wallet-cancellation-refund": "maestro test --test-output-dir=\"${MAESTRO_TEST_OUTPUT_DIR:-$HOME/.maestro/tests}\" maestro/wallet-cancellation-refund",
+    "test:android-wallet-cancellation-refund": "maestro test --test-output-dir=\"${MAESTRO_TEST_OUTPUT_DIR:-$HOME/.maestro/tests}\" maestro/wallet-cancellation-refund/accessibility-label.yaml && maestro test --test-output-dir=\"${MAESTRO_TEST_OUTPUT_DIR:-$HOME/.maestro/tests}\" maestro/wallet-cancellation-refund/voiceover-ios.yaml",
     "test:android-wallet-admin-credit-refund": "maestro test --test-output-dir=\"${MAESTRO_TEST_OUTPUT_DIR:-$HOME/.maestro/tests}\" maestro/wallet-admin-credit-refund",
     "test:android-wallet-payment-history": "maestro test --test-output-dir=\"${MAESTRO_TEST_OUTPUT_DIR:-$HOME/.maestro/tests}\" maestro/wallet-payment-history",
     "test:ios-wallet-cancellation-refund": "maestro test maestro/wallet-cancellation-refund/voiceover-ios.yaml",
