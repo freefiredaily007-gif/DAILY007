@@ -30,8 +30,7 @@ test("join-recovery flows handle Expo Go prompts and the native developer menu",
       "utf8",
     );
     assert.match(flow, /repeat:\n\s+times: 12\n\s+while:\n\s+notVisible:\n\s+id: join-recovery-fixture-banner/);
-    assert.match(flow, /id: android:id\/aerr_wait\n\s+optional: true/);
-    assert.doesNotMatch(flow, /id: android:id\/aerr_wait[\s\S]{0,100}waitUntilVisible: true/);
+    assert.match(flow, /id: android:id\/aerr_wait\n\s+optional: true\n\s+waitUntilVisible: true/);
     assert.match(flow, /text: Continue\n\s+optional: true\n\s+waitUntilVisible: true/);
     assert.match(flow, /when:\n\s+visible: Continue\n\s+commands:\n\s+- pressKey: BACK/);
     assert.match(flow, /when:\n\s+visible: Reload\n\s+commands:\n\s+- pressKey: BACK/);

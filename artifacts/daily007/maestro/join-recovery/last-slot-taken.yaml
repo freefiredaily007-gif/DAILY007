@@ -13,6 +13,7 @@ appId: host.exp.exponent
       - tapOn:
           id: android:id/aerr_wait
           optional: true
+          waitUntilVisible: true
       - tapOn:
           text: Continue
           optional: true
