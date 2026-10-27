@@ -192,6 +192,8 @@ run_maestro_suite() {
   local suite_details
   local result_files
   local result_diagnostics
+  local metro_diagnostics
+  local device_diagnostics
   local screen_text
   local screen_diagnostics
   PHASE="Maestro suite ${suite_name}"
@@ -217,6 +219,19 @@ run_maestro_suite() {
         done | cut -c 1-1200
     )"
     [ -n "$result_diagnostics" ] || result_diagnostics="<no Maestro per-flow logs>"
+    metro_diagnostics="$(tail -n 30 "$DIAG_DIR/daily007-metro.log" 2>/dev/null | tr '\r\n' ' ' | cut -c1-1200 || true)"
+    [ -n "$metro_diagnostics" ] || metro_diagnostics="<no Metro log output>"
+    device_diagnostics="$(
+      find "$MAESTRO_TEST_OUTPUT_DIR" -type f -path '*/logs/device-logcat.txt' -print0 2>/dev/null |
+        while IFS= read -r -d '' report; do
+          matching_errors="$(grep -Ei 'FATAL EXCEPTION|AndroidRuntime|ReactNativeJS.*(Error|Exception|Failed|Unable)|Unhandled JS|Unable to load script|Failed to load bundle|Could not connect' "$report" 2>/dev/null |
+            tail -n 12 | tr '\r\n' ' ' | cut -c 1-600 || true)"
+          if [ -n "$matching_errors" ]; then
+            printf '%s: %s; ' "${report#"$MAESTRO_TEST_OUTPUT_DIR"/}" "$matching_errors"
+          fi
+        done | cut -c 1-1200
+    )"
+    [ -n "$device_diagnostics" ] || device_diagnostics="<no matching runtime errors>"
     screen_diagnostics="$(
       find "$MAESTRO_TEST_OUTPUT_DIR" -type f -path '*/screen-hierarchy/*' -print0 2>/dev/null |
         while IFS= read -r -d '' screen; do
@@ -234,7 +249,7 @@ run_maestro_suite() {
     [ -n "$screen_diagnostics" ] || screen_diagnostics="<no screen-hierarchy text>"
     echo "Android API level ${ANDROID_API_LEVEL} Maestro suite ${suite_name} failed with exit code ${suite_status}." >&2
     report_failure "$suite_status" "$LINENO" \
-      "Maestro output: ${suite_details}; test output files: ${result_files}; Maestro logs: ${result_diagnostics}; screen text: ${screen_diagnostics}; ADB reverse mappings: ${reverse_mappings}."
+      "Maestro output: ${suite_details}; Metro log tail: ${metro_diagnostics}; device runtime errors: ${device_diagnostics}; test output files: ${result_files}; Maestro logs: ${result_diagnostics}; screen text: ${screen_diagnostics}; ADB reverse mappings: ${reverse_mappings}."
     return "$suite_status"
   fi
 }
