@@ -72,6 +72,11 @@ test('the Android flow copies and pastes both fixtures and reports only safe res
   assert.match(maestroFlow, /withdrawal-upi-paste-destination-2/);
   assert.equal((maestroFlow.match(/longPressOn:/g) ?? []).length, 2);
   assert.match(maestroFlow, /text: "Paste"/);
+  assert.equal(
+    (maestroFlow.match(/text: "\.\*Withdrawal UPI ID copied\.\*"/g) ?? []).length,
+    2,
+    'The copy success selector must allow the decorative checkmark in the visible message.',
+  );
   assert.match(maestroFlow, /First fixture pasted value matches exactly/);
   assert.match(maestroFlow, /Longer fixture pasted value matches exactly/);
   assert.doesNotMatch(maestroFlow, /upi-copy-fixture@daily007\.invalid|clipboard-check-2026|takeScreenshot|screenshot|approve|payout/i);

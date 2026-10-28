@@ -10,7 +10,7 @@ appId: host.exp.exponent
     id: copy-withdrawal-upi-withdrawal-upi-copy-fixture
 - extendedWaitUntil:
     visible:
-      text: "Withdrawal UPI ID copied"
+      text: ".*Withdrawal UPI ID copied.*"
     timeout: 10000
 - tapOn:
     id: withdrawal-upi-paste-destination-1
@@ -32,7 +32,7 @@ appId: host.exp.exponent
     id: copy-withdrawal-upi-withdrawal-upi-copy-fixture-long
 - extendedWaitUntil:
     visible:
-      text: "Withdrawal UPI ID copied"
+      text: ".*Withdrawal UPI ID copied.*"
     timeout: 10000
 - tapOn:
     id: withdrawal-upi-paste-destination-2
