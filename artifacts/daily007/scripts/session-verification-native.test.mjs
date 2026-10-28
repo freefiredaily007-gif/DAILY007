@@ -160,6 +160,7 @@ test("Android repeated reconnect and resume cycles keep retrying the same saved 
   assert.match(repeatedStart, /scenario=repeated/);
   assert.match(repeatedStart, /Verification attempts: 1/);
   assert.match(repeatedFirstRetry, /Verification attempts: 2/);
+  assert.match(repeatedResumeRetry, /openLink:[\s\S]*?scenario=repeated/);
   assert.match(repeatedResumeRetry, /Verification attempts: 3/);
   assert.match(repeatedVerified, /Verification attempts: 4/);
   assert.match(repeatedVerified, /Verified without tapping Retry/);
