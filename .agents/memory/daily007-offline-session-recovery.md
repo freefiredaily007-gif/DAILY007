@@ -5,9 +5,9 @@ description: Native Android reconnect and foreground-resume behavior confirmed f
 
 On an iQOO Neo 10 running Android 16, Daily007 automatically verifies a saved session after Wi-Fi/mobile data returns while the recovery screen is open, and after the app resumes from the background. A failed offline retry leaves the saved session available for another retry.
 
-**Why:** Physical confirmation is needed because source checks alone cannot prove that Expo's Android network and app-state events fire as expected.
+**Why:** Physical confirmation is needed because source checks alone cannot prove that Expo's Android network and app-state events fire as expected. Android can emit repeated online updates for one reconnect, and a retry started before the app is active may remain paused; suppressing the foreground retry after that event can block recovery.
 
-**How to apply:** Preserve automatic retry on connectivity restoration, re-check connectivity when the app returns to the foreground, and keep the saved session after transient verification failures. Re-run the three device checks when changing this flow.
+**How to apply:** Deduplicate network retries at offline-to-online edges, but still query connectivity and retry when a backgrounded app returns to the foreground. Send both triggers through the same singleflight path, keep the saved session after transient verification failures, and re-run the three device checks when changing this flow.
 
 The user also confirmed that the saved Daily007 sign-in survived a full Android reboot while offline and verified after connectivity returned.
 

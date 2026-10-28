@@ -83,11 +83,9 @@ test("Maestro scrolls to and checks every podium and expanded Top 20 label", () 
   }
 });
 
-test("runner checks moderate, boundary, and 2× scales and restores the original Android setting", () => {
-  assert.match(runner, /setting: "1\.2", label: "1\.20", layout: "compact"/);
-  assert.match(runner, /setting: "1\.35", label: "1\.35", layout: "compact"/);
-  assert.match(runner, /setting: "1\.49"/);
-  assert.match(runner, /setting: "1\.5"/);
+test("runner checks compact edge, layout boundary, and 2× scales and restores the original Android setting", () => {
+  assert.match(runner, /setting: "1\.49", label: "1\.49", layout: "compact"/);
+  assert.match(runner, /setting: "1\.5", label: "1\.50", layout: "large"/);
   assert.match(runner, /setting: "2", label: "2\.00", layout: "large"/);
   assert.match(runner, /name: "weekly"/);
   assert.match(runner, /name: "monthly"/);
@@ -159,11 +157,11 @@ exit 1
     assert.equal(await readFile(statePath, "utf8"), "1.0");
     const adbLog = await readFile(adbLogPath, "utf8");
     const maestroArgs = (await readFile(maestroArgsLogPath, "utf8")).split(/\r?\n/);
-    assert.match(adbLog, /settings put system font_scale 1\.2/);
+    assert.match(adbLog, /settings put system font_scale 1\.49/);
     assert.match(adbLog, /settings put system font_scale 1\.0/);
     assert.ok(maestroArgs.includes("LEADERBOARD_CYCLE=weekly"));
     assert.ok(maestroArgs.includes("LEADERBOARD_CHAMPION=Weekly Champion With A Long Display Name"));
-    assert.ok(maestroArgs.includes("LEADERBOARD_SCALE=1.20"));
+    assert.ok(maestroArgs.includes("LEADERBOARD_SCALE=1.49"));
     assert.ok(maestroArgs.includes("LEADERBOARD_LAYOUT=compact"));
     assert.ok(maestroArgs.includes("maestro/leaderboard-native-text-scale/large-text.yaml"));
     assert.match(result.stderr, /simulated Maestro failure/);
