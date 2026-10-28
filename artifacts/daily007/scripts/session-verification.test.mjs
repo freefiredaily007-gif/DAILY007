@@ -1250,7 +1250,7 @@ test("returning to the foreground rechecks connectivity and retries automaticall
   unsubscribe();
 });
 
-test("foreground resume does not repeat a reconnect retry already started in background", async (t) => {
+test("simultaneous reconnect and foreground events share one verification request", async (t) => {
   const [appSource, fixtureSource] = await Promise.all([
     readFile(new URL("../src/App.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/screens/SessionVerificationNativeTest.tsx", import.meta.url), "utf8"),
@@ -1326,7 +1326,8 @@ test("foreground resume does not repeat a reconnect retry already started in bac
       appStateListener("active");
       await new Promise((resolve) => setImmediate(resolve));
 
-      assert.equal(requests.length, 1, "The reconnect retry should not repeat on immediate foreground resume.");
+      assert.equal(requests.length, 2, "Both recovery signals should reach the same retry path.");
+      assert.strictEqual(requests[0], requests[1], "Concurrent retries should share one promise.");
       assert.equal(verificationCalls, 1, "Only one API verification should start.");
       assert.equal(activeRequests, 1);
       assert.equal(maximumActiveRequests, 1, "Verification requests must not overlap.");

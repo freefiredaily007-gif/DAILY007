@@ -61,7 +61,6 @@ export function subscribeToSessionVerificationRecovery(
   let active = true;
   let lastKnownOnline: boolean | null = null;
   let appWasBackgrounded = false;
-  let retriedWhileBackgrounded = false;
   const isOnline = (state: SessionVerificationNetworkState) =>
     state.isConnected === true && state.isInternetReachable !== false;
   const retryIfOnline = (state: SessionVerificationNetworkState) => {
@@ -75,7 +74,6 @@ export function subscribeToSessionVerificationRecovery(
     // reconnect. Retry only on the offline-to-online edge.
     if (wasOnline !== true) {
       retry();
-      if (appWasBackgrounded) retriedWhileBackgrounded = true;
     }
   };
   const networkSubscription = network.addNetworkStateListener(retryIfOnline);
@@ -83,7 +81,6 @@ export function subscribeToSessionVerificationRecovery(
     if (state !== 'active') {
       if (!appWasBackgrounded) {
         appWasBackgrounded = true;
-        retriedWhileBackgrounded = false;
       }
       return;
     }
@@ -95,17 +92,16 @@ export function subscribeToSessionVerificationRecovery(
       lastKnownOnline = online;
       if (!online) {
         appWasBackgrounded = false;
-        retriedWhileBackgrounded = false;
         return;
       }
 
-      // A foreground check is needed even if connectivity stayed online,
-      // unless the network listener already retried during this backgrounding.
-      if (wasOnline !== true || (appWasBackgrounded && !retriedWhileBackgrounded)) {
+      // A reconnect retry may run while the app is backgrounded, before APIs
+      // can verify the session. Recheck once on foreground; in-flight requests
+      // share the same singleflight promise.
+      if (wasOnline !== true || appWasBackgrounded) {
         retry();
       }
       appWasBackgrounded = false;
-      retriedWhileBackgrounded = false;
     }).catch(() => {});
   });
 

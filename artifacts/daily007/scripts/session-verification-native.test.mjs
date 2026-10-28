@@ -237,14 +237,14 @@ test("session recovery retries once per online edge and once after foreground re
   assert.equal(retries, 3);
   appStateListener("active");
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(retries, 3);
+  assert.equal(retries, 4);
 
   appStateListener("background");
   appStateListener("active");
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(retries, 4);
+  assert.equal(retries, 5);
 
   stop();
   networkListener(networkState);
-  assert.equal(retries, 4);
+  assert.equal(retries, 5);
 });
