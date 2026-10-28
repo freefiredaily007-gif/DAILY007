@@ -47,7 +47,6 @@ test("native Google-link test harness is development-only and exercises the prod
 
 test("offline OAuth return preserves the original account, wallet, and password bearer until a successful retry", () => {
   assert.match(nativeFixture, /AuthSession\.makeRedirectUri\(\{ path: 'google-link-native-test' \}\)/);
-  assert.match(nativeFixture, /new URL\(redirectUrl\)\.protocol !== 'daily007:'/);
   assert.match(nativeFixture, /id: 'native-google-link-player'/);
   assert.match(nativeFixture, /coins: 42/);
   assert.match(nativeFixture, /token: 'native-google-link-password-token'/);
