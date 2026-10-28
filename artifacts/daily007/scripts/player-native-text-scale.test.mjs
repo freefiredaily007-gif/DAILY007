@@ -69,9 +69,11 @@ test('Home, Wallet, and Profile Maestro flows verify 2× text, full-width conten
   assert.match(profileFlow, /Profile key text fits available widths at 2\.00×/);
   assert.match(profileFlow, /element:\n\s+text: "123456 matches"\n\s+direction: DOWN\n\s+centerElement: true/);
   assert.match(profileFlow, /element:\n\s+text: "9876 wins"\n\s+direction: DOWN\n\s+centerElement: true/);
-  assert.match(profileFlow, /profile-change-password/);
+  assert.match(profileFlow, /id: profile-change-password\n\s+direction: DOWN\n\s+centerElement: true/);
+  assert.match(profileFlow, /id: profile-password-cancel\n\s+timeout: 10000/);
+  assert.match(profileFlow, /element:\n\s+text: "Current Daily007 password"\n\s+direction: DOWN\n\s+centerElement: true/);
   assert.match(profileFlow, /profile-password-submit/);
-  assert.match(profileFlow, /profile-password-cancel/);
+  assert.match(profileFlow, /id: profile-password-cancel\n\s+direction: DOWN\n\s+centerElement: true/);
   assert.match(profileFixture, /nativeTextScaleLayoutsFit/);
   assert.match(profileFixture, /profile:action:password/);
 });

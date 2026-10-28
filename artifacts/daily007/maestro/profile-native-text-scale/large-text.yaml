@@ -37,19 +37,31 @@ appId: host.exp.exponent
     element:
       id: profile-change-password
     direction: DOWN
+    centerElement: true
 - tapOn:
     id: profile-change-password
+- extendedWaitUntil:
+    visible:
+      id: profile-password-cancel
+    timeout: 10000
 - assertVisible:
     text: "CHANGE PASSWORD"
+- scrollUntilVisible:
+    element:
+      text: "Current Daily007 password"
+    direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "Current Daily007 password"
 - scrollUntilVisible:
     element:
       id: profile-password-submit
     direction: DOWN
+    centerElement: true
 - scrollUntilVisible:
     element:
       id: profile-password-cancel
     direction: DOWN
+    centerElement: true
 - tapOn:
     id: profile-password-cancel
