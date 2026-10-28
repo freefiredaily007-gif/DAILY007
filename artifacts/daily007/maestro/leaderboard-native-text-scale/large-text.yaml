@@ -2,6 +2,14 @@ appId: host.exp.exponent
 ---
 - openLink:
     link: ${EXPO_DEV_URL}/--/leaderboard-native-text-scale-${LEADERBOARD_CYCLE}
+# Expo Go's blue failure page is generic; open its error log before the
+# fixture assertion so CI artifacts capture the underlying launch failure.
+- runFlow:
+    when:
+      visible: "Something went wrong."
+    commands:
+      - tapOn:
+          text: "View error log"
 - extendedWaitUntil:
     visible:
       id: leaderboard-native-text-scale-fixture-banner
