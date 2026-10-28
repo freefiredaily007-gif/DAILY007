@@ -18,8 +18,18 @@ appId: host.exp.exponent
     id: profile-text-scale-email
 - assertVisible:
     id: profile-text-scale-game-uid
+- scrollUntilVisible:
+    element:
+      text: "123456 matches"
+    direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "123456 matches"
+- scrollUntilVisible:
+    element:
+      text: "9876 wins"
+    direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "9876 wins"
 
