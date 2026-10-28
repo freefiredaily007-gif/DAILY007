@@ -76,10 +76,6 @@ appId: host.exp.exponent
     centerElement: true
 - assertVisible:
     text: "Rank 8, Tournament Competitor 8, 14,152 coins"
-- swipe:
-    start: 50%, 75%
-    end: 50%, 69%
-    duration: 350
 - scrollUntilVisible:
     element:
       id: leaderboard-player-9
