@@ -401,6 +401,14 @@ for (const api of [35, 36]) {
       suites.length + 1,
       "restore Metro forwarding before every Maestro suite in addition to initial setup",
     );
+    const expoGoForceStops = result.calls
+      .split("\n")
+      .filter((line) => line === "adb shell am force-stop host.exp.exponent");
+    assert.equal(
+      expoGoForceStops.length,
+      suites.length,
+      "cold-launch Expo Go after restoring Metro forwarding before every Maestro suite",
+    );
     if (api === 35) {
       assert.match(result.calls, /test:android-join-recovery/);
       assert.match(result.calls, /test:android-google-link-retry/);

@@ -287,6 +287,8 @@ run_maestro_suite() {
       "Could not verify adb reverse mapping tcp:${METRO_PORT} tcp:${METRO_PORT} before Maestro suite ${suite_name}."
     return 1
   fi
+  PHASE="restart Expo Go before Maestro suite ${suite_name}"
+  run_logged "maestro-${suite_name}-expo-go-force-stop" adb shell am force-stop host.exp.exponent
   PHASE="Maestro suite ${suite_name}"
   echo "Running Android API level ${ANDROID_API_LEVEL} Maestro suite: ${suite_name}"
   if EXPO_DEV_URL="exp://127.0.0.1:${METRO_PORT}" \
