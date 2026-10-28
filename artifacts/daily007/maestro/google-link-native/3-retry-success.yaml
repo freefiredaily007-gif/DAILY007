@@ -2,14 +2,9 @@ appId: host.exp.exponent
 ---
 - tapOn:
     id: continue-with-google
-- tapOn:
-    text: "Use without an account"
-    optional: true
-    waitUntilVisible: true
 - extendedWaitUntil:
-    visible: "Continue with test Google"
+    visible: "Second exchange: succeeded online"
     timeout: 30000
-- tapOn: "Continue with test Google"
 - extendedWaitUntil:
     visible:
       id: profile-google-connected

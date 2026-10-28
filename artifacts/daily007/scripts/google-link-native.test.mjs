@@ -66,7 +66,8 @@ test("offline OAuth return preserves the original account, wallet, and password 
   assert.match(offlineFlow, /Password bearer: password token preserved/);
   assert.match(retryFlow, /Second exchange: succeeded online/);
   assert.match(retryFlow, /profile-google-connected/);
-  assert.match(retryFlow, /Use without an account[\s\S]*?Continue with test Google[\s\S]*?profile-google-connected/);
+  assert.match(retryFlow, /continue-with-google[\s\S]*?Second exchange: succeeded online[\s\S]*?Google exchanges: 2/);
+  assert.doesNotMatch(retryFlow, /Continue with test Google/);
   assert.match(retryFlow, /Link requests kept password token: 2\/2/);
   assert.match(offlineFlow, /Available coins: 42/);
   assert.match(retryFlow, /Available coins: 42/);
