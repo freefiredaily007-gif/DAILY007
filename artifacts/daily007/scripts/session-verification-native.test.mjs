@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { subscribeToSessionVerificationRecovery } from "../src/lib/session-verification.ts";
 
 const files = await Promise.all([
   readFile(new URL("../src/App.tsx", import.meta.url), "utf8"),
@@ -191,4 +192,59 @@ test("Android runner toggles and restores Wi-Fi and is included in the release g
   assert.match(readme, /Android emulator/);
   assert.match(readme, /Device checklist/);
   assert.match(readme, /Retry is never tapped/);
+});
+
+test("session recovery retries once per online edge and once after foreground resume", async () => {
+  let networkListener;
+  let appStateListener;
+  let networkState = { isConnected: false, isInternetReachable: false };
+  let retries = 0;
+  const network = {
+    addNetworkStateListener(listener) {
+      networkListener = listener;
+      return { remove() {} };
+    },
+    async getNetworkStateAsync() {
+      return networkState;
+    },
+  };
+  const appState = {
+    addEventListener(_type, listener) {
+      appStateListener = listener;
+      return { remove() {} };
+    },
+  };
+  const stop = subscribeToSessionVerificationRecovery(true, () => { retries += 1; }, network, appState);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(retries, 0);
+
+  networkState = { isConnected: true, isInternetReachable: true };
+  networkListener(networkState);
+  networkListener(networkState);
+  assert.equal(retries, 1);
+
+  networkState = { isConnected: false, isInternetReachable: false };
+  networkListener(networkState);
+  networkState = { isConnected: true, isInternetReachable: true };
+  networkListener(networkState);
+  assert.equal(retries, 2);
+
+  appStateListener("background");
+  networkState = { isConnected: false, isInternetReachable: false };
+  networkListener(networkState);
+  networkState = { isConnected: true, isInternetReachable: true };
+  networkListener(networkState);
+  assert.equal(retries, 3);
+  appStateListener("active");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(retries, 3);
+
+  appStateListener("background");
+  appStateListener("active");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(retries, 4);
+
+  stop();
+  networkListener(networkState);
+  assert.equal(retries, 4);
 });

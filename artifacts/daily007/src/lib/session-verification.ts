@@ -59,19 +59,54 @@ export function subscribeToSessionVerificationRecovery(
   if (!paused) return () => {};
 
   let active = true;
+  let lastKnownOnline: boolean | null = null;
+  let appWasBackgrounded = false;
+  let retriedWhileBackgrounded = false;
+  const isOnline = (state: SessionVerificationNetworkState) =>
+    state.isConnected === true && state.isInternetReachable !== false;
   const retryIfOnline = (state: SessionVerificationNetworkState) => {
-    if (
-      active &&
-      state.isConnected === true &&
-      state.isInternetReachable !== false
-    ) {
+    if (!active) return;
+    const wasOnline = lastKnownOnline;
+    const online = isOnline(state);
+    lastKnownOnline = online;
+    if (!online) return;
+
+    // Native network listeners can emit several online updates for one
+    // reconnect. Retry only on the offline-to-online edge.
+    if (wasOnline !== true) {
       retry();
+      if (appWasBackgrounded) retriedWhileBackgrounded = true;
     }
   };
   const networkSubscription = network.addNetworkStateListener(retryIfOnline);
   const appStateSubscription = appState.addEventListener('change', (state) => {
-    if (state !== 'active') return;
-    void network.getNetworkStateAsync().then(retryIfOnline).catch(() => {});
+    if (state !== 'active') {
+      if (!appWasBackgrounded) {
+        appWasBackgrounded = true;
+        retriedWhileBackgrounded = false;
+      }
+      return;
+    }
+
+    void network.getNetworkStateAsync().then((networkState) => {
+      if (!active) return;
+      const wasOnline = lastKnownOnline;
+      const online = isOnline(networkState);
+      lastKnownOnline = online;
+      if (!online) {
+        appWasBackgrounded = false;
+        retriedWhileBackgrounded = false;
+        return;
+      }
+
+      // A foreground check is needed even if connectivity stayed online,
+      // unless the network listener already retried during this backgrounding.
+      if (wasOnline !== true || (appWasBackgrounded && !retriedWhileBackgrounded)) {
+        retry();
+      }
+      appWasBackgrounded = false;
+      retriedWhileBackgrounded = false;
+    }).catch(() => {});
   });
 
   // Connectivity can return before either listener is attached.
