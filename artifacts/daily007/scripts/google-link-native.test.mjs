@@ -57,11 +57,13 @@ test("offline OAuth return preserves the original account, wallet, and password 
   assert.match(nativeFixture, /googleLinked\.current = true/);
   assert.match(nativeFixture, /sessionToken: session\?\.token === FIXTURE_SESSION\.token \? 'password token preserved' : 'changed'/);
   assert.match(startFlow, /Continue with test Google/);
+  assert.match(startFlow, /id: profile-text-scale-name[\s\S]*?direction: UP[\s\S]*?id: continue-with-google/);
   assert.match(startFlow, /id: continue-with-google[\s\S]*?centerElement: true/);
   assert.match(startFlow, /Use without an account[\s\S]*?optional: true[\s\S]*?waitUntilVisible: true/);
   assert.match(startFlow, /assertNotVisible:[\s\S]*?profile-google-connected/);
   assert.match(offlineFlow, /Could not reach Daily007\. Check your connection and try again\./);
   assert.match(offlineFlow, /First exchange: failed while Android was offline/);
+  assert.match(offlineFlow, /id: profile-text-scale-name[\s\S]*?direction: UP[\s\S]*?id: continue-with-google/);
   assert.match(offlineFlow, /Daily007 account: native-google-link-player/);
   assert.match(offlineFlow, /Saved wallet: 42 coins/);
   assert.match(offlineFlow, /Password bearer: password token preserved/);

@@ -23,8 +23,15 @@ appId: host.exp.exponent
 - tapOn: "PROFILE"
 - scrollUntilVisible:
     element:
+      id: profile-text-scale-name
+    direction: UP
+    centerElement: true
+    timeout: 30000
+- scrollUntilVisible:
+    element:
       id: continue-with-google
     direction: DOWN
+    centerElement: true
     timeout: 20000
 - assertVisible: "CONNECT GOOGLE"
 - assertNotVisible:
