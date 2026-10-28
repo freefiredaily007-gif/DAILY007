@@ -59,6 +59,7 @@ test('the Android route uses two local fixtures and compares native clipboard va
   assert.match(nativeFixtureSource, /Clipboard\.getStringAsync\(\)/);
   assert.match(nativeFixtureSource, /clipboardValues\[fixture\.id\] === fixture\.account/);
   assert.match(nativeFixtureSource, /withdrawal-upi-clipboard-check-\$\{index \+ 1\}/);
+  assert.match(nativeFixtureSource, /<ScrollView[\s\S]*?pasteAreaScroll[\s\S]*?trailingScrollSpace/);
   assert.doesNotMatch(nativeFixtureSource, /TextInput|KeyboardAvoidingView/);
   assert.match(nativeFixtureSource, /<AdminPayments \/>/);
   assert.match(screenSource, /p\.testOnlyRedactAccount \? 'Test fixture hidden' : p\.account/);

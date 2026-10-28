@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Redirect } from 'expo-router';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { AdminUiProvider, C } from '../components/ui';
 import { ReadableText as Text } from '../components/typography';
@@ -68,7 +68,10 @@ function WithdrawalUpiCopyFixture() {
         <View style={styles.admin}>
           <AdminPayments />
         </View>
-        <View style={styles.pasteArea}>
+        <ScrollView
+          style={styles.pasteAreaScroll}
+          contentContainerStyle={styles.pasteArea}
+        >
           {FIXTURES.map((fixture, index) => {
             const matches = clipboardValues[fixture.id] === fixture.account;
             return (
@@ -97,7 +100,8 @@ function WithdrawalUpiCopyFixture() {
               </View>
             );
           })}
-        </View>
+          <View style={styles.trailingScrollSpace} />
+        </ScrollView>
       </View>
     </AdminUiProvider>
   );
@@ -106,6 +110,7 @@ function WithdrawalUpiCopyFixture() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
   admin: { flex: 1, minHeight: 0 },
+  pasteAreaScroll: { height: 240, flexGrow: 0, backgroundColor: C.card },
   pasteArea: {
     paddingHorizontal: 16,
     paddingTop: 8,
@@ -113,6 +118,7 @@ const styles = StyleSheet.create({
     gap: 10,
     backgroundColor: C.card,
   },
+  trailingScrollSpace: { height: 240 },
   pasteCheck: { gap: 6 },
   label: { color: C.text, fontWeight: '700' },
   verifyButton: {

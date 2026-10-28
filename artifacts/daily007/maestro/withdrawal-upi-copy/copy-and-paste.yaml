@@ -12,6 +12,12 @@ appId: host.exp.exponent
     visible:
       text: ".*Withdrawal UPI ID copied.*"
     timeout: 10000
+- scrollUntilVisible:
+    element:
+      id: withdrawal-upi-clipboard-check-1
+    direction: DOWN
+    centerElement: true
+    timeout: 15000
 - tapOn:
     id: withdrawal-upi-clipboard-check-1
 - extendedWaitUntil:
@@ -30,6 +36,12 @@ appId: host.exp.exponent
     visible:
       text: ".*Withdrawal UPI ID copied.*"
     timeout: 10000
+- scrollUntilVisible:
+    element:
+      id: withdrawal-upi-clipboard-check-2
+    direction: DOWN
+    centerElement: true
+    timeout: 15000
 - tapOn:
     id: withdrawal-upi-clipboard-check-2
 - extendedWaitUntil:
