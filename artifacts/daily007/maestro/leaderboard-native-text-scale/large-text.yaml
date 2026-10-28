@@ -45,7 +45,7 @@ appId: host.exp.exponent
     element:
       id: leaderboard-player-4
     direction: DOWN
-    centerElement: true
+    visibilityPercentage: 100
 - assertVisible:
     text: "Rank 4, International Tournament Competitor With A Player Name That Wraps Across Multiple Lines, 17,076 coins"
 - scrollUntilVisible:

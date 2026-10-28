@@ -67,10 +67,17 @@ test("Maestro scrolls to and checks every podium and expanded Top 20 label", () 
     const rowId = `leaderboard-player-${rank}`;
     const label = `Rank ${rank}, ${expectedName(rank, "weekly")}, ${expectedScore(rank)} coins`;
     assert.ok(flow.includes(`id: ${rowId}`), `Missing scroll target for rank ${rank}`);
-    assert.ok(
-      flow.includes(`id: ${rowId}\n    direction: DOWN\n    centerElement: true`),
-      `Rank ${rank} must be centered before checking its label`,
-    );
+    if (rank === 4) {
+      assert.ok(
+        flow.includes(`id: ${rowId}\n    direction: DOWN\n    visibilityPercentage: 100`),
+        "Rank 4 must be fully visible without a centering scroll",
+      );
+    } else {
+      assert.ok(
+        flow.includes(`id: ${rowId}\n    direction: DOWN\n    centerElement: true`),
+        `Rank ${rank} must be centered before checking its label`,
+      );
+    }
     assert.ok(flow.includes(`text: "${label}"`), `Missing full rank/name/score assertion for rank ${rank}`);
   }
 });
