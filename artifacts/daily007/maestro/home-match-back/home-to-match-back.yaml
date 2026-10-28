@@ -29,8 +29,16 @@ appId: host.exp.exponent
     visible:
       id: home-upcoming-card-home-back-match-one
     timeout: 10000
-- swipe:
+- scrollUntilVisible:
+    element:
+      id: home-upcoming-card-home-back-match-two
     direction: LEFT
+    visibilityPercentage: 100
+    timeout: 15000
+- extendedWaitUntil:
+    visible:
+      id: home-upcoming-card-home-back-match-two
+    timeout: 15000
 - tapOn:
     id: home-upcoming-card-home-back-match-two
 - extendedWaitUntil:
