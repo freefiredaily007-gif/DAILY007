@@ -13,20 +13,16 @@ appId: host.exp.exponent
       text: ".*Withdrawal UPI ID copied.*"
     timeout: 10000
 - tapOn:
-    id: withdrawal-upi-paste-destination-1
-- longPressOn:
-    id: withdrawal-upi-paste-destination-1
-- tapOn:
-    text: "Paste"
+    id: withdrawal-upi-clipboard-check-1
 - extendedWaitUntil:
     visible:
-      text: "First fixture pasted value matches exactly"
+      text: "First fixture clipboard value matches exactly"
     timeout: 10000
-- hideKeyboard
 - scrollUntilVisible:
     element:
       id: copy-withdrawal-upi-withdrawal-upi-copy-fixture-long
     direction: DOWN
+    centerElement: true
     timeout: 15000
 - tapOn:
     id: copy-withdrawal-upi-withdrawal-upi-copy-fixture-long
@@ -35,12 +31,8 @@ appId: host.exp.exponent
       text: ".*Withdrawal UPI ID copied.*"
     timeout: 10000
 - tapOn:
-    id: withdrawal-upi-paste-destination-2
-- longPressOn:
-    id: withdrawal-upi-paste-destination-2
-- tapOn:
-    text: "Paste"
+    id: withdrawal-upi-clipboard-check-2
 - extendedWaitUntil:
     visible:
-      text: "Longer fixture pasted value matches exactly"
+      text: "Longer fixture clipboard value matches exactly"
     timeout: 10000

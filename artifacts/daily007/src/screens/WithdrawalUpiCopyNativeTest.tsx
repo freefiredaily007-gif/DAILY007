@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Redirect } from 'expo-router';
-import { KeyboardAvoidingView, Platform, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { AdminUiProvider, C } from '../components/ui';
 import { ReadableText as Text } from '../components/typography';
 import { Api } from '../lib/api';
@@ -43,7 +44,7 @@ export default function WithdrawalUpiCopyNativeTest() {
 }
 
 function WithdrawalUpiCopyFixture() {
-  const [pastedValues, setPastedValues] = useState<Record<string, string>>({});
+  const [clipboardValues, setClipboardValues] = useState<Record<string, string>>({});
   const originalApi = useMemo(() => ({
     adminPayments: Api.adminPayments,
     adminWithdrawals: Api.adminWithdrawals,
@@ -63,46 +64,41 @@ function WithdrawalUpiCopyFixture() {
 
   return (
     <AdminUiProvider>
-      <KeyboardAvoidingView
-        style={styles.screen}
-        behavior={Platform.OS === 'android' ? 'height' : 'padding'}
-      >
+      <View style={styles.screen}>
         <View style={styles.admin}>
           <AdminPayments />
         </View>
         <View style={styles.pasteArea}>
           {FIXTURES.map((fixture, index) => {
-            const matches = pastedValues[fixture.id] === fixture.account;
+            const matches = clipboardValues[fixture.id] === fixture.account;
             return (
               <View key={fixture.id} style={styles.pasteCheck}>
                 <Text style={styles.label}>
-                  {index === 0 ? 'First fixture paste check' : 'Longer fixture paste check'}
+                  {index === 0 ? 'First fixture clipboard check' : 'Longer fixture clipboard check'}
                 </Text>
-                <TextInput
-                  accessibilityLabel={`Neutral paste destination ${index + 1}`}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  contextMenuHidden={false}
-                  onChangeText={(value) => {
-                    setPastedValues((current) => ({ ...current, [fixture.id]: value }));
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={async () => {
+                    const value = await Clipboard.getStringAsync();
+                    setClipboardValues((current) => ({ ...current, [fixture.id]: value }));
                   }}
-                  secureTextEntry
-                  testID={`withdrawal-upi-paste-destination-${index + 1}`}
-                  value={pastedValues[fixture.id] ?? ''}
-                  style={styles.input}
-                />
-                <Text testID={`withdrawal-upi-paste-check-${index + 1}`}>
+                  style={styles.verifyButton}
+                  testID={`withdrawal-upi-clipboard-check-${index + 1}`}
+                >
+                  <Text style={styles.verifyButtonText}>VERIFY COPIED VALUE</Text>
+                </Pressable>
+                <Text testID={`withdrawal-upi-clipboard-result-${index + 1}`}>
                   {matches
                     ? index === 0
-                      ? 'First fixture pasted value matches exactly'
-                      : 'Longer fixture pasted value matches exactly'
-                    : 'Paste the copied value to verify'}
+                      ? 'First fixture clipboard value matches exactly'
+                      : 'Longer fixture clipboard value matches exactly'
+                    : 'Check the copied clipboard value'}
                 </Text>
               </View>
             );
           })}
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </AdminUiProvider>
   );
 }
@@ -119,13 +115,15 @@ const styles = StyleSheet.create({
   },
   pasteCheck: { gap: 6 },
   label: { color: C.text, fontWeight: '700' },
-  input: {
-    minHeight: 44,
+  verifyButton: {
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
     borderColor: C.border,
     borderRadius: 8,
     paddingHorizontal: 12,
-    color: C.text,
-    backgroundColor: C.bg,
+    backgroundColor: C.card,
   },
+  verifyButtonText: { color: C.text, fontWeight: '700' },
 });

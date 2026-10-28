@@ -19,8 +19,8 @@ For Maestro checks of the copy-success banner, use a substring regex because the
 
 **How to apply:** Match the message content with an expression that permits prefix/suffix decoration; keep the screen's user-facing accessibility announcement unchanged.
 
-On 2026-10-28, Android API 35 showed Gboard covering a test-only paste field while Maestro long-pressed its stale underlying bounds; the keyboard exposed a clipboard suggestion instead of a Paste menu.
+On 2026-10-28, Android API 35 kept test-only paste inputs under the keyboard; tapping them could open Expo LogBox warning details instead of interacting with the field.
 
-**Why:** A fixed-height fixture can leave the accessibility node present even though the IME covers the field, making a missing Paste selector look like a clipboard failure.
+**Why:** Maestro can retain an accessibility node for a field hidden behind the IME or warning overlay, so failures in the keyboard paste step do not necessarily indicate a clipboard copy defect.
 
-**How to apply:** Keep native clipboard test inputs visible above the Android keyboard with a `KeyboardAvoidingView` using `height` behavior before using long-press paste actions.
+**How to apply:** After tapping the real copy action, verify exact clipboard contents through `expo-clipboard` in the development-only fixture instead of relying on keyboard paste gestures. Never render or log the fixture account value.

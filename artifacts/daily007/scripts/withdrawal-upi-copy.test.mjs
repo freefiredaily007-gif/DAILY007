@@ -35,7 +35,7 @@ const workflowSource = await readFile(
   'utf8',
 );
 
-test('the Android route uses two local fixtures and compares each pasted value exactly', () => {
+test('the Android route uses two local fixtures and compares native clipboard values exactly', () => {
   assert.match(nativeFixtureSource, /if \(!__DEV__\) return <Redirect href="\/" \/>/);
   const fixtureAccounts = [...nativeFixtureSource.matchAll(/account: '([^']+)'/g)]
     .map((match) => match[1]);
@@ -56,30 +56,29 @@ test('the Android route uses two local fixtures and compares each pasted value e
   assert.match(nativeFixtureSource, /\(Api as any\)\.adminWithdrawals = async \(\) => FIXTURES/);
   assert.match(nativeFixtureSource, /\(Api as any\)\.adminPayments = async \(\) => \[\]/);
   assert.equal((nativeFixtureSource.match(/testOnlyRedactAccount: true/g) ?? []).length, 2);
-  assert.match(nativeFixtureSource, /KeyboardAvoidingView[\s\S]*?behavior=\{Platform\.OS === 'android' \? 'height' : 'padding'\}/);
-  assert.match(nativeFixtureSource, /secureTextEntry/);
-  assert.match(nativeFixtureSource, /pastedValues\[fixture\.id\] === fixture\.account/);
-  assert.match(nativeFixtureSource, /withdrawal-upi-paste-destination-\$\{index \+ 1\}/);
+  assert.match(nativeFixtureSource, /Clipboard\.getStringAsync\(\)/);
+  assert.match(nativeFixtureSource, /clipboardValues\[fixture\.id\] === fixture\.account/);
+  assert.match(nativeFixtureSource, /withdrawal-upi-clipboard-check-\$\{index \+ 1\}/);
+  assert.doesNotMatch(nativeFixtureSource, /TextInput|KeyboardAvoidingView/);
   assert.match(nativeFixtureSource, /<AdminPayments \/>/);
   assert.match(screenSource, /p\.testOnlyRedactAccount \? 'Test fixture hidden' : p\.account/);
   assert.doesNotMatch(nativeFixtureSource, /adminMarkWithdrawalPaid|adminWithdrawalAction|adminPaymentAction/);
 });
 
-test('the Android flow copies and pastes both fixtures and reports only safe results', () => {
+test('the Android flow copies and verifies both native clipboard values safely', () => {
   assert.match(maestroFlow, /withdrawal-upi-copy-test/);
   assert.match(maestroFlow, /copy-withdrawal-upi-withdrawal-upi-copy-fixture/);
   assert.match(maestroFlow, /copy-withdrawal-upi-withdrawal-upi-copy-fixture-long/);
-  assert.match(maestroFlow, /withdrawal-upi-paste-destination-1/);
-  assert.match(maestroFlow, /withdrawal-upi-paste-destination-2/);
-  assert.equal((maestroFlow.match(/longPressOn:/g) ?? []).length, 2);
-  assert.match(maestroFlow, /text: "Paste"/);
+  assert.match(maestroFlow, /withdrawal-upi-clipboard-check-1/);
+  assert.match(maestroFlow, /withdrawal-upi-clipboard-check-2/);
+  assert.doesNotMatch(maestroFlow, /longPressOn:|text: "Paste"|hideKeyboard/);
   assert.equal(
     (maestroFlow.match(/text: "\.\*Withdrawal UPI ID copied\.\*"/g) ?? []).length,
     2,
     'The copy success selector must allow the decorative checkmark in the visible message.',
   );
-  assert.match(maestroFlow, /First fixture pasted value matches exactly/);
-  assert.match(maestroFlow, /Longer fixture pasted value matches exactly/);
+  assert.match(maestroFlow, /First fixture clipboard value matches exactly/);
+  assert.match(maestroFlow, /Longer fixture clipboard value matches exactly/);
   assert.doesNotMatch(maestroFlow, /upi-copy-fixture@daily007\.invalid|clipboard-check-2026|takeScreenshot|screenshot|approve|payout/i);
   assert.ok(packageSource.includes('"test:android-withdrawal-upi-copy"'));
   assert.ok(packageSource.includes('maestro/withdrawal-upi-copy'));
