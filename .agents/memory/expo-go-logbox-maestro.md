@@ -25,6 +25,14 @@ The first Maestro fixture in a fresh Android emulator session or after force-sto
 
 **How to apply:** Add the prompt-recovery loop and a 60-second fixture wait to the first app-opening flow in each emulator session and after any test runner force-stops Expo Go. Check the fixture ID, not Metro bundling alone.
 
+## Expo Go remote-update connection errors
+
+Expo Go can show “Failed to download remote update” while opening a fixture even when the host Metro status endpoint is healthy and Metro has bundled JavaScript. The error screen exposes `host.exp.exponent:id/console_reload_button`; retry that control in the test recovery path, but still fail if the fixture ID never appears.
+
+**Why:** An Android CI run reached `packager-status:running` and bundled the entry point, yet Expo Go’s update loader failed while opening the fixture URL. Host readiness did not prove the emulator’s update request succeeded.
+
+**How to apply:** In Expo Go Maestro startup recovery, detect the native Expo Go error view and tap its reload button before asserting the fixture banner. Keep a bounded wait for the fixture and do not treat a successful Metro host check as proof of device connectivity.
+
 ## Reconnect and foreground retry counts
 
 In saved-session recovery tests, a network reconnect while backgrounded and the later foreground transition are separate retry triggers. Count one verification for each event; reopening the fixture route through Expo Go is not a substitute for collapsing them into one.

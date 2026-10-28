@@ -18,6 +18,13 @@ appId: host.exp.exponent
     commands:
       - runFlow:
           when:
+            visible:
+              id: host.exp.exponent:id/error_viewPager
+          commands:
+            - tapOn:
+                id: host.exp.exponent:id/console_reload_button
+      - runFlow:
+          when:
             visible: "Pixel Launcher isn't responding"
           commands:
             - tapOn:
