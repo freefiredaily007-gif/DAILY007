@@ -66,7 +66,8 @@ test("offline OAuth return preserves the original account, wallet, and password 
   assert.match(startFlow, /assertNotVisible:[\s\S]*?profile-google-connected/);
   assert.match(offlineFlow, /Could not reach Daily007\. Check your connection and try again\./);
   assert.match(offlineFlow, /First exchange: failed while Android was offline/);
-  assert.match(offlineFlow, /id: profile-text-scale-name[\s\S]*?direction: UP[\s\S]*?id: continue-with-google/);
+  assert.match(offlineFlow, /id: profile-text-scale-name[\s\S]*?direction: UP[\s\S]*?id: profile-google-connection-title/);
+  assert.match(offlineFlow, /id: profile-google-connection-title[\s\S]*?visible: "CONNECT GOOGLE"[\s\S]*?id: continue-with-google/);
   assert.match(offlineFlow, /Daily007 account: native-google-link-player/);
   assert.match(offlineFlow, /Saved wallet: 42 coins/);
   assert.match(offlineFlow, /Password bearer: password token preserved/);

@@ -29,10 +29,15 @@ appId: host.exp.exponent
     timeout: 30000
 - scrollUntilVisible:
     element:
-      id: continue-with-google
+      id: profile-google-connection-title
     direction: DOWN
     centerElement: true
-    timeout: 20000
+    timeout: 30000
+- extendedWaitUntil:
+    visible: "CONNECT GOOGLE"
+    timeout: 30000
 - assertVisible: "CONNECT GOOGLE"
+- assertVisible:
+    id: continue-with-google
 - assertNotVisible:
     id: profile-google-connected
