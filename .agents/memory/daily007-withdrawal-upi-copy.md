@@ -18,3 +18,9 @@ For Maestro checks of the copy-success banner, use a substring regex because the
 **Why:** Android API 35 diagnostics showed the rendered `✓ Withdrawal UPI ID copied` text in the screen hierarchy and screenshot, while an exact Maestro text selector still failed.
 
 **How to apply:** Match the message content with an expression that permits prefix/suffix decoration; keep the screen's user-facing accessibility announcement unchanged.
+
+On 2026-10-28, Android API 35 showed Gboard covering a test-only paste field while Maestro long-pressed its stale underlying bounds; the keyboard exposed a clipboard suggestion instead of a Paste menu.
+
+**Why:** A fixed-height fixture can leave the accessibility node present even though the IME covers the field, making a missing Paste selector look like a clipboard failure.
+
+**How to apply:** Keep native clipboard test inputs visible above the Android keyboard with a `KeyboardAvoidingView` using `height` behavior before using long-press paste actions.

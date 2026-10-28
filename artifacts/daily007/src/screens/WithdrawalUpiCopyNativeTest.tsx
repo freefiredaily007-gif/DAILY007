@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Redirect } from 'expo-router';
-import { StyleSheet, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, StyleSheet, TextInput, View } from 'react-native';
 import { AdminUiProvider, C } from '../components/ui';
 import { ReadableText as Text } from '../components/typography';
 import { Api } from '../lib/api';
@@ -63,7 +63,10 @@ function WithdrawalUpiCopyFixture() {
 
   return (
     <AdminUiProvider>
-      <View style={styles.screen}>
+      <KeyboardAvoidingView
+        style={styles.screen}
+        behavior={Platform.OS === 'android' ? 'height' : 'padding'}
+      >
         <View style={styles.admin}>
           <AdminPayments />
         </View>
@@ -99,7 +102,7 @@ function WithdrawalUpiCopyFixture() {
             );
           })}
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </AdminUiProvider>
   );
 }

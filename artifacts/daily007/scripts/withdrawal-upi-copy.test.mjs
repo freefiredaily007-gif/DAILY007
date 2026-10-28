@@ -56,6 +56,7 @@ test('the Android route uses two local fixtures and compares each pasted value e
   assert.match(nativeFixtureSource, /\(Api as any\)\.adminWithdrawals = async \(\) => FIXTURES/);
   assert.match(nativeFixtureSource, /\(Api as any\)\.adminPayments = async \(\) => \[\]/);
   assert.equal((nativeFixtureSource.match(/testOnlyRedactAccount: true/g) ?? []).length, 2);
+  assert.match(nativeFixtureSource, /KeyboardAvoidingView[\s\S]*?behavior=\{Platform\.OS === 'android' \? 'height' : 'padding'\}/);
   assert.match(nativeFixtureSource, /secureTextEntry/);
   assert.match(nativeFixtureSource, /pastedValues\[fixture\.id\] === fixture\.account/);
   assert.match(nativeFixtureSource, /withdrawal-upi-paste-destination-\$\{index \+ 1\}/);
