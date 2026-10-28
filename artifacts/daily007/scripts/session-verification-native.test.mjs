@@ -87,6 +87,7 @@ test("native flows reconnect without tapping Retry and verify after app resume",
   assert.match(backgroundBeforeReconnect, /session-verification-test\?scenario=resume/);
   assert.match(backgroundBeforeReconnect, /assertVisible: "SESSION VERIFICATION PAUSED"/);
   assert.match(backgroundBeforeReconnect, /pressKey: HOME/);
+  assert.match(resumeAfterReconnect, /openLink:[\s\S]*?session-verification-test\?scenario=resume/);
   assert.match(resumeAfterReconnect, /Saved session automatically verified/);
   assert.match(resumeAfterReconnect, /Verified without tapping Retry/);
   assert.doesNotMatch(`${backgroundBeforeReconnect}\n${resumeAfterReconnect}`, /tapOn:[\s\S]*?session-verification-retry/);
