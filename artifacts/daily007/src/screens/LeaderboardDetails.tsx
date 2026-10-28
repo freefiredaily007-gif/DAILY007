@@ -260,6 +260,7 @@ export default function LeaderboardDetails(props: any) {
     return (
       <LeaderboardDetailsContent
         {...props}
+        nativeTestFixture
         query={{
           data: nativeTestFixture,
           error: null,
@@ -288,7 +289,7 @@ function LiveLeaderboardDetails({ navigation, route }: any) {
   return <LeaderboardDetailsContent navigation={navigation} route={route} query={query} />;
 }
 
-function LeaderboardDetailsContent({ navigation, route, query }: any) {
+function LeaderboardDetailsContent({ navigation, route, query, nativeTestFixture }: any) {
   const { fontScale } = useWindowDimensions();
   const largeText = fontScale >= 1.5;
   const [showTop20, setShowTop20] = React.useState(false);
@@ -361,7 +362,10 @@ function LeaderboardDetailsContent({ navigation, route, query }: any) {
         </Text>
       ) : null}
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          nativeTestFixture ? styles.nativeTextScaleFixtureContent : undefined,
+        ]}
         showsVerticalScrollIndicator={false}
         testID="leaderboard-details-scroll"
       >
@@ -595,6 +599,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   content: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 28 },
+  // Keep the fixture's final control scrollable above Expo's persistent dev-warning toast.
+  nativeTextScaleFixtureContent: { paddingBottom: 220 },
   tabs: { flexDirection: "row", gap: 8, marginBottom: 12 },
   staleDataWarning: {
     gap: 8,
