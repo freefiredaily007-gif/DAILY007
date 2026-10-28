@@ -21,6 +21,10 @@ appId: host.exp.exponent
 - assertVisible: "Password bearer: password token preserved"
 - tapOn:
     id: continue-with-google
+- tapOn:
+    text: "Use without an account"
+    optional: true
+    waitUntilVisible: true
 - extendedWaitUntil:
     visible: "Continue with test Google"
     timeout: 30000

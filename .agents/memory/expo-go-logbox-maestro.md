@@ -32,3 +32,11 @@ In saved-session recovery tests, a network reconnect while backgrounded and the 
 **Why:** The recovery unit test expects one request on the online edge and another on foreground resume. A native retry assertion that expected only one for both events failed; the screen showed the correctly verified session after the fourth attempt.
 
 **How to apply:** Keep Maestro attempt-count assertions aligned with the network-edge and resume contract, and verify the final saved-session state without adding an extra connectivity cycle after verification succeeds.
+
+## Chrome custom-tab first run
+
+On a fresh Android emulator, Chrome's first-run welcome screen can intercept the app's OAuth custom tab before the local test page appears. The native OAuth flow should dismiss that prompt when present before waiting for its fixture page.
+
+**Why:** The Android emulator's first external-browser launch showed Chrome's welcome/sign-in screen instead of the expected local OAuth button; the app and fixture server were running normally.
+
+**How to apply:** Make the browser onboarding tap optional in the first custom-tab flow so the same test works both before and after Chrome has been initialized.
