@@ -41,8 +41,8 @@ On a fresh Android emulator, Chrome's first-run welcome screen can intercept the
 
 **How to apply:** Make the browser onboarding tap optional in the first custom-tab flow so the same test works both before and after Chrome has been initialized.
 
-Expo Go native-auth fixtures must use a callback URL generated for the current Expo Go runtime, while the standalone app keeps its registered `daily007://` callback. Expo Go may override the standalone scheme when constructing a redirect URI, so do not assert the production scheme at runtime in Expo Go.
+Expo Go native-auth fixtures must use a callback URL generated for the current Expo Go runtime, while the standalone app keeps its registered `daily007://` callback. Protect the production scheme with a source-level test, not a runtime assertion in Expo Go. For Android Expo Go fixtures, use `openBrowserAsync` plus a filtered React Native Linking event rather than relying on `openAuthSessionAsync`'s AppState-based dismissal race.
 
-**Why:** The native fixture's production-scheme runtime assertion failed under Expo Go even though the source config uses `daily007`; Expo Go controls its own runtime scheme.
+**Why:** Expo Go controls its own runtime scheme, and an Android CI run using the auth-session polyfill returned to Profile without requesting the fixture page. The polyfill races browser launch/return against app activation.
 
-**How to apply:** Protect the standalone scheme with a source-level test. In test-only Expo Go harnesses, create the callback with `AuthSession.makeRedirectUri` and no explicit scheme, using a path already served by the fixture. Keep production callback configuration unchanged.
+**How to apply:** Keep production callback configuration unchanged. In test-only Expo Go harnesses, create the deep-link URL with `AuthSession.makeRedirectUri` and no explicit scheme, subscribe to matching Linking events, then open the local test page with `WebBrowser.openBrowserAsync`.

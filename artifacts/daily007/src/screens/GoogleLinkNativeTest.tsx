@@ -6,7 +6,7 @@ import { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import * as AuthSession from 'expo-auth-session';
 import * as Network from 'expo-network';
 import * as WebBrowser from 'expo-web-browser';
-import { StyleSheet, View } from 'react-native';
+import { Linking, StyleSheet, View } from 'react-native';
 import { ReadableText as Text } from '../components/typography';
 import { DailyAppGoogleLinkNativeTest } from '../App';
 import type { GoogleSSONativeTestHarness } from '../components/GoogleSSOButton';
@@ -69,6 +69,41 @@ function makeResponse(config: InternalAxiosRequestConfig, data: unknown) {
     statusText: 'OK',
     headers: {},
     config,
+  };
+}
+
+function waitForOAuthTestCallback(redirectUrl: string) {
+  let cancelled = false;
+  let subscription: ReturnType<typeof Linking.addEventListener> | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const cleanup = () => {
+    if (timer) clearTimeout(timer);
+    subscription?.remove();
+  };
+
+  const promise = new Promise<string>((resolve, reject) => {
+    timer = setTimeout(() => {
+      if (cancelled) return;
+      cancelled = true;
+      cleanup();
+      reject(new Error('The Android Google OAuth test callback did not return to Daily007.'));
+    }, 45_000);
+
+    subscription = Linking.addEventListener('url', ({ url }) => {
+      if (cancelled || !url.startsWith(redirectUrl)) return;
+      cancelled = true;
+      cleanup();
+      resolve(url);
+    });
+  });
+
+  return {
+    promise,
+    cancel: () => {
+      if (cancelled) return;
+      cancelled = true;
+      cleanup();
+    },
   };
 }
 
@@ -221,18 +256,28 @@ function GoogleLinkNativeTestFixture() {
       // Expo Go may override the standalone app scheme; return through its current fixture URL.
       const expoGoRedirectUrl = AuthSession.makeRedirectUri({ path: 'google-link-native-test' });
       const authPageUrl = `${authUrl}?redirect_uri=${encodeURIComponent(expoGoRedirectUrl)}`;
-      const result = await WebBrowser.openAuthSessionAsync(authPageUrl, expoGoRedirectUrl);
-      if (result.type !== 'success') {
-        return { authSessionResult: { type: result.type === 'cancel' ? 'cancel' : 'dismiss' } };
+      updateDiagnostics({ phase: 'opening local OAuth page' });
+      const callback = waitForOAuthTestCallback(expoGoRedirectUrl);
+      try {
+        const browser = await WebBrowser.openBrowserAsync(authPageUrl);
+        if (browser.type !== 'opened') {
+          callback.cancel();
+          return { authSessionResult: { type: 'dismiss' } };
+        }
+        updateDiagnostics({ phase: 'waiting for local OAuth callback' });
+        const callbackUrl = await callback.promise;
+        const parsedCallback = new URL(callbackUrl);
+        if (parsedCallback.searchParams.get('native_google_link_token') !== CALLBACK_TEST_TOKEN) {
+          throw new Error('The Android Google OAuth test callback was not verified.');
+        }
+        updateDiagnostics({
+          oauthHandoffs: stateRef.current.oauthHandoffs + 1,
+          phase: 'native OAuth callback returned to Daily007',
+        });
+      } catch (error) {
+        callback.cancel();
+        throw error;
       }
-      const callback = new URL(result.url);
-      if (callback.searchParams.get('native_google_link_token') !== CALLBACK_TEST_TOKEN) {
-        throw new Error('The Android Google OAuth test callback was not verified.');
-      }
-      updateDiagnostics({
-        oauthHandoffs: stateRef.current.oauthHandoffs + 1,
-        phase: 'native OAuth callback returned to Daily007',
-      });
       return {
         createdSessionId: 'native-google-link-clerk-session',
         setActive: async ({ session }) => {

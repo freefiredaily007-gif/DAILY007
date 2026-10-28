@@ -40,13 +40,15 @@ test("native Google-link test harness is development-only and exercises the prod
   assert.match(googleButton, /runGoogleSSOFlow/);
   assert.match(googleButton, /startNativeSSOFlow/);
   assert.match(nativeFixture, /if \(!__DEV__\) return <Redirect href="\/" \/>/);
-  assert.match(nativeFixture, /WebBrowser\.openAuthSessionAsync\(authPageUrl, expoGoRedirectUrl\)/);
+  assert.match(nativeFixture, /Linking\.addEventListener\('url'/);
+  assert.match(nativeFixture, /WebBrowser\.openBrowserAsync\(authPageUrl\)/);
   assert.match(nativeFixture, /setActive: async \(\{ session \}\)/);
   assert.match(nativeFixture, /Api\.googleAuth|http\.defaults\.adapter/);
 });
 
 test("offline OAuth return preserves the original account, wallet, and password bearer until a successful retry", () => {
   assert.match(nativeFixture, /AuthSession\.makeRedirectUri\(\{ path: 'google-link-native-test' \}\)/);
+  assert.match(nativeFixture, /callback\.promise/);
   assert.match(nativeFixture, /id: 'native-google-link-player'/);
   assert.match(nativeFixture, /coins: 42/);
   assert.match(nativeFixture, /token: 'native-google-link-password-token'/);
