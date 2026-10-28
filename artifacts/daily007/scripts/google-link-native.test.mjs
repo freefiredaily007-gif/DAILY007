@@ -34,6 +34,7 @@ test("native Google-link test harness is development-only and exercises the prod
   assert.match(app, /export function DailyAppGoogleLinkNativeTest/);
   assert.match(app, /if \(!__DEV__\) return null/);
   assert.match(profile, /label="Connect Google"[\s\S]*?devNativeTestHarness=\{googleSSONativeTestHarness\}/);
+  assert.match(profile, /testID="profile-google-connection-title"/);
   assert.match(googleButton, /if \(__DEV__ && props\.devNativeTestHarness\)/);
   assert.match(googleButton, /AuthSession\.makeRedirectUri\(\{ scheme: 'daily007', path: 'sso-callback' \}\)/);
   assert.match(googleButton, /runGoogleSSOAttempt/);
@@ -57,8 +58,10 @@ test("offline OAuth return preserves the original account, wallet, and password 
   assert.match(nativeFixture, /googleLinked\.current = true/);
   assert.match(nativeFixture, /sessionToken: session\?\.token === FIXTURE_SESSION\.token \? 'password token preserved' : 'changed'/);
   assert.match(startFlow, /Continue with test Google/);
-  assert.match(startFlow, /id: profile-text-scale-name[\s\S]*?direction: UP[\s\S]*?id: continue-with-google/);
-  assert.match(startFlow, /id: continue-with-google[\s\S]*?centerElement: true/);
+  assert.match(startFlow, /id: profile-text-scale-name[\s\S]*?direction: UP[\s\S]*?id: profile-google-connection-title/);
+  assert.match(startFlow, /id: profile-google-connection-title[\s\S]*?centerElement: true/);
+  assert.match(startFlow, /visible: "CONNECT GOOGLE"[\s\S]*?timeout: 30000/);
+  assert.match(startFlow, /assertVisible:[\s\S]*?id: continue-with-google/);
   assert.match(startFlow, /Use without an account[\s\S]*?optional: true[\s\S]*?waitUntilVisible: true/);
   assert.match(startFlow, /assertNotVisible:[\s\S]*?profile-google-connected/);
   assert.match(offlineFlow, /Could not reach Daily007\. Check your connection and try again\./);

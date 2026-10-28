@@ -436,7 +436,7 @@ export default function Profile({
       </Card>
 
       <Card>
-        <Text style={s.connectTitle}>
+        <Text testID="profile-google-connection-title" style={s.connectTitle}>
           {googleStatus === 'linked'
             ? 'GOOGLE CONNECTED'
             : googleStatus === 'unlinked'
