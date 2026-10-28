@@ -138,7 +138,7 @@ test("published PWA installability has its own non-cache desktop Chromium check"
   assert.doesNotMatch(installabilityJob, /continue-on-error:\s*true/);
 });
 
-async function runSetupDiagnostics(api, testScriptStarted = false) {
+async function runSetupDiagnostics(api, testScriptStarted = false, options = {}) {
   const dir = await mkdtemp(join(tmpdir(), "daily007-emulator-setup-"));
   const bin = join(dir, "bin");
   const workspace = join(dir, "workspace");
@@ -157,6 +157,8 @@ async function runSetupDiagnostics(api, testScriptStarted = false) {
     PATH: `${bin}:${process.env.PATH}`,
     GITHUB_WORKSPACE: workspace,
     ANDROID_HOME: dir,
+    ANDROID_DIAGNOSTICS_COMMAND_TIMEOUT_SECONDS: String(options.commandTimeoutSeconds ?? 10),
+    MOCK_ADB_HANG_GET_STATE: options.hangGetState ? "1" : "0",
   };
   const stubs = {
     emulator: `#!/usr/bin/env bash
@@ -168,7 +170,7 @@ printf 'emulator;35.1\\nplatform-tools;35.0\\nplatforms;android-${api}\\nsystem-
     adb: `#!/usr/bin/env bash
 case "$*" in
   *logcat*) printf 'Authorization: Bearer sentinel-bearer\\npassword=sentinel-password\\n' ;;
-  *get-state*) echo device ;;
+  *get-state*) if [ "$MOCK_ADB_HANG_GET_STATE" = "1" ]; then exec sleep 5; else echo device; fi ;;
   *getprop*) printf '1\\n${api}\\n' ;;
   *) echo 'List of devices attached' ;;
 esac
@@ -214,6 +216,16 @@ test("setup diagnostics capture boot evidence and redact credentials before arti
   }
   const context = result.diagnosticFiles["setup-context.txt"];
   assert.match(context, /original emulator action error remains in the workflow log/);
+});
+
+test("setup diagnostics continue when an ADB command hangs", async () => {
+  const result = await runSetupDiagnostics(35, false, {
+    commandTimeoutSeconds: 1,
+    hangGetState: true,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.diagnosticFiles["emulator-state.txt"], /exit_status=124/);
+  assert.match(result.diagnosticFiles["emulator-boot-properties.txt"], /exit_status=0/);
 });
 
 test("API 36 setup failure diagnostics stay isolated to API 36", async () => {

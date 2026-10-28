@@ -40,10 +40,16 @@ capture() {
   shift
   local output_file="$DIAG_DIR/${name}.txt"
   local status=0
+  local command_timeout_seconds="${ANDROID_DIAGNOSTICS_COMMAND_TIMEOUT_SECONDS:-10}"
+
+  if ! [[ "$command_timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Invalid Android diagnostics command timeout." >&2
+    return 2
+  fi
 
   # Redact before writing to the artifact directory, so raw output is never
   # uploaded even if a later command fails.
-  "$@" 2>&1 |
+  timeout --signal=TERM --kill-after=2s "${command_timeout_seconds}s" "$@" 2>&1 |
     sed -E \
       -e 's/([Bb]earer[[:space:]]+)[A-Za-z0-9._~+\/=-]+/\1[REDACTED]/g' \
       -e 's/((token|secret|password|authorization|api[_-]?key)[[:space:]\"'\'']*[:=][[:space:]\"'\'']*)[^[:space:],;\"'\'']+/\1[REDACTED]/Ig' \
