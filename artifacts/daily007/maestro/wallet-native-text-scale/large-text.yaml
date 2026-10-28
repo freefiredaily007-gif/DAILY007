@@ -21,6 +21,7 @@ appId: host.exp.exponent
     element:
       id: wallet-open-recharge
     direction: DOWN
+    centerElement: true
 - extendedWaitUntil:
     visible:
       id: wallet-open-recharge
@@ -28,16 +29,22 @@ appId: host.exp.exponent
     timeout: 10000
 - tapOn:
     id: wallet-open-recharge
+- extendedWaitUntil:
+    visible:
+      id: wallet-tab-add
+    timeout: 10000
 - scrollUntilVisible:
     element:
       id: wallet-utr
     direction: DOWN
+    centerElement: true
 - assertVisible:
     id: wallet-utr
 - scrollUntilVisible:
     element:
       id: wallet-close-form
     direction: DOWN
+    centerElement: true
 - assertVisible:
     id: wallet-close-form
 - tapOn:
@@ -47,18 +54,25 @@ appId: host.exp.exponent
     element:
       id: wallet-open-withdraw
     direction: DOWN
+    centerElement: true
 - tapOn:
     id: wallet-open-withdraw
+- extendedWaitUntil:
+    visible:
+      id: wallet-tab-withdraw
+    timeout: 10000
 - scrollUntilVisible:
     element:
       id: wallet-withdraw-account
     direction: DOWN
+    centerElement: true
 - assertVisible:
     id: wallet-withdraw-account
 - scrollUntilVisible:
     element:
       id: wallet-close-form
     direction: DOWN
+    centerElement: true
 - assertVisible:
     id: wallet-close-form
 - tapOn:
@@ -68,6 +82,7 @@ appId: host.exp.exponent
     element:
       id: wallet-history-filter-withdrawals
     direction: DOWN
+    centerElement: true
 - assertVisible:
     id: wallet-history-filter-withdrawals
 - tapOn:

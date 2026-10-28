@@ -50,7 +50,8 @@ test('Home, Wallet, and Profile Maestro flows verify 2× text, full-width conten
 
   assert.match(walletFlow, /wallet-text-scale-test/);
   assert.match(walletFlow, /Wallet key text fits available widths at 2\.00×/);
-  assert.match(walletFlow, /id: wallet-open-recharge\n\s+enabled: true/);
+  assert.match(walletFlow, /id: wallet-open-recharge\n\s+direction: DOWN\n\s+centerElement: true/);
+  assert.match(walletFlow, /id: wallet-tab-add\n\s+timeout: 10000/);
   assert.match(walletFlow, /id: wallet-utr/);
   assert.doesNotMatch(walletFlow, /wallet-transaction-id/);
   for (const control of ['wallet-open-recharge', 'wallet-open-withdraw', 'wallet-history-filter-withdrawals']) {
