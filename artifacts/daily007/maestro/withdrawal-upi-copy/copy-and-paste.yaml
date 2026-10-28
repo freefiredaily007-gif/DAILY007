@@ -63,6 +63,9 @@ appId: host.exp.exponent
     optional: true
 - tapOn:
     id: withdrawal-upi-clipboard-check-2
+- tapOn:
+    text: "Minimize"
+    optional: true
 - extendedWaitUntil:
     visible:
       text: "Longer fixture clipboard value matches exactly"

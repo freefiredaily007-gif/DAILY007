@@ -82,10 +82,11 @@ test('the Android flow copies and verifies both native clipboard values safely',
   assert.match(maestroFlow, /Longer fixture clipboard value matches exactly/);
   assert.equal(
     (maestroFlow.match(/text: "Minimize"\s+optional: true/g) ?? []).length,
-    5,
+    6,
     'The flow must minimize Expo Go LogBox overlays around clipboard fixture actions.',
   );
   assert.match(maestroFlow, /id: withdrawal-upi-clipboard-check-2[\s\S]*?text: "Minimize"[\s\S]*?id: withdrawal-upi-clipboard-check-2/);
+  assert.match(maestroFlow, /id: withdrawal-upi-clipboard-check-2[\s\S]*?id: withdrawal-upi-clipboard-check-2[\s\S]*?text: "Minimize"[\s\S]*?Longer fixture clipboard value matches exactly/);
   assert.doesNotMatch(maestroFlow, /upi-copy-fixture@daily007\.invalid|clipboard-check-2026|takeScreenshot|screenshot|approve|payout/i);
   assert.ok(packageSource.includes('"test:android-withdrawal-upi-copy"'));
   assert.ok(packageSource.includes('maestro/withdrawal-upi-copy'));

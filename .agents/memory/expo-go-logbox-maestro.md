@@ -49,6 +49,14 @@ On a fresh Android emulator, Chrome's first-run welcome screen can intercept the
 
 **How to apply:** Make the browser onboarding tap optional in the first custom-tab flow so the same test works both before and after Chrome has been initialized.
 
+## Profile tab scroll restoration in Google-link tests
+
+After switching Wallet → Profile in the offline Google-link flow, Profile can resume at a lower scroll position. The Google connection card is above the later My Matches and App Info sections; search upward from the restored position rather than scrolling down from the profile name.
+
+**Why:** Android CI showed the profile name could be found, but a subsequent downward search passed the Google card and ended at My Matches without finding its test ID.
+
+**How to apply:** On a tab return, use the visible profile position to choose the scroll direction toward the expected control, then assert the Google connection action only after it is visible.
+
 Expo Go native-auth fixtures must use a callback URL generated for the current Expo Go runtime, while the standalone app keeps its registered `daily007://` callback. Protect the production scheme with a source-level test, not a runtime assertion in Expo Go. For Android Expo Go fixtures, use `openBrowserAsync` plus a filtered React Native Linking event, and return through a real anchor link rather than relying on `openAuthSessionAsync`'s AppState-based dismissal race or JavaScript `location.assign`.
 
 **Why:** Expo Go controls its own runtime scheme. The Android auth-session polyfill returned to Profile without requesting the fixture page, and a later Chrome Custom Tab run stayed on the OAuth page after a JavaScript redirect attempt. The polyfill races browser launch/return against app activation, while the WebView did not dispatch the script-based custom-scheme navigation.
