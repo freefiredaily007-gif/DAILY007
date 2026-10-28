@@ -49,6 +49,10 @@ test("Maestro scrolls to and checks every podium and expanded Top 20 label", () 
   assert.match(flow, /text: "HIDE TOP 20 PLAYERS"/);
   assert.match(leaderboardScreen, /nativeTestFixture \? styles\.nativeTextScaleFixtureContent/);
   assert.match(leaderboardScreen, /nativeTextScaleFixtureContent:\s*\{\s*paddingBottom:\s*220\s*\}/);
+  assert.match(
+    flow,
+    /id: leaderboard-player-8[\s\S]*?text: "Rank 8, Tournament Competitor 8, 14,152 coins"[\s\S]*?- swipe:\n\s+start: 50%, 75%\n\s+end: 50%, 69%\n\s+duration: 350[\s\S]*?id: leaderboard-player-9/,
+  );
 
   for (const rank of [1, 2, 3]) {
     assert.ok(flow.includes(`id: leaderboard-podium-${rank}`), `Missing scroll target for podium rank ${rank}`);
