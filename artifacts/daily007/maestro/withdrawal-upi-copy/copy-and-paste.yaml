@@ -7,17 +7,28 @@ appId: host.exp.exponent
       id: copy-withdrawal-upi-withdrawal-upi-copy-fixture
     timeout: 15000
 - tapOn:
+    text: "Minimize"
+    optional: true
+- tapOn:
     id: copy-withdrawal-upi-withdrawal-upi-copy-fixture
 - extendedWaitUntil:
     visible:
       text: ".*Withdrawal UPI ID copied.*"
     timeout: 10000
+- tapOn:
+    text: "Minimize"
+    optional: true
 - scrollUntilVisible:
     element:
       id: withdrawal-upi-clipboard-check-1
     direction: DOWN
     centerElement: true
     timeout: 15000
+- tapOn:
+    id: withdrawal-upi-clipboard-check-1
+- tapOn:
+    text: "Minimize"
+    optional: true
 - tapOn:
     id: withdrawal-upi-clipboard-check-1
 - extendedWaitUntil:
@@ -36,12 +47,20 @@ appId: host.exp.exponent
     visible:
       text: ".*Withdrawal UPI ID copied.*"
     timeout: 10000
+- tapOn:
+    text: "Minimize"
+    optional: true
 - scrollUntilVisible:
     element:
       id: withdrawal-upi-clipboard-check-2
     direction: DOWN
     centerElement: true
     timeout: 15000
+- tapOn:
+    id: withdrawal-upi-clipboard-check-2
+- tapOn:
+    text: "Minimize"
+    optional: true
 - tapOn:
     id: withdrawal-upi-clipboard-check-2
 - extendedWaitUntil:
