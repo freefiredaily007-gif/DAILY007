@@ -38,13 +38,27 @@ test("join-recovery flows handle Expo Go prompts and the native developer menu",
   }
 });
 
-test("each emulator action invokes one persistent Bash process, not independent input lines", () => {
+test("each emulator session invokes one persistent Bash process", () => {
   assert.deepEqual(commands, [
-    "bash .github/scripts/android-emulator-verification.sh 35",
+    "bash .github/scripts/android-emulator-verification.sh 35 core",
+    "bash .github/scripts/android-emulator-verification.sh 35 wallet",
+    "bash .github/scripts/android-emulator-verification.sh 35 account",
     "bash .github/scripts/android-emulator-verification.sh 36",
   ]);
   assert.match(workflow, /name: Upload Android emulator diagnostics\s+if: always\(\)/);
-  assert.match(workflow, /id: emulator_api_35[\s\S]*?Capture Android 35 setup failure diagnostics\s+if: \$\{\{ failure\(\) && steps\.emulator_api_35\.outcome == 'failure' \}\}[\s\S]*?android-emulator-setup-diagnostics\.sh 35 5554/);
+  for (const group of ["core", "wallet", "account"]) {
+    const actionIndex = workflow.indexOf(`id: emulator_api_35_${group}`);
+    const diagnosticsName = `Capture Android 35 ${group} setup failure diagnostics`;
+    const diagnosticsIndex = workflow.indexOf(diagnosticsName, actionIndex);
+    assert.ok(actionIndex >= 0, `missing Android 35 ${group} emulator action`);
+    assert.ok(diagnosticsIndex > actionIndex, `missing Android 35 ${group} diagnostics step`);
+    const diagnosticsStep = workflow.slice(diagnosticsIndex);
+    assert.match(
+      diagnosticsStep,
+      new RegExp(`steps\\.emulator_api_35_${group}\\.outcome == 'failure'`),
+    );
+    assert.match(diagnosticsStep, /android-emulator-setup-diagnostics\.sh 35 5554/);
+  }
   assert.match(workflow, /id: emulator_api_36[\s\S]*?Capture Android 36 setup failure diagnostics\s+if: \$\{\{ failure\(\) && steps\.emulator_api_36\.outcome == 'failure' \}\}[\s\S]*?android-emulator-setup-diagnostics\.sh 36 5554/);
 });
 
@@ -243,7 +257,7 @@ test("setup diagnostics are not created after the test script has started", asyn
   assert.deepEqual(result.diagnosticFiles, {});
 });
 
-async function run(api, failStage = "") {
+async function run(api, failStage = "", suiteGroup = "all") {
   const dir = await mkdtemp(join(tmpdir(), "daily007-emulator-script-"));
   const bin = join(dir, "bin");
   await mkdir(bin);
@@ -332,7 +346,7 @@ printf 'maestro %s\\n' "$*" >> "$MOCK_CALLS"
   }
   try {
     // Same invocation semantics as android-emulator-runner's sh -c per input line.
-    const result = spawnSync("sh", ["-c", `bash .github/scripts/android-emulator-verification.sh ${api}`], {
+    const result = spawnSync("sh", ["-c", `bash .github/scripts/android-emulator-verification.sh ${api} ${suiteGroup}`], {
       cwd: root, env, encoding: "utf8", timeout: 15_000,
     });
     assert.ifError(result.error);
@@ -416,6 +430,51 @@ for (const api of [35, 36]) {
     }
     assert.equal(result.exit, "exit_status=0\n");
     assert.match(result.logcat, /mock logcat/);
+  });
+}
+
+const api35SuiteGroups = {
+  core: [
+    "test:android-join-recovery",
+    "test:android-join-form-accessibility",
+    "test:android-home-match-back",
+  ],
+  wallet: [
+    "test:android-wallet-cancellation-refund",
+    "test:android-wallet-admin-credit-refund",
+    "test:android-wallet-payment-history",
+    "test:android-wallet-cancellation-refund-large-text",
+    "test:android-player-large-text",
+  ],
+  account: [
+    "test:android-leaderboard-large-text",
+    "test:android-leaderboard-tabs",
+    "test:android-session-verification",
+    "test:android-google-link-retry",
+    "test:android-logout",
+    "test:android-withdrawal-upi-copy",
+  ],
+};
+
+for (const [group, expectedSuites] of Object.entries(api35SuiteGroups)) {
+  test(`API 35 ${group} group runs only its assigned Maestro suites`, async () => {
+    const result = await run(35, "", group);
+    assert.equal(result.status, 0, result.stderr);
+    const suites = result.calls.split("\n")
+      .filter((line) => line.startsWith("pnpm") && line.includes(" run "))
+      .map((line) => line.match(/ run ([^ ]+)/)?.[1]);
+    assert.deepEqual(suites, expectedSuites);
+    const metroPort = result.calls.match(/adb reverse tcp:(\d+) tcp:\1/)?.[1];
+    assert.ok(metroPort, "suite group must configure Metro forwarding");
+    const reverseCalls = result.calls
+      .split("\n")
+      .filter((line) => line === `adb reverse tcp:${metroPort} tcp:${metroPort}`);
+    assert.equal(reverseCalls.length, expectedSuites.length + 1);
+    const forceStops = result.calls
+      .split("\n")
+      .filter((line) => line === "adb shell am force-stop host.exp.exponent");
+    assert.equal(forceStops.length, expectedSuites.length);
+    assert.equal(result.exit, "exit_status=0\n");
   });
 }
 

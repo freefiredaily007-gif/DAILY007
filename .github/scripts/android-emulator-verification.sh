@@ -4,9 +4,17 @@
 set -Eeuo pipefail
 
 export ANDROID_API_LEVEL="${1:?Expected Android API level 35 or 36}"
+ANDROID_EMULATOR_SUITE_GROUP="${2:-all}"
 case "$ANDROID_API_LEVEL" in
   35|36) ;;
   *) echo "Unsupported Android API level: $ANDROID_API_LEVEL" >&2; exit 2 ;;
+esac
+case "${ANDROID_API_LEVEL}:${ANDROID_EMULATOR_SUITE_GROUP}" in
+  35:all|35:core|35:wallet|35:account|36:all) ;;
+  *)
+    echo "Unsupported suite group '${ANDROID_EMULATOR_SUITE_GROUP}' for Android API ${ANDROID_API_LEVEL}." >&2
+    exit 2
+    ;;
 esac
 
 WORKSPACE_DIR="${GITHUB_WORKSPACE:-$PWD}"
@@ -17,6 +25,7 @@ export MAESTRO_TEST_OUTPUT_DIR="$DIAG_DIR/maestro-output"
 mkdir -p "$MAESTRO_TEST_OUTPUT_DIR"
 printf 'Emulator script started. api=%s cwd=%s workspace=%s\n' \
   "$ANDROID_API_LEVEL" "$PWD" "$WORKSPACE_DIR" > "$DIAG_DIR/runner-started.txt"
+printf 'suite_group=%s\n' "$ANDROID_EMULATOR_SUITE_GROUP" >> "$DIAG_DIR/runner-started.txt"
 METRO_PID=""
 OAUTH_FIXTURE_PID=""
 PHASE="initialize"
@@ -27,8 +36,8 @@ report_failure() {
   local details="${3:-}"
   [ "$FAILURE_REPORTED" = 1 ] && return 0
   FAILURE_REPORTED=1
-  printf 'phase=%s\nexit_status=%s\nscript_line=%s\ndetails=%s\n' \
-    "$PHASE" "$status" "$line" "$details" > "$DIAG_DIR/failure-details.txt"
+  printf 'phase=%s\nsuite_group=%s\nexit_status=%s\nscript_line=%s\ndetails=%s\n' \
+    "$PHASE" "$ANDROID_EMULATOR_SUITE_GROUP" "$status" "$line" "$details" > "$DIAG_DIR/failure-details.txt"
   echo "::error title=Android API ${ANDROID_API_LEVEL} emulator failure::Phase '${PHASE}' failed at script line ${line} (exit ${status}). ${details}"
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     printf '\n### Android API %s emulator failure\n- Phase: `%s`\n- Script line: %s\n- Exit code: %s\n- Details: %s\n' \
@@ -378,18 +387,42 @@ if [ "$ANDROID_API_LEVEL" = 36 ]; then
   run_maestro_suite join-form-accessibility test:android-join-form-accessibility
   run_maestro_suite tournament-pull-refresh test:android-tournament-pull-refresh
 else
-  run_maestro_suite join-recovery test:android-join-recovery
-  run_maestro_suite join-form-accessibility test:android-join-form-accessibility
-  run_maestro_suite home-match-back test:android-home-match-back
-  run_maestro_suite wallet-cancellation test:android-wallet-cancellation-refund
-  run_maestro_suite wallet-admin-credit-refund test:android-wallet-admin-credit-refund
-  run_maestro_suite wallet-payment-history test:android-wallet-payment-history
-  run_maestro_suite wallet-cancellation-narrow-large-text test:android-wallet-cancellation-refund-large-text
-  run_maestro_suite player-large-text test:android-player-large-text
-  run_maestro_suite leaderboard-large-text test:android-leaderboard-large-text
-  run_maestro_suite leaderboard-tabs test:android-leaderboard-tabs
-  run_maestro_suite session-verification test:android-session-verification
-  run_maestro_suite google-link-native-retry test:android-google-link-retry
-  run_maestro_suite clerk-logout test:android-logout
-  run_maestro_suite withdrawal-upi-copy test:android-withdrawal-upi-copy
+  case "$ANDROID_EMULATOR_SUITE_GROUP" in
+    all)
+      run_maestro_suite join-recovery test:android-join-recovery
+      run_maestro_suite join-form-accessibility test:android-join-form-accessibility
+      run_maestro_suite home-match-back test:android-home-match-back
+      run_maestro_suite wallet-cancellation test:android-wallet-cancellation-refund
+      run_maestro_suite wallet-admin-credit-refund test:android-wallet-admin-credit-refund
+      run_maestro_suite wallet-payment-history test:android-wallet-payment-history
+      run_maestro_suite wallet-cancellation-narrow-large-text test:android-wallet-cancellation-refund-large-text
+      run_maestro_suite player-large-text test:android-player-large-text
+      run_maestro_suite leaderboard-large-text test:android-leaderboard-large-text
+      run_maestro_suite leaderboard-tabs test:android-leaderboard-tabs
+      run_maestro_suite session-verification test:android-session-verification
+      run_maestro_suite google-link-native-retry test:android-google-link-retry
+      run_maestro_suite clerk-logout test:android-logout
+      run_maestro_suite withdrawal-upi-copy test:android-withdrawal-upi-copy
+      ;;
+    core)
+      run_maestro_suite join-recovery test:android-join-recovery
+      run_maestro_suite join-form-accessibility test:android-join-form-accessibility
+      run_maestro_suite home-match-back test:android-home-match-back
+      ;;
+    wallet)
+      run_maestro_suite wallet-cancellation test:android-wallet-cancellation-refund
+      run_maestro_suite wallet-admin-credit-refund test:android-wallet-admin-credit-refund
+      run_maestro_suite wallet-payment-history test:android-wallet-payment-history
+      run_maestro_suite wallet-cancellation-narrow-large-text test:android-wallet-cancellation-refund-large-text
+      run_maestro_suite player-large-text test:android-player-large-text
+      ;;
+    account)
+      run_maestro_suite leaderboard-large-text test:android-leaderboard-large-text
+      run_maestro_suite leaderboard-tabs test:android-leaderboard-tabs
+      run_maestro_suite session-verification test:android-session-verification
+      run_maestro_suite google-link-native-retry test:android-google-link-retry
+      run_maestro_suite clerk-logout test:android-logout
+      run_maestro_suite withdrawal-upi-copy test:android-withdrawal-upi-copy
+      ;;
+  esac
 fi

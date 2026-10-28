@@ -40,3 +40,11 @@ Run Maestro flows serially on one emulator. Metro reporting `Android Bundled` on
 **Why:** Hosted runs completed Metro bundling in roughly 42–55 seconds but still showed Expo Go's “Splash Screen Image”; later runs had no Pixel Launcher dialog or matching runtime errors. A successful host bundle does not prove the app executed.
 
 **How to apply:** Keep flows serial, but use the first failed test's screenshot, screen hierarchy, Metro tail, and device logcat to diagnose a splash-only launch. Do not treat a bundle-complete message as a passed UI test.
+
+## Long Android 35 emulator sessions
+
+Keep the Android 35 Maestro workload in several shorter emulator sessions rather than one long-lived session; preserve every suite while grouping related checks.
+
+**Why:** Hosted CI lost `emulator-5554` from ADB late in the serial suite, without an Android fatal signal or app runtime crash. The leaderboard flow and its assertions were progressing when the device disappeared.
+
+**How to apply:** Run core navigation/join, wallet/player, and leaderboard/account checks in separate emulator starts. Keep each group on one persistent Bash invocation so Metro and cleanup remain reliable within that session.

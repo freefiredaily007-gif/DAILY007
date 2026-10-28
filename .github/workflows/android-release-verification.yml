@@ -236,8 +236,8 @@ jobs:
       - name: Prepare Android emulator diagnostics
         run: mkdir -p android-emulator-diagnostics
 
-      - name: Run Maestro flows on Android emulator
-        id: emulator_api_35
+      - name: Run Android 35 core navigation and join flows
+        id: emulator_api_35_core
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -247,10 +247,42 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
           # The action executes each input line in a new sh process.
-          script: bash .github/scripts/android-emulator-verification.sh 35
+          script: bash .github/scripts/android-emulator-verification.sh 35 core
 
-      - name: Capture Android 35 setup failure diagnostics
-        if: ${{ failure() && steps.emulator_api_35.outcome == 'failure' }}
+      - name: Capture Android 35 core setup failure diagnostics
+        if: ${{ failure() && steps.emulator_api_35_core.outcome == 'failure' }}
+        run: bash .github/scripts/android-emulator-setup-diagnostics.sh 35 5554
+
+      - name: Run Android 35 wallet and player flows
+        id: emulator_api_35_wallet
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          script: bash .github/scripts/android-emulator-verification.sh 35 wallet
+
+      - name: Capture Android 35 wallet setup failure diagnostics
+        if: ${{ failure() && steps.emulator_api_35_wallet.outcome == 'failure' }}
+        run: bash .github/scripts/android-emulator-setup-diagnostics.sh 35 5554
+
+      - name: Run Android 35 leaderboard and account flows
+        id: emulator_api_35_account
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          script: bash .github/scripts/android-emulator-verification.sh 35 account
+
+      - name: Capture Android 35 account setup failure diagnostics
+        if: ${{ failure() && steps.emulator_api_35_account.outcome == 'failure' }}
         run: bash .github/scripts/android-emulator-setup-diagnostics.sh 35 5554
 
       - name: Run JoinForm accessibility labels on Android 16 (API 36)
