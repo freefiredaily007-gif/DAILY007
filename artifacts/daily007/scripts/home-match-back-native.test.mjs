@@ -38,11 +38,12 @@ test('Maestro exercises two Home cards with native Android Back between details'
   const flow = await read('maestro/home-match-back/home-to-match-back.yaml');
 
   assert.match(flow, /home-match-back-test/);
+  assert.match(flow, /times: 12[\s\S]*?home-match-back-test-fixture[\s\S]*?android:id\/aerr_wait[\s\S]*?timeout: 60000/);
   assert.match(flow, /home-upcoming-card-home-back-match-one/);
   assert.match(flow, /Home Back Test Match One/);
   assert.match(flow, /home-upcoming-card-home-back-match-two/);
   assert.match(flow, /Home Back Test Match Two/);
-  assert.equal((flow.match(/pressKey: BACK/g) ?? []).length, 2);
+  assert.equal((flow.match(/^- pressKey: BACK$/gm) ?? []).length, 2);
   assert.match(flow, /start: 88%, 55%/);
   assert.match(flow, /end: 12%, 55%/);
   assert.match(flow, /- assertVisible:\s*\n\s+id: home-upcoming-card-home-back-match-two\s*$/);
