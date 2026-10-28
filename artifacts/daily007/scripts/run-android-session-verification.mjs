@@ -238,8 +238,6 @@ try {
     "Bringing Expo Go back to the foreground for a repeated recovery attempt",
   );
   runMaestro("maestro/session-verification/repeated-resume-retry.yaml");
-  disableConnectivity();
-  restoreConnectivity();
   runMaestro("maestro/session-verification/repeated-verified.yaml");
 
   runChecked("adb", ["shell", "am", "force-stop", "host.exp.exponent"], "Restarting Expo Go for transient failure");

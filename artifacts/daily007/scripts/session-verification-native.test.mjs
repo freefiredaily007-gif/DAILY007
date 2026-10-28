@@ -161,7 +161,8 @@ test("Android repeated reconnect and resume cycles keep retrying the same saved 
   assert.match(repeatedStart, /Verification attempts: 1/);
   assert.match(repeatedFirstRetry, /Verification attempts: 2/);
   assert.match(repeatedResumeRetry, /openLink:[\s\S]*?scenario=repeated/);
-  assert.match(repeatedResumeRetry, /Verification attempts: 3/);
+  assert.match(repeatedResumeRetry, /Verification attempts: 4/);
+  assert.match(repeatedResumeRetry, /session-verification-test-verified/);
   assert.match(repeatedVerified, /Verification attempts: 4/);
   assert.match(repeatedVerified, /Verified without tapping Retry/);
   assert.doesNotMatch(
@@ -170,7 +171,7 @@ test("Android repeated reconnect and resume cycles keep retrying the same saved 
   );
   assert.match(
     runner,
-    /repeated-start\.yaml[\s\S]*?restoreConnectivity\(\);[\s\S]*?repeated-first-retry\.yaml[\s\S]*?disableConnectivity\(\);[\s\S]*?keyevent", "3"[\s\S]*?restoreConnectivity\(\);[\s\S]*?repeated-resume-retry\.yaml[\s\S]*?disableConnectivity\(\);[\s\S]*?restoreConnectivity\(\);[\s\S]*?repeated-verified\.yaml/,
+    /repeated-start\.yaml[\s\S]*?restoreConnectivity\(\);[\s\S]*?repeated-first-retry\.yaml[\s\S]*?disableConnectivity\(\);[\s\S]*?keyevent", "3"[\s\S]*?restoreConnectivity\(\);[\s\S]*?repeated-resume-retry\.yaml[\s\S]*?repeated-verified\.yaml/,
   );
 });
 

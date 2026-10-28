@@ -24,3 +24,11 @@ The first Maestro fixture in each fresh Android emulator session must handle Exp
 **Why:** The wallet session's host Metro reported `Android Bundled`, but the first route remained on Expo Go's native splash beyond a 15-second fixture wait. The core session passed because its first flow already handled startup prompts and waited longer.
 
 **How to apply:** Add the prompt-recovery loop and a 60-second fixture wait to the first app-opening flow in every separately booted emulator session. Check the screenshot and fixture ID, not Metro bundling alone.
+
+## Reconnect and foreground retry counts
+
+In saved-session recovery tests, a network reconnect while backgrounded and the later foreground transition are separate retry triggers. Count one verification for each event; reopening the fixture route through Expo Go is not a substitute for collapsing them into one.
+
+**Why:** The recovery unit test expects one request on the online edge and another on foreground resume. A native retry assertion that expected only one for both events failed; the screen showed the correctly verified session after the fourth attempt.
+
+**How to apply:** Keep Maestro attempt-count assertions aligned with the network-edge and resume contract, and verify the final saved-session state without adding an extra connectivity cycle after verification succeeds.

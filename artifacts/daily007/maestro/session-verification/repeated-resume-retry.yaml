@@ -3,9 +3,12 @@ appId: host.exp.exponent
 - openLink:
     link: ${EXPO_DEV_URL}/--/session-verification-test?scenario=repeated
 - extendedWaitUntil:
-    visible: "Verification attempts: 3"
+    visible:
+      id: session-verification-test-verified
     timeout: 30000
-- assertVisible:
-    id: session-verification-test-saved-token
-- assertVisible:
-    id: session-verification-test-retry-ready
+- assertVisible: "Verification attempts: 4"
+- assertVisible: "Saved session automatically verified"
+- assertVisible: "Verified without tapping Retry"
+- assertVisible: "Verified Native Test Player"
+- assertNotVisible:
+    id: session-verification-retry
