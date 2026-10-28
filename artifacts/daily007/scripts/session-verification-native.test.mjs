@@ -120,13 +120,16 @@ test("Android restart flow seeds and restores the real persisted Daily007 sessio
 
 test("Android full reboot restores the persisted session without a Retry tap", () => {
   assert.match(runner, /function rebootWhileOfflineAndWaitForBoot\(\)/);
+  assert.match(runner, /function restoreMetroReverse\(\)/);
+  assert.ok(runner.includes('["reverse", `tcp:${metroPort}`, `tcp:${metroPort}`]'));
+  assert.ok(runner.includes('reverseMappings.includes(`tcp:${metroPort} tcp:${metroPort}`)'));
   assert.match(runner, /"adb", \["reboot"\]/);
   assert.match(runner, /"adb",\s*\["wait-for-device"\]/);
   assert.match(runner, /getprop", "sys\.boot_completed/);
   assert.match(runner, /readAirplaneModeState\(\) === "1" && readWifiState\(\) === "0"/);
   assert.match(
     runner,
-    /seed-saved-session\.yaml"\);[\s\S]*?disableConnectivity\(\);[\s\S]*?rebootWhileOfflineAndWaitForBoot\(\);[\s\S]*?restoreConnectivity\(\);[\s\S]*?reboot-restored\.yaml/,
+    /seed-saved-session\.yaml"\);[\s\S]*?disableConnectivity\(\);[\s\S]*?rebootWhileOfflineAndWaitForBoot\(\);[\s\S]*?restoreConnectivity\(\);[\s\S]*?restoreMetroReverse\(\);[\s\S]*?reboot-restored\.yaml/,
   );
   assert.match(rebootRestored, /session-verification-test\?scenario=network/);
   assert.match(rebootRestored, /Saved session automatically verified/);

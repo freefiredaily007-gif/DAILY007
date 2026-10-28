@@ -83,6 +83,23 @@ function restoreConnectivity() {
   setWifiEnabled(true);
 }
 
+function restoreMetroReverse() {
+  const metroPort = process.env.METRO_PORT || new URL(expoDevUrl).port;
+  if (!/^\d+$/.test(metroPort)) {
+    throw new Error(`Could not determine the Metro port from METRO_PORT or EXPO_DEV_URL: ${expoDevUrl}`);
+  }
+  runChecked(
+    "adb",
+    ["reverse", `tcp:${metroPort}`, `tcp:${metroPort}`],
+    "Restoring the ADB reverse mapping for Metro after Android reboot",
+  );
+  const reverseMappings = runChecked("adb", ["reverse", "--list"], "Checking the ADB reverse mapping for Metro");
+  if (!reverseMappings.includes(`tcp:${metroPort} tcp:${metroPort}`)) {
+    throw new Error(`ADB reverse mapping for Metro port ${metroPort} is missing after Android reboot.`);
+  }
+  console.log(`Restored and verified the ADB reverse mapping for Metro port ${metroPort}.`);
+}
+
 function rebootWhileOfflineAndWaitForBoot() {
   runChecked("adb", ["reboot"], "Rebooting Android while connectivity is disabled");
   runChecked(
@@ -162,6 +179,7 @@ try {
   disableConnectivity();
   rebootWhileOfflineAndWaitForBoot();
   restoreConnectivity();
+  restoreMetroReverse();
   runMaestro("maestro/session-verification/reboot-restored.yaml");
 
   disableConnectivity();
