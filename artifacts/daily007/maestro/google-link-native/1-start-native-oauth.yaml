@@ -13,6 +13,7 @@ appId: host.exp.exponent
     element:
       id: continue-with-google
     direction: DOWN
+    centerElement: true
     timeout: 30000
 - assertVisible: "CONNECT GOOGLE"
 - assertNotVisible:
