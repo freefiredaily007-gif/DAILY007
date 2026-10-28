@@ -36,12 +36,12 @@ const server = createServer((request, response) => {
 <title>Daily007 test Google sign-in</title>
 <style>
   body { font: 18px sans-serif; margin: 24px; color: #182033; }
-  button { font: inherit; font-weight: 700; padding: 16px 20px; border-radius: 8px; }
+  a { display: inline-block; font: inherit; font-weight: 700; padding: 16px 20px; border: 1px solid #667085; border-radius: 8px; color: inherit; text-decoration: none; }
 </style></head>
 <body>
   <h1>Test Google sign-in</h1>
   <p>This local test page returns to Daily007 without contacting Google.</p>
-  <button onclick="window.location.assign(${safeCallback})">Continue with test Google</button>
+  <a href=${safeCallback}>Continue with test Google</a>
 </body>
 </html>`);
 });

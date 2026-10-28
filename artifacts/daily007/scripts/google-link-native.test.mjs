@@ -89,6 +89,8 @@ test("Android release verification runs the native retry scenario and restores d
 test("local OAuth page only returns a test token through an app deep link", () => {
   assert.match(fixtureServer, /native-google-link-callback-test-token/);
   assert.match(fixtureServer, /Continue with test Google/);
+  assert.match(fixtureServer, /<a href=\$\{safeCallback\}>/);
+  assert.doesNotMatch(fixtureServer, /window\.location\.assign/);
   assert.match(fixtureServer, /\^\(\?:exp\|daily007\):\\\/\\\//);
   assert.doesNotMatch(fixtureServer, /accounts\.google\.com|oauth\.google/);
 });
