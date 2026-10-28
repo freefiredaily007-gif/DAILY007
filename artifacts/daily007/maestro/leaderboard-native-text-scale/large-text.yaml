@@ -33,6 +33,10 @@ appId: host.exp.exponent
       id: leaderboard-top20-toggle
     direction: DOWN
     centerElement: true
+- swipe:
+    start: 50%, 75%
+    end: 50%, 30%
+    duration: 450
 - tapOn:
     id: leaderboard-top20-toggle
 - assertVisible:

@@ -44,7 +44,7 @@ test("Maestro scrolls to and checks every podium and expanded Top 20 label", () 
   assert.match(flow, /\$\{LEADERBOARD_LAYOUT\}/);
   assert.match(
     flow,
-    /id: leaderboard-top20-toggle\n\s+direction: DOWN\n\s+centerElement: true[\s\S]*?- tapOn:\s*\n\s+id: leaderboard-top20-toggle/,
+    /id: leaderboard-top20-toggle\n\s+direction: DOWN\n\s+centerElement: true[\s\S]*?- swipe:\n\s+start: 50%, 75%\n\s+end: 50%, 30%\n\s+duration: 450[\s\S]*?- tapOn:\s*\n\s+id: leaderboard-top20-toggle/,
   );
   assert.match(flow, /text: "HIDE TOP 20 PLAYERS"/);
 
