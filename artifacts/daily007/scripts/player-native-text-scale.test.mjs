@@ -37,6 +37,8 @@ test('Home, Wallet, and Profile Maestro flows verify 2× text, full-width conten
   assert.match(profileRoute, /ProfileTextScaleNativeTest/);
   assert.match(homeFlow, /home-mode-native-text-scale-test/);
   assert.match(homeFlow, /font scale 2\.00/);
+  assert.match(homeFlow, /repeat:[\s\S]*?times: 12[\s\S]*?android:id\/aerr_wait/);
+  assert.match(homeFlow, /timeout: 60000/);
   assert.match(homeFlow, /Home labels fit their available width at 2×/);
   for (const mode of ['battle-royale', 'clash-squad', 'lone-wolf']) {
     assert.match(homeFlow, new RegExp(`id: home-mode-${mode}`));

@@ -17,13 +17,13 @@ When Android CI launches Expo Go's main activity after the project was backgroun
 
 **How to apply:** In Expo Go emulator flows, reset fixture state explicitly between same-route flows, wait for async fixture data, and disable carousel autoplay in fixtures that assert a specific card. Assert the card selected before opening details after Back returns. Keep system-setting-dependent flows out of generic directory runs; invoke them through runners that apply, verify, and restore the device setting. Wait for `android:id/aerr_wait` when recovery needs to handle a delayed ANR dialog. Use per-fixture API injection rather than mutating shared API methods; seed test-only initial settings when a visual flow must open a gated form immediately, wait until the action is enabled, and assert the current form field selectors. Put a short timeout around each supplemental emulator/ADB probe so setup diagnostics cannot outlive the original failure. Use `centerElement: true` for bottom-placed inputs, buttons, and mode cards before tapping, especially when warning toasts or LogBox notices are present; add test-only trailing scroll space when a footer cannot otherwise be centered. Treat a missing follow-up selector as a possible overlay or lifecycle issue, not automatically as a missing app field.
 
-## Cold starts after splitting emulator sessions
+## Cold starts after emulator or Expo Go restarts
 
-The first Maestro fixture in each fresh Android emulator session must handle Expo Go startup prompts and allow up to 60 seconds for its fixture ID to appear; a short wait can fail on the native splash even after Metro has bundled the app.
+The first Maestro fixture in a fresh Android emulator session or after force-stopping Expo Go must handle startup prompts and allow up to 60 seconds for its fixture ID to appear; a short wait can fail even after Metro bundles the app.
 
-**Why:** The wallet session's host Metro reported `Android Bundled`, but the first route remained on Expo Go's native splash beyond a 15-second fixture wait. The core session passed because its first flow already handled startup prompts and waited longer.
+**Why:** The Home text-scale runner force-stops Expo Go after changing Android display settings. Its first route missed the fixture-banner check with a 15-second wait even though Metro bundled the app; the recovery runner already demonstrates that Expo Go startup prompts and cold activity restoration can delay fixture visibility.
 
-**How to apply:** Add the prompt-recovery loop and a 60-second fixture wait to the first app-opening flow in every separately booted emulator session. Check the screenshot and fixture ID, not Metro bundling alone.
+**How to apply:** Add the prompt-recovery loop and a 60-second fixture wait to the first app-opening flow in each emulator session and after any test runner force-stops Expo Go. Check the fixture ID, not Metro bundling alone.
 
 ## Reconnect and foreground retry counts
 

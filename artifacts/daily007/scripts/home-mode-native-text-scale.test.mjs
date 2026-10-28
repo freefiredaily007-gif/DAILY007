@@ -45,6 +45,8 @@ test("Maestro scrolls to each Home mode card, taps it directly, and verifies the
   assert.doesNotMatch(cards, /CLASSIC SURVIVAL|SOLO · DUO · SQUAD|BROWSE TOURNAMENTS|CHOOSE FORMAT/);
   assert.match(cards, /onPress=\{\(\) => onOpenMode\(routeParams\)\}/);
   assert.match(flow, /font scale 1\.50/);
+  assert.match(flow, /repeat:[\s\S]*?times: 12[\s\S]*?android:id\/aerr_wait/);
+  assert.match(flow, /timeout: 60000/);
 });
 
 test("Android runner restores the original font scale from a finally block", () => {

@@ -2,10 +2,45 @@ appId: host.exp.exponent
 ---
 - openLink:
     link: ${EXPO_DEV_URL}/--/home-mode-native-text-scale-test
+- repeat:
+    times: 12
+    while:
+      notVisible:
+        id: home-mode-text-scale-banner
+    commands:
+      - runFlow:
+          when:
+            visible: "Pixel Launcher isn't responding"
+          commands:
+            - tapOn:
+                id: android:id/aerr_close
+      - tapOn:
+          id: android:id/aerr_wait
+          optional: true
+          waitUntilVisible: true
+      - tapOn:
+          text: Continue
+          optional: true
+          waitUntilVisible: true
+      - runFlow:
+          when:
+            visible: Open React Native dev menu
+          commands:
+            - pressKey: BACK
+      - runFlow:
+          when:
+            visible: Continue
+          commands:
+            - pressKey: BACK
+      - runFlow:
+          when:
+            visible: Reload
+          commands:
+            - pressKey: BACK
 - extendedWaitUntil:
     visible:
       id: home-mode-text-scale-banner
-    timeout: 15000
+    timeout: 60000
 - assertVisible:
     text: "Home game-mode fixture | font scale 1.50"
 
