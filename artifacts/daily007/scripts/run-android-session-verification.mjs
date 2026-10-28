@@ -21,15 +21,33 @@ function runChecked(command, args, description, options = {}) {
 }
 
 function readWifiState() {
-  const state = runChecked(
+  return runChecked(
     "adb",
     ["shell", "settings", "get", "global", "wifi_on"],
     "Reading the Android Wi-Fi setting",
   );
-  if (state !== "0" && state !== "1") {
-    throw new Error(`Android returned an invalid Wi-Fi setting: ${state || "(empty)"}`);
+}
+
+function readStableWifiState() {
+  let lastState = "";
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    lastState = readWifiState();
+    if (lastState === "0" || lastState === "1") return lastState;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
   }
-  return state;
+  throw new Error(
+    `Android Wi-Fi setting did not settle to enabled or disabled within 15 seconds (last setting: ${lastState || "(empty)"}).`,
+  );
+}
+
+function waitForWifiState(expectedState, description) {
+  let lastState = "";
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    lastState = readWifiState();
+    if (lastState === expectedState) return;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
+  }
+  throw new Error(`${description} (last Android Wi-Fi setting: ${lastState || "(empty)"}).`);
 }
 
 function readAirplaneModeState() {
@@ -52,11 +70,10 @@ function setWifiEnabled(enabled) {
   );
 
   const expectedState = enabled ? "1" : "0";
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    if (readWifiState() === expectedState) return;
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
-  }
-  throw new Error(`Android Wi-Fi did not switch ${enabled ? "on" : "off"} within 15 seconds.`);
+  waitForWifiState(
+    expectedState,
+    `Android Wi-Fi did not switch ${enabled ? "on" : "off"} within 15 seconds`,
+  );
 }
 
 function setAirplaneModeEnabled(enabled) {
@@ -169,7 +186,7 @@ try {
     throw new Error("Expo Go is not installed on the connected Android device or emulator.");
   }
 
-  originalWifiState = readWifiState();
+  originalWifiState = readStableWifiState();
   originalAirplaneModeState = readAirplaneModeState();
   connectivityChangeAttempted = true;
   restoreConnectivity();
