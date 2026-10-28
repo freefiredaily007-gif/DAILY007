@@ -9,6 +9,11 @@ appId: host.exp.exponent
     visible:
       id: profile-google-connected
     timeout: 30000
+- scrollUntilVisible:
+    element:
+      text: GOOGLE CONNECTED
+    direction: UP
+    timeout: 20000
 - assertVisible: "GOOGLE CONNECTED"
 - assertNotVisible: "CONNECT GOOGLE"
 - assertVisible: "OAuth handoffs: 1"
