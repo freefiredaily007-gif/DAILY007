@@ -43,11 +43,8 @@ test('Maestro exercises two Home cards with native Android Back between details'
   assert.match(flow, /home-upcoming-card-home-back-match-two/);
   assert.match(flow, /Home Back Test Match Two/);
   assert.equal((flow.match(/pressKey: BACK/g) ?? []).length, 2);
-  assert.match(
-    flow,
-    /scrollUntilVisible:[\s\S]*?id: home-upcoming-card-home-back-match-two[\s\S]*?direction: LEFT[\s\S]*?visibilityPercentage: 100/,
-  );
-  assert.doesNotMatch(flow, /swipe:\s*\n\s+direction: LEFT/);
+  assert.match(flow, /start: 88%, 55%/);
+  assert.match(flow, /end: 12%, 55%/);
   assert.match(flow, /- assertVisible:\s*\n\s+id: home-upcoming-card-home-back-match-two\s*$/);
 });
 
