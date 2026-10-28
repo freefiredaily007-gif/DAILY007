@@ -40,6 +40,8 @@ test("native route uses the deterministic 20-player fixture without leaderboard 
 
 test("Maestro scrolls to and checks every podium and expanded Top 20 label", () => {
   assert.match(flow, /leaderboard-native-text-scale-\$\{LEADERBOARD_CYCLE\}/);
+  assert.match(flow, /times: 12[\s\S]*?id: leaderboard-native-text-scale-fixture-banner/);
+  assert.match(flow, /id: leaderboard-native-text-scale-fixture-banner\n\s+timeout: 60000/);
   assert.match(flow, /\$\{LEADERBOARD_SCALE\}/);
   assert.match(flow, /\$\{LEADERBOARD_LAYOUT\}/);
   assert.match(

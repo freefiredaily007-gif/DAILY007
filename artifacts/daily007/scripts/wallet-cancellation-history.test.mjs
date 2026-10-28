@@ -213,6 +213,8 @@ test('native fixture exposes the production cancellation-refund row as one compl
   assert.doesNotMatch(nativeTestSource, /\bApi\.|\bfetch\s*\(/);
 
   assert.match(maestroFlow, /wallet-cancellation-refund-test/);
+  assert.match(maestroFlow, /times: 12[\s\S]*?id: wallet-cancellation-refund-fixture-banner/);
+  assert.match(maestroFlow, /id: wallet-cancellation-refund-fixture-banner\n\s+timeout: 60000/);
   assert.match(maestroFlow, /id: wallet-cancellation-refund-row/);
   assert.match(
     maestroFlow,

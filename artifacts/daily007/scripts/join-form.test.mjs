@@ -331,6 +331,11 @@ test("required captain and teammate names identify the exact field that needs at
   });
 });
 
+test("Android JoinForm accessibility flow recovers from a cold Expo Go launch", () => {
+  assert.match(nativeLabelFlowSource, /times: 12[\s\S]*?id: join-form-accessibility-fixture/);
+  assert.match(nativeLabelFlowSource, /id: join-form-accessibility-fixture\n\s+timeout: 60000/);
+});
+
 test("missing captain UID and team name identify the corresponding fields", () => {
   assert.deepEqual(
     validateJoinForm(validJoinForm({ captainGameUid: " " })),
