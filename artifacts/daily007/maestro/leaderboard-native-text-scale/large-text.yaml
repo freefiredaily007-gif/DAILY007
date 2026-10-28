@@ -32,8 +32,11 @@ appId: host.exp.exponent
     element:
       id: leaderboard-top20-toggle
     direction: DOWN
+    centerElement: true
 - tapOn:
     id: leaderboard-top20-toggle
+- assertVisible:
+    text: "HIDE TOP 20 PLAYERS"
 - scrollUntilVisible:
     element:
       id: leaderboard-player-4

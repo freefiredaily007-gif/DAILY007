@@ -42,7 +42,11 @@ test("Maestro scrolls to and checks every podium and expanded Top 20 label", () 
   assert.match(flow, /leaderboard-native-text-scale-\$\{LEADERBOARD_CYCLE\}/);
   assert.match(flow, /\$\{LEADERBOARD_SCALE\}/);
   assert.match(flow, /\$\{LEADERBOARD_LAYOUT\}/);
-  assert.match(flow, /id: leaderboard-top20-toggle[\s\S]*?- tapOn:\s*\n\s+id: leaderboard-top20-toggle/);
+  assert.match(
+    flow,
+    /id: leaderboard-top20-toggle\n\s+direction: DOWN\n\s+centerElement: true[\s\S]*?- tapOn:\s*\n\s+id: leaderboard-top20-toggle/,
+  );
+  assert.match(flow, /text: "HIDE TOP 20 PLAYERS"/);
 
   for (const rank of [1, 2, 3]) {
     assert.ok(flow.includes(`id: leaderboard-podium-${rank}`), `Missing scroll target for podium rank ${rank}`);
