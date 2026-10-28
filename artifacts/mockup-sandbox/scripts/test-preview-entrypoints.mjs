@@ -13,14 +13,17 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const sandboxRoot = path.resolve(scriptDirectory, "..");
 const workspaceRoot = path.resolve(sandboxRoot, "../..");
 const pending = new Map();
-const browserErrors = [];
-const externalRequests = [];
+const previewEventScopes = [];
+const executionContextScopes = new Map();
+const networkLoaderScopes = new Map();
+const frameScopes = new Map();
 const ignoredBrowserErrors = new Set([
   "BackHandler is not supported on web and should not be used.",
   "Unexpected text node: . A text node cannot be a child of a <View>.",
 ]);
 let activeChromium;
 let browserOutput = "";
+let activePreviewEventScope;
 let socket;
 let messageId = 0;
 const phoneViewport = { width: 390, height: 844, deviceScaleFactor: 1, mobile: true };
@@ -1062,6 +1065,236 @@ function browserErrorForCdpEvent(method, params = {}) {
   return ignoredBrowserErrors.has(message) ? null : message;
 }
 
+function createPreviewEventScope(config, entry, url) {
+  const scope = {
+    config,
+    entry: { path: entry.path, screen: entry.screen },
+    url,
+    events: [],
+  };
+  previewEventScopes.push(scope);
+  return scope;
+}
+
+function setActivePreviewEventScope(scope) {
+  activePreviewEventScope = scope;
+}
+
+function previewScopeForCdpEvent(message) {
+  const { method, params = {} } = message;
+  if (method === "Runtime.exceptionThrown" || method === "Runtime.consoleAPICalled") {
+    const executionContextId = method === "Runtime.exceptionThrown"
+      ? params.exceptionDetails?.executionContextId
+      : params.executionContextId;
+    if (executionContextScopes.has(executionContextId)) {
+      return executionContextScopes.get(executionContextId);
+    }
+  }
+  if (
+    method === "Network.requestWillBeSent"
+    && networkLoaderScopes.has(params.loaderId)
+  ) {
+    return networkLoaderScopes.get(params.loaderId);
+  }
+  if (method === "Page.frameNavigated") {
+    const loaderId = params.frame?.loaderId;
+    if (loaderId && networkLoaderScopes.has(loaderId)) return networkLoaderScopes.get(loaderId);
+  }
+  if (method === "Runtime.executionContextCreated") {
+    const frameId = params.context?.auxData?.frameId;
+    if (frameId && frameScopes.has(frameId)) return frameScopes.get(frameId);
+  }
+  return activePreviewEventScope;
+}
+
+function trackCdpEvent(message) {
+  const { method, params = {} } = message;
+  let scope = previewScopeForCdpEvent(message);
+
+  if (method === "Network.requestWillBeSent" && params.loaderId && scope) {
+    if (!networkLoaderScopes.has(params.loaderId)) {
+      networkLoaderScopes.set(params.loaderId, scope);
+    } else {
+      scope = networkLoaderScopes.get(params.loaderId);
+    }
+  } else if (method === "Page.frameNavigated" && params.frame?.id && scope) {
+    frameScopes.set(params.frame.id, scope);
+    if (params.frame.loaderId && !networkLoaderScopes.has(params.frame.loaderId)) {
+      networkLoaderScopes.set(params.frame.loaderId, scope);
+    }
+  } else if (
+    method === "Runtime.executionContextCreated"
+    && params.context?.id !== undefined
+    && scope
+  ) {
+    executionContextScopes.set(params.context.id, scope);
+  }
+
+  const browserError = browserErrorForCdpEvent(method, params);
+  if (browserError && scope) {
+    scope.events.push({ type: "browser-error", message: browserError });
+  }
+
+  if (method === "Network.requestWillBeSent" && scope) {
+    const requestUrl = params.request?.url;
+    if (typeof requestUrl === "string") {
+      try {
+        const request = new URL(requestUrl);
+        if (
+          ["http:", "https:", "ws:", "wss:"].includes(request.protocol)
+          && !["127.0.0.1", "localhost"].includes(request.hostname)
+        ) {
+          scope.events.push({ type: "external-request", message: requestUrl });
+        }
+      } catch {
+        // Ignore browser-internal and non-network URLs.
+      }
+    }
+  }
+}
+
+function previewEventDiagnostics(scope) {
+  const browserErrors = [...new Set(
+    scope.events.filter(({ type }) => type === "browser-error").map(({ message }) => message),
+  )];
+  const externalRequests = [...new Set(
+    scope.events.filter(({ type }) => type === "external-request").map(({ message }) => message),
+  )];
+  return [
+    ...(browserErrors.length
+      ? [`${scope.entry.screen} preview raised a browser error:\n${browserErrors.join("\n")}`]
+      : []),
+    ...(externalRequests.length
+      ? [`${scope.entry.screen} preview attempted external requests:\n${externalRequests.join("\n")}`]
+      : []),
+  ];
+}
+
+function assertNoPreviewEvents(scope) {
+  const diagnostics = previewEventDiagnostics(scope);
+  if (diagnostics.length) throw new Error(diagnostics.join("\n"));
+}
+
+function addPreviewEventFailures(failures, scopes) {
+  const grouped = new Map();
+  for (const scope of scopes) {
+    const diagnostics = previewEventDiagnostics(scope);
+    if (!diagnostics.length) continue;
+    const key = `${scope.config}\0${scope.entry.path}\0${scope.entry.screen}`;
+    const group = grouped.get(key) ?? {
+      config: scope.config,
+      entry: scope.entry,
+      diagnostics: [],
+    };
+    for (const diagnostic of diagnostics) {
+      if (!group.diagnostics.includes(diagnostic)) group.diagnostics.push(diagnostic);
+    }
+    grouped.set(key, group);
+  }
+
+  for (const group of grouped.values()) {
+    const diagnostic = group.diagnostics.join("\n");
+    const priorFailure = failures.find((failure) =>
+      failure.config === group.config
+      && failure.entry.path === group.entry.path
+      && failure.entry.screen === group.entry.screen
+    );
+    if (priorFailure) {
+      if (!priorFailure.message.includes(diagnostic)) {
+        priorFailure.message = `${priorFailure.message}\n${diagnostic}`;
+      }
+      continue;
+    }
+    failures.push({
+      config: group.config,
+      entry: group.entry,
+      message: diagnostic,
+      viteOutput: "",
+      browserOutput: "",
+    });
+  }
+}
+
+async function testPreviewEventAttribution() {
+  const first = createPreviewEventScope(
+    "vite.first-fixture.config.ts",
+    { path: "/first-preview.html", screen: "First preview" },
+    "http://127.0.0.1/first-preview.html",
+  );
+  setActivePreviewEventScope(first);
+  trackCdpEvent({
+    method: "Runtime.executionContextCreated",
+    params: { context: { id: 101, auxData: { frameId: "main-frame" } } },
+  });
+  trackCdpEvent({
+    method: "Network.requestWillBeSent",
+    params: {
+      loaderId: "first-loader",
+      request: { url: "http://127.0.0.1/first-preview.html" },
+    },
+  });
+  trackCdpEvent({
+    method: "Page.frameNavigated",
+    params: { frame: { id: "main-frame", loaderId: "first-loader" } },
+  });
+
+  const second = createPreviewEventScope(
+    "vite.second-fixture.config.ts",
+    { path: "/second-preview.html?screen=Home", screen: "Second preview" },
+    "http://127.0.0.1/second-preview.html?screen=Home",
+  );
+  setActivePreviewEventScope(second);
+  trackCdpEvent({
+    method: "Page.frameNavigated",
+    params: { frame: { id: "main-frame", loaderId: "second-loader" } },
+  });
+  trackCdpEvent({
+    method: "Runtime.executionContextCreated",
+    params: { context: { id: 202, auxData: { frameId: "main-frame" } } },
+  });
+  trackCdpEvent({
+    method: "Runtime.consoleAPICalled",
+    params: {
+      type: "error",
+      executionContextId: 101,
+      args: [{ value: "Late first-preview console error." }],
+    },
+  });
+  trackCdpEvent({
+    method: "Runtime.exceptionThrown",
+    params: {
+      exceptionDetails: {
+        executionContextId: 101,
+        exception: { description: "Late first-preview exception." },
+      },
+    },
+  });
+  trackCdpEvent({
+    method: "Network.requestWillBeSent",
+    params: {
+      loaderId: "first-loader",
+      request: { url: "https://outside.example.invalid/late-request" },
+    },
+  });
+
+  assert.equal(first.events.length, 3, "late CDP events should stay with their originating preview");
+  assert.equal(second.events.length, 0, "late CDP events must not contaminate the current preview");
+  const failures = [];
+  addPreviewEventFailures(failures, [first, second]);
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0].config, "vite.first-fixture.config.ts");
+  assert.equal(failures[0].entry.path, "/first-preview.html");
+  assert.match(failures[0].message, /Late first-preview console error\./);
+  assert.match(failures[0].message, /Late first-preview exception\./);
+  assert.match(failures[0].message, /outside\.example\.invalid\/late-request/);
+
+  const summary = formatPreviewFailureSummary(failures);
+  assert.match(summary, /vite\.first-fixture\.config\.ts/);
+  assert.match(summary, /\/first-preview\.html — First preview/);
+  assert.doesNotMatch(summary, /vite\.second-fixture\.config\.ts/);
+  console.log("PASS late browser errors and external requests retain their originating config and entrypoint.");
+}
+
 function connectCdp(url) {
   return new Promise((resolve, reject) => {
     socket = new WebSocket(url);
@@ -1070,24 +1303,7 @@ function connectCdp(url) {
       clearTimeout(timer);
       socket.addEventListener("message", ({ data }) => {
         const message = JSON.parse(String(data));
-        const browserError = browserErrorForCdpEvent(message.method, message.params);
-        if (browserError) browserErrors.push(browserError);
-        if (message.method === "Network.requestWillBeSent") {
-          const requestUrl = message.params?.request?.url;
-          if (typeof requestUrl === "string") {
-            try {
-              const request = new URL(requestUrl);
-              if (
-                ["http:", "https:", "ws:", "wss:"].includes(request.protocol)
-                && !["127.0.0.1", "localhost"].includes(request.hostname)
-              ) {
-                externalRequests.push(requestUrl);
-              }
-            } catch {
-              // Ignore browser-internal and non-network URLs.
-            }
-          }
-        }
+        trackCdpEvent(message);
         if (!message.id) return;
         const request = pending.get(message.id);
         if (!request) return;
@@ -1164,7 +1380,7 @@ async function startChromium(profilePath) {
   await cdp("Emulation.setDeviceMetricsOverride", phoneViewport);
 }
 
-async function checkPreviewInteraction(entry) {
+async function checkPreviewInteraction(entry, eventScope) {
   const interaction = entry.interaction;
   if (!interaction) return;
   const selector = JSON.stringify(interaction.selector);
@@ -1245,16 +1461,7 @@ async function checkPreviewInteraction(entry) {
   const deadline = Date.now() + 10_000;
   let state;
   while (Date.now() < deadline) {
-    if (browserErrors.length > 0) {
-      throw new Error(
-        `${entry.screen} preview raised a browser error:\n${browserErrors.join("\n")}`,
-      );
-    }
-    if (externalRequests.length > 0) {
-      throw new Error(
-        `${entry.screen} preview attempted external requests:\n${externalRequests.join("\n")}`,
-      );
-    }
+    assertNoPreviewEvents(eventScope);
     state = await evaluate(expression);
     if (state.ready) {
       if (!state.phoneViewportOk) {
@@ -1402,14 +1609,17 @@ async function checkPreviewClipboard(entry) {
   }
 }
 
-async function checkPreview(url, entry) {
+async function checkPreview(url, entry, eventScope) {
   await cdp("Page.stopLoading").catch(() => undefined);
-  browserErrors.length = 0;
-  externalRequests.length = 0;
+  setActivePreviewEventScope(eventScope);
   const navigation = await cdp("Page.navigate", { url });
   if (navigation.errorText) {
     throw new Error(`${entry.screen} preview navigation failed: ${navigation.errorText}`);
   }
+  if (navigation.loaderId) {
+    networkLoaderScopes.set(navigation.loaderId, eventScope);
+  }
+  if (navigation.frameId) frameScopes.set(navigation.frameId, eventScope);
   if (entry.scrollMarker) {
     const marker = JSON.stringify(entry.scrollMarker);
     const scrollDeadline = Date.now() + 10_000;
@@ -1432,7 +1642,7 @@ async function checkPreview(url, entry) {
       const pageText = await evaluate("document.body?.innerText ?? ''");
       throw new Error(
         `${entry.screen} preview could not scroll to ${entry.scrollMarker}.` +
-          ` Browser errors: ${browserErrors.join(" | ") || "none"}.` +
+          ` Browser events: ${previewEventDiagnostics(eventScope).join(" | ") || "none"}.` +
           `\nPage text:\n${String(pageText).slice(0, 2_000)}`,
       );
     }
@@ -1612,16 +1822,7 @@ async function checkPreview(url, entry) {
   const deadline = Date.now() + 15_000;
   let state;
   while (Date.now() < deadline) {
-    if (browserErrors.length > 0) {
-      throw new Error(
-        `${entry.screen} preview raised a browser error:\n${browserErrors.join("\n")}`,
-      );
-    }
-    if (externalRequests.length > 0) {
-      throw new Error(
-        `${entry.screen} preview attempted external requests:\n${externalRequests.join("\n")}`,
-      );
-    }
+    assertNoPreviewEvents(eventScope);
     state = await evaluate(expression);
     if (state.hasViteError) {
       throw new Error(`${entry.screen} preview displayed a Vite error:\n${state.text}`);
@@ -1637,16 +1838,7 @@ async function checkPreview(url, entry) {
         );
       }
       await delay(150);
-      if (browserErrors.length > 0) {
-        throw new Error(
-          `${entry.screen} preview raised a browser error:\n${browserErrors.join("\n")}`,
-        );
-      }
-      if (externalRequests.length > 0) {
-        throw new Error(
-          `${entry.screen} preview attempted external requests:\n${externalRequests.join("\n")}`,
-        );
-      }
+      assertNoPreviewEvents(eventScope);
       state = await evaluate(expression);
       if (state.ready && !state.hasViteError && state.phoneViewportOk) {
         if (
@@ -1662,7 +1854,7 @@ async function checkPreview(url, entry) {
             Buffer.from(screenshot.data, "base64"),
           );
         }
-        await checkPreviewInteraction(entry);
+        await checkPreviewInteraction(entry, eventScope);
         await checkPreviewClipboard(entry);
         return;
       }
@@ -1716,11 +1908,14 @@ async function cleanupPreviewProcesses() {
 try {
   const duplicateTestOnly = process.argv.includes("--test-preview-duplicates-only");
   const failureSummaryOnly = process.argv.includes("--test-preview-failure-summary-only");
+  const previewEventAttributionTestOnly = process.argv.includes("--test-preview-event-attribution-only");
   const chromiumPreflightTestOnly = process.argv.includes("--test-chromium-preflight-only");
   const chromiumPreflightFixtureOnly = process.argv.includes("--test-chromium-preflight-fixture");
   const processCleanupTestOnly = process.argv.includes("--test-preview-process-cleanup-only");
   const processCleanupFixtureOnly = process.argv.includes("--test-preview-process-cleanup-fixture");
-  if (failureSummaryOnly) {
+  if (previewEventAttributionTestOnly) {
+    await testPreviewEventAttribution();
+  } else if (failureSummaryOnly) {
     await testPreviewFailureSummary();
   } else if (duplicateTestOnly) {
     await testPreviewEntrypointDuplicates();
@@ -1730,7 +1925,7 @@ try {
     await testPreviewProcessCleanup();
   } else if (processCleanupFixtureOnly) {
     await runPreviewProcessCleanupFixture(process.argv.at(-1));
-  } else if (!chromiumPreflightFixtureOnly) {
+  } else if (!chromiumPreflightFixtureOnly && !previewEventAttributionTestOnly) {
     await checkPreviewDependencyBoundary();
     await checkPreviewEntrypointCoverage();
     await checkPreviewDependencyBoundaryPlugin();
@@ -1739,6 +1934,7 @@ try {
   if (
     !duplicateTestOnly
     && !failureSummaryOnly
+    && !previewEventAttributionTestOnly
     && !chromiumPreflightTestOnly
     && !processCleanupTestOnly
     && !processCleanupFixtureOnly
@@ -1818,8 +2014,6 @@ try {
           config: group.config,
           entries,
           runEntry: async (entry) => {
-            browserErrors.length = 0;
-            externalRequests.length = 0;
             const variants = [
               { viewport: entry.viewport ?? phoneViewport, fontScale: entry.fontScale ?? null },
               ...(entry.largeTextScales ?? []).map((fontScale) => ({
@@ -1835,7 +2029,12 @@ try {
               const url = previewUrl.toString();
               await waitForPreview(url, `${group.config} ${entry.path}`, activeVite, () => activeViteOutput);
               await cdp("Emulation.setDeviceMetricsOverride", variant.viewport);
-              await checkPreview(url, { ...entry, viewport: variant.viewport, fontScale: variant.fontScale });
+              const eventScope = createPreviewEventScope(group.config, entry, url);
+              await checkPreview(
+                url,
+                { ...entry, viewport: variant.viewport, fontScale: variant.fontScale },
+                eventScope,
+              );
               console.log(
                 `PASS ${group.config} ${entry.path} → ${entry.screen} @ ` +
                   `${variant.viewport.width}×${variant.viewport.height}` +
@@ -1858,6 +2057,8 @@ try {
       }
     }
 
+    await delay(150);
+    addPreviewEventFailures(previewFailures, previewEventScopes);
     if (previewFailures.length > 0) {
       console.error(formatPreviewFailureSummary(previewFailures));
       process.exitCode = 1;
