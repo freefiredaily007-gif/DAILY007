@@ -71,6 +71,7 @@ test("runner checks moderate, boundary, and 2× scales and restores the original
   assert.match(runner, /name: "monthly"/);
   assert.match(runner, /for \(const scale of scales\)[\s\S]*?for \(const cycle of cycles\)/);
   assert.match(runner, /for \(const scale of scales\)[\s\S]*?for \(const cycle of cycles\)[\s\S]*?maestroArgs\.push\(flowPath\)/);
+  assert.match(runner, /maestroArgs\.push\("-e", `\$\{name\}=\$\{value\}`\)/);
   assert.match(runner, /LEADERBOARD_SCALE: scale\.label/);
   assert.match(runner, /LEADERBOARD_CYCLE: cycle\.name/);
   assert.match(runner, /finally\s*\{[\s\S]*?settings[\s\S]*?originalFontScale/);
@@ -82,6 +83,7 @@ test("runner restores the original Android setting when a Maestro flow fails", a
   const directory = await mkdtemp(join(tmpdir(), "leaderboard-text-scale-"));
   const statePath = join(directory, "font-scale");
   const adbLogPath = join(directory, "adb.log");
+  const maestroArgsLogPath = join(directory, "maestro-args.log");
   const adbPath = join(directory, "adb");
   const maestroPath = join(directory, "maestro");
   const runnerPath = fromDaily007("scripts/run-android-leaderboard-large-text.mjs");
@@ -111,7 +113,11 @@ case "$*" in
     ;;
 esac
 `);
-    await writeFile(maestroPath, "#!/bin/sh\nprintf 'simulated Maestro failure\\n' >&2\nexit 1\n");
+    await writeFile(maestroPath, `#!/bin/sh
+printf '%s\\n' "$@" > "$MAESTRO_ARGS_LOG"
+printf 'simulated Maestro failure\\n' >&2
+exit 1
+`);
     await Promise.all([chmod(adbPath, 0o755), chmod(maestroPath, 0o755)]);
 
     const result = spawnSync(process.execPath, [runnerPath], {
@@ -120,6 +126,7 @@ esac
         ...process.env,
         PATH: `${directory}:${process.env.PATH ?? ""}`,
         ADB_LOG: adbLogPath,
+        MAESTRO_ARGS_LOG: maestroArgsLogPath,
         FONT_SCALE_STATE: statePath,
         EXPO_DEV_URL: "exp://127.0.0.1:8081",
       },
@@ -129,8 +136,14 @@ esac
     assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
     assert.equal(await readFile(statePath, "utf8"), "1.0");
     const adbLog = await readFile(adbLogPath, "utf8");
+    const maestroArgs = (await readFile(maestroArgsLogPath, "utf8")).split(/\r?\n/);
     assert.match(adbLog, /settings put system font_scale 1\.2/);
     assert.match(adbLog, /settings put system font_scale 1\.0/);
+    assert.ok(maestroArgs.includes("LEADERBOARD_CYCLE=weekly"));
+    assert.ok(maestroArgs.includes("LEADERBOARD_CHAMPION=Weekly Champion With A Long Display Name"));
+    assert.ok(maestroArgs.includes("LEADERBOARD_SCALE=1.20"));
+    assert.ok(maestroArgs.includes("LEADERBOARD_LAYOUT=compact"));
+    assert.ok(maestroArgs.includes("maestro/leaderboard-native-text-scale/large-text.yaml"));
     assert.match(result.stderr, /simulated Maestro failure/);
     assert.match(result.stdout, /Restored Android font scale to 1\.0/);
   } finally {

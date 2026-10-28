@@ -90,15 +90,21 @@ try {
       if (process.env.MAESTRO_TEST_OUTPUT_DIR) {
         maestroArgs.push(`--test-output-dir=${process.env.MAESTRO_TEST_OUTPUT_DIR}`);
       }
+      const maestroVariables = {
+        LEADERBOARD_CYCLE: cycle.name,
+        LEADERBOARD_CHAMPION: cycle.champion,
+        LEADERBOARD_SCALE: scale.label,
+        LEADERBOARD_LAYOUT: scale.layout,
+      };
+      for (const [name, value] of Object.entries(maestroVariables)) {
+        maestroArgs.push("-e", `${name}=${value}`);
+      }
       maestroArgs.push(flowPath);
       const result = run("maestro", maestroArgs, {
         stdio: "inherit",
         env: {
           ...process.env,
-          LEADERBOARD_CYCLE: cycle.name,
-          LEADERBOARD_CHAMPION: cycle.champion,
-          LEADERBOARD_SCALE: scale.label,
-          LEADERBOARD_LAYOUT: scale.layout,
+          ...maestroVariables,
         },
       });
       if (result.status !== 0) {
