@@ -42,7 +42,7 @@ appId: host.exp.exponent
     id: profile-change-password
 - extendedWaitUntil:
     visible:
-      id: profile-password-cancel
+      text: "Current Daily007 password"
     timeout: 10000
 - assertVisible:
     text: "CHANGE PASSWORD"
