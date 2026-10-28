@@ -1886,6 +1886,13 @@ function stopProcess(child) {
   });
 }
 
+async function closePreviewPage() {
+  setActivePreviewEventScope(undefined);
+  await cdp("Page.stopLoading").catch(() => undefined);
+  await cdp("Page.navigate", { url: "about:blank" }).catch(() => undefined);
+  await delay(150);
+}
+
 let activeVite;
 let activeViteOutput = "";
 let temporaryRoot;
@@ -2052,6 +2059,7 @@ try {
             || !isPreviewBrowserAvailable(),
         }));
       } finally {
+        await closePreviewPage();
         await stopProcess(activeVite);
         activeVite = undefined;
       }
