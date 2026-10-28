@@ -7,4 +7,4 @@ For Android UI fixtures, `scrollUntilVisible` can treat a control as visible eve
 
 **Why:** Android CI showed Maestro locating and tapping the final leaderboard control, but its press did not activate while a require-cycle warning overlay sat over the control's edge.
 
-**How to apply:** Give test-only fixture content enough trailing scroll space to move bottom controls above persistent overlays, then swipe before tapping. For long Android lists, use a small swipe to mount clipped rows before targeting their IDs. Keep production layout unchanged and avoid globally suppressing warnings.
+**How to apply:** Give test-only fixture content enough trailing scroll space to move bottom controls above persistent overlays, then swipe before tapping. For long Android lists, use a small swipe to mount clipped rows and center each row before checking its accessible label. Keep production layout unchanged and avoid globally suppressing warnings.

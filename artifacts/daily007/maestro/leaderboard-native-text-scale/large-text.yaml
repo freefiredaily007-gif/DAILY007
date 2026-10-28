@@ -45,30 +45,35 @@ appId: host.exp.exponent
     element:
       id: leaderboard-player-4
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "Rank 4, International Tournament Competitor With A Player Name That Wraps Across Multiple Lines, 17,076 coins"
 - scrollUntilVisible:
     element:
       id: leaderboard-player-5
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "Rank 5, Tournament Competitor 5, 16,345 coins"
 - scrollUntilVisible:
     element:
       id: leaderboard-player-6
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "Rank 6, Tournament Competitor 6, 15,614 coins"
 - scrollUntilVisible:
     element:
       id: leaderboard-player-7
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "Rank 7, Tournament Competitor 7, 14,883 coins"
 - scrollUntilVisible:
     element:
       id: leaderboard-player-8
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "Rank 8, Tournament Competitor 8, 14,152 coins"
 - swipe:
@@ -79,71 +84,83 @@ appId: host.exp.exponent
     element:
       id: leaderboard-player-9
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "Rank 9, Tournament Competitor 9, 13,421 coins"
 - scrollUntilVisible:
     element:
       id: leaderboard-player-10
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "Rank 10, Tournament Competitor 10, 12,690 coins"
 - scrollUntilVisible:
     element:
       id: leaderboard-player-11
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "Rank 11, Tournament Competitor 11, 11,959 coins"
 - scrollUntilVisible:
     element:
       id: leaderboard-player-12
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "Rank 12, Tournament Competitor 12, 11,228 coins"
 - scrollUntilVisible:
     element:
       id: leaderboard-player-13
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "Rank 13, Tournament Competitor 13, 10,497 coins"
 - scrollUntilVisible:
     element:
       id: leaderboard-player-14
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "Rank 14, Tournament Competitor 14, 9,766 coins"
 - scrollUntilVisible:
     element:
       id: leaderboard-player-15
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "Rank 15, Tournament Competitor 15, 9,035 coins"
 - scrollUntilVisible:
     element:
       id: leaderboard-player-16
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "Rank 16, Tournament Competitor 16, 8,304 coins"
 - scrollUntilVisible:
     element:
       id: leaderboard-player-17
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "Rank 17, Tournament Competitor 17, 7,573 coins"
 - scrollUntilVisible:
     element:
       id: leaderboard-player-18
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "Rank 18, Tournament Competitor 18, 6,842 coins"
 - scrollUntilVisible:
     element:
       id: leaderboard-player-19
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "Rank 19, Tournament Competitor 19, 6,111 coins"
 - scrollUntilVisible:
     element:
       id: leaderboard-player-20
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "Rank 20, Rank Twenty Final Player, 12,34,567 coins"
