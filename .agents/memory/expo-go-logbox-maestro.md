@@ -40,3 +40,9 @@ On a fresh Android emulator, Chrome's first-run welcome screen can intercept the
 **Why:** The Android emulator's first external-browser launch showed Chrome's welcome/sign-in screen instead of the expected local OAuth button; the app and fixture server were running normally.
 
 **How to apply:** Make the browser onboarding tap optional in the first custom-tab flow so the same test works both before and after Chrome has been initialized.
+
+Expo Go native-auth fixtures must use the runtime-generated `exp://` callback, while the standalone app keeps its registered `daily007://` callback. Passing the standalone scheme to Chrome in Expo Go can leave the custom tab open instead of returning to the app.
+
+**Why:** The native test reached its local OAuth page but did not return after tapping the callback because Expo Go did not handle the production app scheme.
+
+**How to apply:** In test-only harnesses, validate the production redirect contract, then create the callback with `AuthSession.makeRedirectUri` and no explicit scheme. Keep production callback configuration unchanged.

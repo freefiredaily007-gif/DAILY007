@@ -35,16 +35,19 @@ test("native Google-link test harness is development-only and exercises the prod
   assert.match(app, /if \(!__DEV__\) return null/);
   assert.match(profile, /label="Connect Google"[\s\S]*?devNativeTestHarness=\{googleSSONativeTestHarness\}/);
   assert.match(googleButton, /if \(__DEV__ && props\.devNativeTestHarness\)/);
+  assert.match(googleButton, /AuthSession\.makeRedirectUri\(\{ scheme: 'daily007', path: 'sso-callback' \}\)/);
   assert.match(googleButton, /runGoogleSSOAttempt/);
   assert.match(googleButton, /runGoogleSSOFlow/);
   assert.match(googleButton, /startNativeSSOFlow/);
   assert.match(nativeFixture, /if \(!__DEV__\) return <Redirect href="\/" \/>/);
-  assert.match(nativeFixture, /WebBrowser\.openAuthSessionAsync\(authPageUrl, redirectUrl\)/);
+  assert.match(nativeFixture, /WebBrowser\.openAuthSessionAsync\(authPageUrl, expoGoRedirectUrl\)/);
   assert.match(nativeFixture, /setActive: async \(\{ session \}\)/);
   assert.match(nativeFixture, /Api\.googleAuth|http\.defaults\.adapter/);
 });
 
 test("offline OAuth return preserves the original account, wallet, and password bearer until a successful retry", () => {
+  assert.match(nativeFixture, /AuthSession\.makeRedirectUri\(\{ path: 'google-link-native-test' \}\)/);
+  assert.match(nativeFixture, /new URL\(redirectUrl\)\.protocol !== 'daily007:'/);
   assert.match(nativeFixture, /id: 'native-google-link-player'/);
   assert.match(nativeFixture, /coins: 42/);
   assert.match(nativeFixture, /token: 'native-google-link-password-token'/);
