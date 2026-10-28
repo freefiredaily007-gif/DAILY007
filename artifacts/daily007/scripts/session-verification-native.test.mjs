@@ -170,7 +170,8 @@ test("Android repeated reconnect and resume cycles keep retrying the same saved 
 
 test("Android runner toggles and restores Wi-Fi and is included in the release gate", () => {
   assert.match(runner, /svc", "wifi", enabled \? "enable" : "disable"/);
-  assert.match(runner, /android\.intent\.action\.AIRPLANE_MODE/);
+  assert.match(runner, /"cmd", "connectivity", "airplane-mode", enabled \? "enable" : "disable"/);
+  assert.doesNotMatch(runner, /android\.intent\.action\.AIRPLANE_MODE/);
   assert.match(runner, /originalWifiState/);
   assert.match(runner, /originalAirplaneModeState/);
   assert.match(runner, /finally\s*\{[\s\S]*?setAirplaneModeEnabled\(originalAirplaneModeState === "1"\)[\s\S]*?setWifiEnabled\(originalWifiState === "1"\)/);

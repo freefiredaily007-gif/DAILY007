@@ -63,13 +63,8 @@ function setAirplaneModeEnabled(enabled) {
   const state = enabled ? "1" : "0";
   runChecked(
     "adb",
-    ["shell", "settings", "put", "global", "airplane_mode_on", state],
-    `Setting Android airplane mode ${enabled ? "on" : "off"}`,
-  );
-  runChecked(
-    "adb",
-    ["shell", "am", "broadcast", "-a", "android.intent.action.AIRPLANE_MODE", "--ez", "state", String(enabled)],
-    "Applying the Android airplane-mode change",
+    ["shell", "cmd", "connectivity", "airplane-mode", enabled ? "enable" : "disable"],
+    `Applying Android airplane mode ${enabled ? "on" : "off"}`,
   );
   for (let attempt = 0; attempt < 30; attempt += 1) {
     if (readAirplaneModeState() === state) return;

@@ -73,6 +73,8 @@ test("Android release verification runs the native retry scenario and restores d
   assert.match(emulatorScript, /run_maestro_suite google-link-native-retry test:android-google-link-retry/);
   assert.match(workflow, /test:google-link-native/);
   assert.match(runner, /setConnectivity\(false\)[\s\S]*?2-offline-failure\.yaml[\s\S]*?setConnectivity\(true\)[\s\S]*?3-retry-success\.yaml/);
+  assert.match(runner, /"cmd", "connectivity", "airplane-mode", enabled \? "enable" : "disable"/);
+  assert.doesNotMatch(runner, /android\.intent\.action\.AIRPLANE_MODE/);
   assert.match(runner, /restore-session\.yaml/);
   assert.match(runner, /setAirplaneModeEnabled\(originalAirplane === "1"\)/);
   assert.match(runner, /setWifiEnabled\(originalWifi === "1"\)/);

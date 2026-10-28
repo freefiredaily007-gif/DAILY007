@@ -123,3 +123,4 @@
 - [Daily007 Kill & Earn payouts](daily007-kill-earn-payout-policy.md) — verify kills against official match evidence; cap at 47 kills × 100 coins and pay once when an Admin publishes results.
 - [React Native DevTools in CI](rn-devtools-github-actions.md) — headless Metro CI must avoid the optional Fusebox Electron shell when runner sandbox setup prevents its startup.
 - [Android fixture scroll clearance](android-fixture-scroll-clearance.md) — Maestro visibility checks can pass while a persistent Expo warning toast obstructs a final control; fixture screens need enough scroll range.
+- [Android 35 airplane-mode CI](android-35-airplane-mode-ci.md) — avoid shell ACTION_AIRPLANE_MODE broadcasts; Android 35 rejects them, so use ConnectivityService's shell command.
