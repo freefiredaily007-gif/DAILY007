@@ -2,10 +2,45 @@ appId: host.exp.exponent
 ---
 - openLink:
     link: ${EXPO_DEV_URL}/--/tournament-pull-refresh-test
+- repeat:
+    times: 12
+    while:
+      notVisible:
+        id: tournament-pull-refresh-fixture
+    commands:
+      - runFlow:
+          when:
+            visible: "Pixel Launcher isn't responding"
+          commands:
+            - tapOn:
+                id: android:id/aerr_close
+      - tapOn:
+          id: android:id/aerr_wait
+          optional: true
+          waitUntilVisible: true
+      - tapOn:
+          text: Continue
+          optional: true
+          waitUntilVisible: true
+      - runFlow:
+          when:
+            visible: Open React Native dev menu
+          commands:
+            - pressKey: BACK
+      - runFlow:
+          when:
+            visible: Continue
+          commands:
+            - pressKey: BACK
+      - runFlow:
+          when:
+            visible: Reload
+          commands:
+            - pressKey: BACK
 - extendedWaitUntil:
     visible:
       id: tournament-pull-refresh-fixture
-    timeout: 15000
+    timeout: 60000
 - assertVisible: "Initial tournament 1"
 - extendedWaitUntil:
     visible: "Scheduled poll response pending"

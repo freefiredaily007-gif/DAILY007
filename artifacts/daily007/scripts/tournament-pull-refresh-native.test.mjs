@@ -42,3 +42,11 @@ test('Android flow pulls while the scheduled response is pending, resolves newer
   );
   assert.match(emulatorScript, /run_maestro_suite tournament-pull-refresh test:android-tournament-pull-refresh/);
 });
+
+test('Android flow recovers Expo Go startup overlays before waiting for the fixture', () => {
+  assert.match(flow, /repeat:\s+times: 12[\s\S]*?notVisible:[\s\S]*?tournament-pull-refresh-fixture/);
+  assert.match(flow, /id: android:id\/aerr_wait/);
+  assert.match(flow, /text: Continue/);
+  assert.match(flow, /visible: Open React Native dev menu[\s\S]*?pressKey: BACK/);
+  assert.match(flow, /timeout: 60000/);
+});
