@@ -63,7 +63,7 @@ test("offline OAuth return preserves the original account, wallet, and password 
   assert.match(startFlow, /assertVisible:[\s\S]*?id: continue-with-google/);
   assert.match(
     startFlow,
-    /scrollUntilVisible:[\s\S]*?id: profile-google-connection-title[\s\S]*?direction: UP[\s\S]*?optional: true[\s\S]*?scrollUntilVisible:[\s\S]*?id: profile-google-connection-title[\s\S]*?direction: DOWN/,
+    /id: profile-text-scale-name[\s\S]*?direction: UP[\s\S]*?id: profile-google-connection-title[\s\S]*?direction: DOWN[\s\S]*?speed: 10/,
   );
   assert.match(startFlow, /Use without an account[\s\S]*?optional: true[\s\S]*?waitUntilVisible: true/);
   assert.match(startFlow, /assertNotVisible:[\s\S]*?profile-google-connected/);

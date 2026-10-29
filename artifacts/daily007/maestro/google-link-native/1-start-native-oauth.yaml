@@ -11,15 +11,15 @@ appId: host.exp.exponent
 - tapOn: "PROFILE"
 - scrollUntilVisible:
     element:
-      id: profile-google-connection-title
+      id: profile-text-scale-name
     direction: UP
     centerElement: true
-    timeout: 12000
-    optional: true
+    timeout: 30000
 - scrollUntilVisible:
     element:
       id: profile-google-connection-title
     direction: DOWN
+    speed: 10
     centerElement: true
     timeout: 30000
 - extendedWaitUntil:
