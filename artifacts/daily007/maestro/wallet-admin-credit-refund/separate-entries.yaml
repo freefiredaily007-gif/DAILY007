@@ -19,11 +19,9 @@ appId: host.exp.Exponent
       - tapOn:
           id: android:id/aerr_wait
           optional: true
-          waitUntilVisible: true
       - tapOn:
           text: Continue
           optional: true
-          waitUntilVisible: true
       - runFlow:
           when:
             visible: Open React Native dev menu
