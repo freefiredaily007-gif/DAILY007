@@ -20,6 +20,8 @@ appId: host.exp.exponent
 - assertVisible: "Google exchanges: 2"
 - assertVisible: "First exchange: failed while Android was offline"
 - assertVisible: "Second exchange: succeeded online"
+- assertVisible: "Google session lookups: 4"
+- assertVisible: "Clerk token reads: 2"
 - assertVisible: "Daily007 account: native-google-link-player"
 - assertVisible: "Saved wallet: 42 coins"
 - assertVisible: "Password bearer: password token preserved"

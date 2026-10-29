@@ -30,6 +30,8 @@ type Diagnostics = {
   exchanges: number;
   firstExchange: string;
   secondExchange: string;
+  sessionLookups: number;
+  clerkTokenReads: number;
   sessionId: string;
   sessionCoins: string;
   sessionToken: string;
@@ -45,6 +47,8 @@ const initialDiagnostics: Diagnostics = {
   exchanges: 0,
   firstExchange: 'not started',
   secondExchange: 'not started',
+  sessionLookups: 0,
+  clerkTokenReads: 0,
   sessionId: '—',
   sessionCoins: '—',
   sessionToken: '—',
@@ -249,7 +253,10 @@ function GoogleLinkNativeTestFixture() {
   }, []);
 
   const nativeTestHarness: GoogleSSONativeTestHarness = {
-    getActiveSession: () => activeGoogleSession.current,
+    getActiveSession: () => {
+      updateDiagnostics({ sessionLookups: stateRef.current.sessionLookups + 1 });
+      return activeGoogleSession.current;
+    },
     startSSOFlow: async (_redirectUrl) => {
       const authUrl = process.env.EXPO_PUBLIC_GOOGLE_LINK_TEST_AUTH_URL;
       if (!authUrl) throw new Error('The native Google OAuth test page is not configured.');
@@ -286,7 +293,10 @@ function GoogleLinkNativeTestFixture() {
           }
           activeGoogleSession.current = {
             id: session,
-            getToken: async () => CLERK_TEST_TOKEN,
+            getToken: async () => {
+              updateDiagnostics({ clerkTokenReads: stateRef.current.clerkTokenReads + 1 });
+              return CLERK_TEST_TOKEN;
+            },
           };
         },
       };
@@ -304,6 +314,8 @@ function GoogleLinkNativeTestFixture() {
         <Text testID="google-link-native-exchange-count">Google exchanges: {diagnostics.exchanges}</Text>
         <Text testID="google-link-native-first-exchange">First exchange: {diagnostics.firstExchange}</Text>
         <Text testID="google-link-native-second-exchange">Second exchange: {diagnostics.secondExchange}</Text>
+        <Text testID="google-link-native-session-lookups">Google session lookups: {diagnostics.sessionLookups}</Text>
+        <Text testID="google-link-native-token-reads">Clerk token reads: {diagnostics.clerkTokenReads}</Text>
         <Text testID="google-link-native-session-id">Daily007 account: {diagnostics.sessionId}</Text>
         <Text testID="google-link-native-session-coins">Saved wallet: {diagnostics.sessionCoins} coins</Text>
         <Text testID="google-link-native-session-token">Password bearer: {diagnostics.sessionToken}</Text>

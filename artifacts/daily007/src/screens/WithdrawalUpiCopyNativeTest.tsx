@@ -139,7 +139,7 @@ const styles = StyleSheet.create({
   trailingScrollSpace: { height: 240 },
   pasteCheck: { gap: 6 },
   label: { color: C.text, fontWeight: '700' },
-  debugReadback: { color: C.muted, fontSize: 12 },
+  debugReadback: { color: C.sub, fontSize: 12 },
   verifyButton: {
     minHeight: 40,
     alignItems: 'center',

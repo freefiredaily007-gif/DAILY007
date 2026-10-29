@@ -1021,7 +1021,7 @@ test("the React Native button and callback route use the isolated handoff and me
   assert.match(buttonSource, /aria-busy=\{!!loading\}/);
   assert.match(buttonSource, /accessibilityRole="button"/,
     "TalkBack should expose Google sign-up as an actionable button");
-  assert.match(buttonSource, /accessibilityLabel=\{loading \? `\$\{label\}\. Connecting to Google\. Please wait\.` : label\}/);
+  assert.match(buttonSource, /accessibilityLabel=\{loading \? `\$\{translatedLabel\}\. \$\{waitingLabel\}` : translatedLabel\}/);
   assert.match(authSource, /label=\{mode === 'signup' \? 'Sign up with Google' : 'Continue with Google'\}/,
     "TalkBack should identify the retry action as Google sign-up");
   assert.match(buttonSource, /if \(!disabled && !loading\) onPress\(\);/,
@@ -1030,11 +1030,11 @@ test("the React Native button and callback route use the isolated handoff and me
   assert.match(buttonSource, /announceGoogleStatus\([\s\S]*?'Google sign-up complete\.'/);
   assert.match(buttonSource, /getErrorMessage:\s*\(e\)\s*=>/);
   assert.match(buttonSource, /return `\$\{message\} Please try again\.`/);
-  assert.match(buttonSource, /if \(Platform\.OS !== 'web'\) \{\s*AccessibilityInfo\.announceForAccessibility\(message\);/);
+  assert.match(buttonSource, /if \(Platform\.OS !== 'web'\) \{\s*AccessibilityInfo\.announceForAccessibility\(translateExactText\(message\)\);/);
   const googleErrorReporter = buttonSource.match(/function reportGoogleError\([\s\S]*?\n\}/)?.[0];
   assert.ok(googleErrorReporter, "Google errors should use the shared error reporter");
   assert.equal(
-    (googleErrorReporter.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length,
+    (googleErrorReporter.match(/AccessibilityInfo\.announceForAccessibility\(translateExactText\(message\)\)/g) ?? []).length,
     1,
     "Google errors should have one direct native announcement",
   );
@@ -1124,12 +1124,12 @@ test("Google recovery errors use one native announcement path and keep recovery 
 
   assert.match(
     googleErrorReporter,
-    /onError\?\.\(message\);[\s\S]*?if \(Platform\.OS !== 'web'\) \{\s*AccessibilityInfo\.announceForAccessibility\(message\);/,
+    /onError\?\.\(message\);[\s\S]*?if \(Platform\.OS !== 'web'\) \{\s*AccessibilityInfo\.announceForAccessibility\(translateExactText\(message\)\);/,
   );
   assert.equal(
-    (googleErrorReporter.match(/AccessibilityInfo\.announceForAccessibility\(message\)/g) ?? []).length,
+    (googleErrorReporter.match(/AccessibilityInfo\.announceForAccessibility\(translateExactText\(message\)\)/g) ?? []).length,
     1,
-    "recovery errors should share exactly one direct native announcement call",
+    "recovery errors should share exactly one localized native announcement call",
   );
   assert.match(buttonSource, /const showError = \(message: string\) => \{\s*setError\(message\);\s*reportGoogleError\(onError, message\);/);
 
