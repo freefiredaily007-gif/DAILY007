@@ -2,7 +2,9 @@ appId: host.exp.exponent
 ---
 - tapOn:
     id: continue-with-google
-    retryIfNoChange: true
+- tapOn:
+    id: continue-with-google
+    optional: true
 - extendedWaitUntil:
     visible: "Second exchange: succeeded online"
     timeout: 30000

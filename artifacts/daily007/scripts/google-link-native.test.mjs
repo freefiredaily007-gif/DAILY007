@@ -61,7 +61,10 @@ test("offline OAuth return preserves the original account, wallet, and password 
   assert.match(startFlow, /id: profile-google-connection-title[\s\S]*?centerElement: false/);
   assert.match(startFlow, /visible: "CONNECT GOOGLE"[\s\S]*?timeout: 30000/);
   assert.match(startFlow, /assertVisible:[\s\S]*?id: continue-with-google/);
-  assert.match(startFlow, /- tapOn:\n    id: continue-with-google\n    retryIfNoChange: true/);
+  assert.match(
+    startFlow,
+    /- tapOn:\n    id: continue-with-google\n- tapOn:\n    id: continue-with-google\n    optional: true/,
+  );
   assert.match(
     startFlow,
     /id: profile-text-scale-name[\s\S]*?direction: UP[\s\S]*?id: profile-google-connection-title[\s\S]*?direction: DOWN[\s\S]*?speed: 20[\s\S]*?visibilityPercentage: 50[\s\S]*?waitToSettleTimeoutMs: 500[\s\S]*?centerElement: false/,
@@ -76,7 +79,10 @@ test("offline OAuth return preserves the original account, wallet, and password 
   assert.match(offlineFlow, /Password bearer: password token preserved/);
   assert.match(retryFlow, /Second exchange: succeeded online/);
   assert.match(retryFlow, /profile-google-connected/);
-  assert.match(retryFlow, /- tapOn:\n    id: continue-with-google\n    retryIfNoChange: true/);
+  assert.match(
+    retryFlow,
+    /- tapOn:\n    id: continue-with-google\n- tapOn:\n    id: continue-with-google\n    optional: true/,
+  );
   assert.match(retryFlow, /scrollUntilVisible:[\s\S]*?text: GOOGLE CONNECTED[\s\S]*?direction: UP/);
   assert.match(retryFlow, /continue-with-google[\s\S]*?Second exchange: succeeded online[\s\S]*?Google exchanges: 2/);
   assert.match(retryFlow, /Google session lookups: 4/);
