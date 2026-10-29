@@ -83,6 +83,10 @@ test("offline OAuth return preserves the original account, wallet, and password 
     retryFlow,
     /- tapOn:\n    id: continue-with-google\n- tapOn:\n    id: continue-with-google\n    optional: true/,
   );
+  assert.match(
+    retryFlow,
+    /element:\n      id: profile-text-scale-name\n    direction: UP[\s\S]*?centerElement: true[\s\S]*?element:\n      id: continue-with-google\n    direction: DOWN[\s\S]*?waitToSettleTimeoutMs: 500[\s\S]*?centerElement: true/,
+  );
   assert.match(retryFlow, /scrollUntilVisible:[\s\S]*?text: GOOGLE CONNECTED[\s\S]*?direction: UP/);
   assert.match(retryFlow, /continue-with-google[\s\S]*?Second exchange: succeeded online[\s\S]*?Google exchanges: 2/);
   assert.match(retryFlow, /Google session lookups: 4/);

@@ -1,5 +1,26 @@
 appId: host.exp.exponent
 ---
+- scrollUntilVisible:
+    element:
+      id: profile-text-scale-name
+    direction: UP
+    visibilityPercentage: 100
+    waitToSettleTimeoutMs: 500
+    centerElement: true
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      id: continue-with-google
+    direction: DOWN
+    speed: 20
+    visibilityPercentage: 50
+    waitToSettleTimeoutMs: 500
+    centerElement: true
+    timeout: 30000
+- extendedWaitUntil:
+    visible:
+      id: continue-with-google
+    timeout: 20000
 - tapOn:
     id: continue-with-google
 - tapOn:
