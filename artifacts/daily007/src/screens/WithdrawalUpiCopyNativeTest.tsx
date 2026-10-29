@@ -54,7 +54,9 @@ export default function WithdrawalUpiCopyNativeTest() {
 }
 
 function WithdrawalUpiCopyFixture() {
-  const [clipboardValues, setClipboardValues] = useState<Record<string, string>>({});
+  const [clipboardChecks, setClipboardChecks] = useState<
+    Record<string, 'checking' | 'matched' | 'mismatch' | 'error'>
+  >({});
   const originalApi = useMemo(() => ({
     adminPayments: Api.adminPayments,
     adminWithdrawals: Api.adminWithdrawals,
@@ -83,7 +85,8 @@ function WithdrawalUpiCopyFixture() {
           contentContainerStyle={styles.pasteArea}
         >
           {FIXTURES.map((fixture, index) => {
-            const matches = clipboardValues[fixture.id] === fixture.account;
+            const status = clipboardChecks[fixture.id];
+            const matches = status === 'matched';
             return (
               <View key={fixture.id} style={styles.pasteCheck}>
                 <Text style={styles.label}>
@@ -92,8 +95,22 @@ function WithdrawalUpiCopyFixture() {
                 <Pressable
                   accessibilityRole="button"
                   onPress={async () => {
-                    const value = await readClipboardUntilMatch(fixture.account);
-                    setClipboardValues((current) => ({ ...current, [fixture.id]: value }));
+                    setClipboardChecks((current) => ({
+                      ...current,
+                      [fixture.id]: 'checking',
+                    }));
+                    try {
+                      const value = await readClipboardUntilMatch(fixture.account);
+                      setClipboardChecks((current) => ({
+                        ...current,
+                        [fixture.id]: value === fixture.account ? 'matched' : 'mismatch',
+                      }));
+                    } catch {
+                      setClipboardChecks((current) => ({
+                        ...current,
+                        [fixture.id]: 'error',
+                      }));
+                    }
                   }}
                   style={styles.verifyButton}
                   testID={`withdrawal-upi-clipboard-check-${index + 1}`}
@@ -105,16 +122,14 @@ function WithdrawalUpiCopyFixture() {
                     ? index === 0
                       ? 'First fixture clipboard value matches exactly'
                       : 'Longer fixture clipboard value matches exactly'
-                    : 'Check the copied clipboard value'}
+                    : status === 'checking'
+                      ? 'Checking clipboard contents'
+                      : status === 'mismatch'
+                        ? 'Clipboard contents did not match'
+                        : status === 'error'
+                          ? 'Could not read clipboard contents'
+                          : 'Check the copied clipboard value'}
                 </Text>
-                {!matches && clipboardValues[fixture.id] !== undefined ? (
-                  <Text
-                    style={styles.debugReadback}
-                    testID={`withdrawal-upi-clipboard-readback-${index + 1}`}
-                  >
-                    Readback: {JSON.stringify(clipboardValues[fixture.id])}
-                  </Text>
-                ) : null}
               </View>
             );
           })}
@@ -133,7 +148,7 @@ function WithdrawalUpiCopyFixture() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
   admin: { flex: 1, minHeight: 0 },
-  pasteAreaScroll: { height: 240, flexGrow: 0, backgroundColor: C.card },
+  pasteAreaScroll: { height: 320, flexGrow: 0, backgroundColor: C.card },
   pasteArea: {
     paddingHorizontal: 16,
     paddingTop: 8,
@@ -144,7 +159,6 @@ const styles = StyleSheet.create({
   trailingScrollSpace: { height: 240 },
   pasteCheck: { gap: 6 },
   label: { color: C.text, fontWeight: '700' },
-  debugReadback: { color: C.sub, fontSize: 12 },
   verifyButton: {
     minHeight: 40,
     alignItems: 'center',

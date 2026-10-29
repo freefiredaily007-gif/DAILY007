@@ -9,6 +9,12 @@ appId: host.exp.exponent
 - tapOn:
     text: "Minimize"
     optional: true
+- scrollUntilVisible:
+    element:
+      id: copy-withdrawal-upi-withdrawal-upi-copy-fixture
+    direction: DOWN
+    centerElement: true
+    timeout: 15000
 - tapOn:
     id: copy-withdrawal-upi-withdrawal-upi-copy-fixture
 - extendedWaitUntil:
@@ -24,11 +30,6 @@ appId: host.exp.exponent
     direction: DOWN
     centerElement: true
     timeout: 15000
-- tapOn:
-    id: withdrawal-upi-clipboard-check-1
-- tapOn:
-    text: "Minimize"
-    optional: true
 - tapOn:
     id: withdrawal-upi-clipboard-check-1
 - extendedWaitUntil:
@@ -64,14 +65,6 @@ appId: host.exp.exponent
     timeout: 15000
 - tapOn:
     id: withdrawal-upi-clipboard-check-2
-- tapOn:
-    text: "Minimize"
-    optional: true
-- tapOn:
-    id: withdrawal-upi-clipboard-check-2
-- tapOn:
-    text: "Minimize"
-    optional: true
 - extendedWaitUntil:
     visible:
       text: "Longer fixture clipboard value matches exactly"
