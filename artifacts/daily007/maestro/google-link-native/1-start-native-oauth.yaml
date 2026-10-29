@@ -24,6 +24,15 @@ appId: host.exp.exponent
     waitToSettleTimeoutMs: 500
     centerElement: false
     timeout: 30000
+- scrollUntilVisible:
+    element:
+      id: continue-with-google
+    direction: DOWN
+    speed: 20
+    visibilityPercentage: 50
+    waitToSettleTimeoutMs: 500
+    centerElement: true
+    timeout: 30000
 - extendedWaitUntil:
     visible: "CONNECT GOOGLE"
     timeout: 30000
