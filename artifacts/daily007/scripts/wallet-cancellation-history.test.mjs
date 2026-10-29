@@ -104,7 +104,12 @@ test('Wallet screen renders a manual credit and cancellation refund as separate 
     /repeat:\s+times:\s+12\s+while:\s+notVisible:\s+id: wallet-credit-refund-fixture-banner/,
   );
   assert.match(creditRefundMaestroFlow, /id: wallet-credit-refund-fixture-banner\n\s+timeout: 60000/);
-  assert.match(creditRefundMaestroFlow, /text: Continue\n\s+optional: true\n\s+waitUntilVisible: true/);
+  assert.match(creditRefundMaestroFlow, /id: android:id\/aerr_wait\n\s+optional: true/);
+  assert.match(creditRefundMaestroFlow, /text: Continue\n\s+optional: true/);
+  assert.doesNotMatch(
+    creditRefundMaestroFlow,
+    /(?:id: android:id\/aerr_wait|text: Continue)\n\s+optional: true\n\s+waitUntilVisible: true/,
+  );
   assert.match(creditRefundMaestroFlow, /id: wallet-transaction-manual-credit/);
   assert.match(creditRefundMaestroFlow, /Admin wallet adjustment — entry fee correction/);
   assert.match(creditRefundMaestroFlow, /text: "\+12"/);
