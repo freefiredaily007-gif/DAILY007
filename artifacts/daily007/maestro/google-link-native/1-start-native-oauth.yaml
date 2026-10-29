@@ -19,8 +19,10 @@ appId: host.exp.exponent
     element:
       id: profile-google-connection-title
     direction: DOWN
-    speed: 10
-    centerElement: true
+    speed: 20
+    visibilityPercentage: 50
+    waitToSettleTimeoutMs: 500
+    centerElement: false
     timeout: 30000
 - extendedWaitUntil:
     visible: "CONNECT GOOGLE"
