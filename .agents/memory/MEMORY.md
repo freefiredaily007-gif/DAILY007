@@ -124,3 +124,4 @@
 - [React Native DevTools in CI](rn-devtools-github-actions.md) — headless Metro CI must avoid the optional Fusebox Electron shell when runner sandbox setup prevents its startup.
 - [Android fixture scroll clearance](android-fixture-scroll-clearance.md) — Maestro visibility checks can pass while a persistent Expo warning toast obstructs a final control; fixture screens need enough scroll range.
 - [Android 35 airplane-mode CI](android-35-airplane-mode-ci.md) — avoid shell ACTION_AIRPLANE_MODE broadcasts; Android 35 rejects them, so use ConnectivityService's shell command.
+- [Android retry stage diagnostics](android-ci-retry-stage-diagnostics.md) — assert retry-stage progress and handle scroll offsets retained between native test flows.
