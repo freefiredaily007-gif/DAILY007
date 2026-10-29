@@ -57,6 +57,8 @@ test('the Android route uses two local fixtures and compares native clipboard va
   assert.match(nativeFixtureSource, /\(Api as any\)\.adminPayments = async \(\) => \[\]/);
   assert.equal((nativeFixtureSource.match(/testOnlyRedactAccount: true/g) ?? []).length, 2);
   assert.match(nativeFixtureSource, /Clipboard\.getStringAsync\(\)/);
+  assert.match(nativeFixtureSource, /readClipboardUntilMatch\(fixture\.account\)/);
+  assert.match(nativeFixtureSource, /Readback: \{JSON\.stringify\(clipboardValues\[fixture\.id\]\)\}/);
   assert.match(nativeFixtureSource, /clipboardValues\[fixture\.id\] === fixture\.account/);
   assert.match(nativeFixtureSource, /withdrawal-upi-clipboard-check-\$\{index \+ 1\}/);
   assert.match(nativeFixtureSource, /<ScrollView[\s\S]*?pasteAreaScroll[\s\S]*?trailingScrollSpace/);

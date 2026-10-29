@@ -38,6 +38,16 @@ const FIXTURES = [
   },
 ];
 
+async function readClipboardUntilMatch(expected: string) {
+  let value = '';
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    value = await Clipboard.getStringAsync();
+    if (value === expected) return value;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  return value;
+}
+
 export default function WithdrawalUpiCopyNativeTest() {
   if (!__DEV__) return <Redirect href="/" />;
   return <WithdrawalUpiCopyFixture />;
@@ -82,7 +92,7 @@ function WithdrawalUpiCopyFixture() {
                 <Pressable
                   accessibilityRole="button"
                   onPress={async () => {
-                    const value = await Clipboard.getStringAsync();
+                    const value = await readClipboardUntilMatch(fixture.account);
                     setClipboardValues((current) => ({ ...current, [fixture.id]: value }));
                   }}
                   style={styles.verifyButton}
@@ -97,6 +107,14 @@ function WithdrawalUpiCopyFixture() {
                       : 'Longer fixture clipboard value matches exactly'
                     : 'Check the copied clipboard value'}
                 </Text>
+                {!matches && clipboardValues[fixture.id] !== undefined ? (
+                  <Text
+                    style={styles.debugReadback}
+                    testID={`withdrawal-upi-clipboard-readback-${index + 1}`}
+                  >
+                    Readback: {JSON.stringify(clipboardValues[fixture.id])}
+                  </Text>
+                ) : null}
               </View>
             );
           })}
@@ -121,6 +139,7 @@ const styles = StyleSheet.create({
   trailingScrollSpace: { height: 240 },
   pasteCheck: { gap: 6 },
   label: { color: C.text, fontWeight: '700' },
+  debugReadback: { color: C.muted, fontSize: 12 },
   verifyButton: {
     minHeight: 40,
     alignItems: 'center',
