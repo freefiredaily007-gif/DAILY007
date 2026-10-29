@@ -93,11 +93,11 @@ test("offline OAuth return preserves the original account, wallet, and password 
   );
   assert.match(
     retryFlow,
-    /Second exchange: succeeded online[\s\S]*?id: profile-text-scale-name[\s\S]*?direction: UP[\s\S]*?id: profile-google-connection-title[\s\S]*?direction: DOWN[\s\S]*?centerElement: true[\s\S]*?visible: "GOOGLE CONNECTED"/,
+    /Second exchange: succeeded online[\s\S]*?text: "APP INFO"[\s\S]*?direction: DOWN[\s\S]*?id: profile-google-connection-title[\s\S]*?direction: UP[\s\S]*?visible: "GOOGLE CONNECTED"/,
   );
   assert.match(
     retryFlow,
-    /tapOn: "PROFILE"[\s\S]*?id: profile-text-scale-name[\s\S]*?direction: UP[\s\S]*?id: profile-google-connected[\s\S]*?direction: DOWN[\s\S]*?waitToSettleTimeoutMs: 500[\s\S]*?centerElement: true/,
+    /tapOn: "PROFILE"[\s\S]*?text: "APP INFO"[\s\S]*?direction: DOWN[\s\S]*?id: profile-google-connected[\s\S]*?direction: UP[\s\S]*?waitToSettleTimeoutMs: 500[\s\S]*?centerElement: true/,
   );
   assert.match(retryFlow, /continue-with-google[\s\S]*?Second exchange: succeeded online[\s\S]*?Google exchanges: 2/);
   assert.match(retryFlow, /Google session lookups: 4/);
