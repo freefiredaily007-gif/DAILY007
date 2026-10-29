@@ -36,6 +36,7 @@ appId: host.exp.exponent
 - assertVisible: "Password bearer: password token preserved"
 - tapOn:
     id: continue-with-google
+    retryIfNoChange: true
 - tapOn:
     text: "Use without an account"
     optional: true
