@@ -61,6 +61,7 @@ test('the Android route uses two local fixtures and compares native clipboard va
   assert.match(nativeFixtureSource, /Readback: \{JSON\.stringify\(clipboardValues\[fixture\.id\]\)\}/);
   assert.match(nativeFixtureSource, /clipboardValues\[fixture\.id\] === fixture\.account/);
   assert.match(nativeFixtureSource, /withdrawal-upi-clipboard-check-\$\{index \+ 1\}/);
+  assert.match(nativeFixtureSource, /testID="withdrawal-upi-clipboard-trailing-space"/);
   assert.match(nativeFixtureSource, /<ScrollView[\s\S]*?pasteAreaScroll[\s\S]*?trailingScrollSpace/);
   assert.doesNotMatch(nativeFixtureSource, /TextInput|KeyboardAvoidingView/);
   assert.match(nativeFixtureSource, /<AdminPayments \/>/);
@@ -74,6 +75,10 @@ test('the Android flow copies and verifies both native clipboard values safely',
   assert.match(maestroFlow, /copy-withdrawal-upi-withdrawal-upi-copy-fixture-long/);
   assert.match(maestroFlow, /withdrawal-upi-clipboard-check-1/);
   assert.match(maestroFlow, /withdrawal-upi-clipboard-check-2/);
+  assert.match(
+    maestroFlow,
+    /copy-withdrawal-upi-withdrawal-upi-copy-fixture-long[\s\S]*?withdrawal-upi-clipboard-trailing-space[\s\S]*?withdrawal-upi-clipboard-check-2/,
+  );
   assert.doesNotMatch(maestroFlow, /longPressOn:|text: "Paste"|hideKeyboard/);
   assert.equal(
     (maestroFlow.match(/text: "\.\*Withdrawal UPI ID copied\.\*"/g) ?? []).length,

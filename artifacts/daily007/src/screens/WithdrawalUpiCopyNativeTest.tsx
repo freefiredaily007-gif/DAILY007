@@ -118,7 +118,12 @@ function WithdrawalUpiCopyFixture() {
               </View>
             );
           })}
-          <View style={styles.trailingScrollSpace} />
+          <View
+            accessible
+            accessibilityLabel="Clipboard test scroll end"
+            testID="withdrawal-upi-clipboard-trailing-space"
+            style={styles.trailingScrollSpace}
+          />
         </ScrollView>
       </View>
     </AdminUiProvider>

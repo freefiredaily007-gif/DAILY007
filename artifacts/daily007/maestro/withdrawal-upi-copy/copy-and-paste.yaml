@@ -52,6 +52,12 @@ appId: host.exp.exponent
     optional: true
 - scrollUntilVisible:
     element:
+      id: withdrawal-upi-clipboard-trailing-space
+    direction: DOWN
+    centerElement: true
+    timeout: 15000
+- scrollUntilVisible:
+    element:
       id: withdrawal-upi-clipboard-check-2
     direction: DOWN
     centerElement: true
