@@ -1,0 +1,104 @@
+name: Temporary Android approval recovery validation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/android-approval-recovery-validation.yml
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  create-run-specific-artifact:
+    name: Create run-specific APK/AAB fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create tiny run-specific fixtures
+        run: |
+          set -euo pipefail
+          mkdir -p fixture/apk/release fixture/bundle/release
+          marker="run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          printf '%s\n' "$marker" > fixture/marker.txt
+          cp fixture/marker.txt fixture/apk/release/app-release.apk
+          cp fixture/marker.txt fixture/bundle/release/app-release.aab
+          (cd fixture && sha256sum marker.txt > marker.sha256)
+
+      - name: Upload run-specific validation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: approval-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: fixture/
+          if-no-files-found: error
+          retention-days: 1
+
+  delayed-approval-resume:
+    name: Resume after protected approval
+    needs: create-run-specific-artifact
+    runs-on: ubuntu-latest
+    environment:
+      name: daily007-approval-validation
+    steps:
+      - name: Download this run's artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: approval-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: downloaded
+
+      - name: Verify the same run's APK and AAB fixtures
+        env:
+          EXPECTED_MARKER: run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          test "$(cat downloaded/marker.txt)" = "$EXPECTED_MARKER"
+          test "$(cat downloaded/apk/release/app-release.apk)" = "$EXPECTED_MARKER"
+          test "$(cat downloaded/bundle/release/app-release.aab)" = "$EXPECTED_MARKER"
+          (cd downloaded && sha256sum -c marker.sha256)
+          {
+            echo "## Approval recovery validation"
+            echo
+            echo "Approval resumed and the same run-specific APK/AAB artifact was downloaded and verified."
+            echo "No Play credentials or upload action were used."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  missing-artifact-recovery:
+    name: Missing artifact blocks upload
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Try to download a deliberately missing artifact
+        id: missing-download
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: deliberately-missing-${{ github.run_id }}
+          path: missing
+
+      - name: Explain missing verified artifact
+        id: recovery-message
+        if: steps.missing-download.outcome == 'failure'
+        run: |
+          echo "::error title=Verified Android build unavailable::The run-specific APK/AAB artifact is missing or expired."
+          echo "The Play upload was not attempted. Start a fresh release workflow and approve that run."
+          exit 1
+
+      - name: Test-only upload sentinel
+        id: upload-sentinel
+        if: success()
+        run: |
+          echo "::error::The upload sentinel must not run when the artifact is missing."
+          exit 1
+
+      - name: Confirm recovery stopped before upload
+        if: always()
+        env:
+          RECOVERY_OUTCOME: ${{ steps.recovery-message.outcome }}
+          SENTINEL_OUTCOME: ${{ steps.upload-sentinel.outcome }}
+        run: |
+          set -euo pipefail
+          test "$RECOVERY_OUTCOME" = "failure"
+          test "$SENTINEL_OUTCOME" = "skipped"
+          echo "PASS: missing artifact produced recovery instructions and skipped the upload sentinel."
